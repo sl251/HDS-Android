@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import stat
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
@@ -28,6 +29,75 @@ def digest(path):
     with path.open('rb') as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b''): value.update(block)
     return value.hexdigest()
+
+def pack_guest(guest, archive):
+    """Write every inode as a file, while preserving symbolic links exactly."""
+    with tarfile.open(archive, 'w:gz', compresslevel=6) as bundle:
+        paths = [guest]
+        for directory, directories, files in os.walk(guest, followlinks=False):
+            directories.sort()
+            files.sort()
+            paths.extend(Path(directory) / name for name in directories + files)
+        for path in paths:
+            info = path.lstat()
+            entry = tarfile.TarInfo('.' if path == guest else './' + path.relative_to(guest).as_posix())
+            entry.mode = stat.S_IMODE(info.st_mode) & 0o777
+            entry.mtime = 0
+            if stat.S_ISLNK(info.st_mode):
+                entry.type = tarfile.SYMTYPE
+                entry.linkname = os.readlink(path)
+                bundle.addfile(entry)
+            elif stat.S_ISDIR(info.st_mode):
+                entry.type = tarfile.DIRTYPE
+                bundle.addfile(entry)
+            elif stat.S_ISREG(info.st_mode):
+                entry.size = info.st_size
+                with path.open('rb') as stream: bundle.addfile(entry, stream)
+            else: raise RuntimeError(f'Unsupported guest entry: {entry.name}')
+    return audit_guest(archive)
+
+def audit_guest(archive):
+    entries = {}
+    expanded = 0
+    symbols = 0
+    with tarfile.open(archive, 'r:gz') as source:
+        for entry in source:
+            parts = PurePosixPath(entry.name).parts
+            name = '/'.join(parts)
+            if entry.name.startswith('/') or '..' in parts or name in entries: raise RuntimeError('Unsafe/duplicate archive entry')
+            entries[name] = entry
+            if entry.islnk(): raise RuntimeError('Guest archive must not contain hardlinks')
+            if entry.issym(): symbols += 1
+            elif entry.isfile(): expanded += entry.size
+            elif not entry.isdir(): raise RuntimeError('Unsupported guest archive entry')
+    for name, entry in entries.items():
+        parent = PurePosixPath(name).parent
+        while str(parent) != '.':
+            if str(parent) in entries and not entries[str(parent)].isdir(): raise RuntimeError('Guest parent is not a directory')
+            parent = parent.parent
+        if not entry.issym(): continue
+        if not entry.linkname or entry.linkname.startswith('/'): raise RuntimeError('Absolute/empty guest symlink')
+        parts = list(PurePosixPath(name).parent.parts)
+        pending = entry.linkname.split('/')
+        expansions = 0
+        while pending:
+            part = pending.pop(0)
+            if part in ('', '.'): continue
+            if part == '..':
+                if not parts: raise RuntimeError('Guest symlink escapes root')
+                parts.pop()
+            else:
+                parts.append(part)
+                link = entries.get('/'.join(parts))
+                if link and link.issym():
+                    expansions += 1
+                    if expansions > 256: raise RuntimeError('Guest symlink cycle')
+                    if not link.linkname or link.linkname.startswith('/'): raise RuntimeError('Absolute/empty guest symlink')
+                    parts.pop()
+                    pending = link.linkname.split('/') + pending
+    for required in ['opt/node/bin/node', 'opt/hds/host.cjs']:
+        if required not in entries or not entries[required].isfile(): raise RuntimeError(f'Missing guest file: {required}')
+    return {'expandedBytes': expanded, 'entries': len(entries), 'hardlinks': 0, 'symlinks': symbols}
 
 def download(spec, filename):
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
@@ -122,9 +192,9 @@ def main():
         shutil.copyfile(copyright_file, target)
     ASSETS.mkdir(parents=True, exist_ok=True)
     archive = ASSETS / 'rootfs.bundle'  # .gz suffix is stripped by AAPT; contents remain gzip.
-    with tarfile.open(archive, 'w:gz', compresslevel=6) as bundle: bundle.add(GUEST, arcname='.')
-    expanded = sum(file.stat().st_size for file in GUEST.rglob('*') if file.is_file() and not file.is_symlink())
-    manifest = {'version': LOCK['version'], 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK}
+    audit = pack_guest(GUEST, archive)
+    expanded = audit['expandedBytes']
+    manifest = {'version': LOCK['version'], 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK}
     (ASSETS / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     (WORK / 'runtime-manifest.json').write_text(json.dumps(manifest, indent=2))
     print(f'Built runtime: {archive.stat().st_size // 1024 // 1024} MiB compressed / {expanded // 1024 // 1024} MiB expanded', flush=True)

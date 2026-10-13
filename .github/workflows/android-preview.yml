@@ -31,6 +31,20 @@ jobs:
           npm test 2>&1 | tee artifacts/host-tests.log
           npm run build
           npx cap sync android
+      - name: Test runtime archive policy
+        run: python3 tests/runtime-pack.test.py
+      - name: Verify and retain actual preview.1 rootfs regression input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.0-preview.1 --repo "$GITHUB_REPOSITORY" --pattern '*arm64.apk' --dir "$RUNNER_TEMP/legacy-hds"
+          python3 - <<'PY'
+          import hashlib, os, pathlib, zipfile
+          apk = next((pathlib.Path(os.environ['RUNNER_TEMP']) / 'legacy-hds').glob('*.apk'))
+          assert hashlib.sha256(apk.read_bytes()).hexdigest() == 'd6b70ce404c5fa38870434c64759a542994c7e7f113163978b11b2f4cce5ba46'
+          with zipfile.ZipFile(apk) as source:
+              (pathlib.Path(os.environ['RUNNER_TEMP']) / 'rootfs-preview1.bundle').write_bytes(source.read('assets/runtime/rootfs.bundle'))
+          PY
       - name: Ensure Android SDK components
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
       - name: Compile Android bridge before runtime packaging
@@ -48,20 +62,21 @@ jobs:
           printf '%s' "$HDS_SIGNING_STORE_B64" | base64 --decode > "$RUNNER_TEMP/hds-preview.keystore"
       - name: Build signed APK and run Android checks
         env:
+          HDS_LEGACY_ROOTFS: ${{ runner.temp }}/rootfs-preview1.bundle
           HDS_SIGNING_STORE: ${{ runner.temp }}/hds-preview.keystore
           HDS_SIGNING_PASSWORD: ${{ secrets.HDS_SIGNING_PASSWORD }}
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease
+          ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease :app:assembleDebugAndroidTest
       - name: Package verification and release materials
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.1-arm64.apk
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.2-arm64.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs artifacts/*.apk > artifacts/apk-signature.txt
           cp runtime/generated/runtime-manifest.json artifacts/
           cp docs/TEST-ON-PHONE.md artifacts/
           cp fixtures/cards/*.json artifacts/
-          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.1-source.tar.gz
+          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.2-source.tar.gz
           cd artifacts
           sha256sum *.apk *.tar.gz > SHA256SUMS.txt
       - name: Upload preview and build evidence

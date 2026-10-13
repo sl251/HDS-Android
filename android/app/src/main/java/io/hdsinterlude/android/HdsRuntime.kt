@@ -6,8 +6,6 @@ import android.os.Build
 import android.os.StatFs
 import android.system.Os
 import android.system.OsConstants
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -39,95 +37,174 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var port = 0
     @Volatile private var cancelRequested = false
 
-    private fun installed() = marker.isFile && File(rootfs, "opt/node/bin/node").isFile && File(rootfs, "opt/hds/host.cjs").isFile
+    private val transaction = RuntimeTransaction(environment)
+    private val diagnosticFile = File(environment, "install-diagnostic.json")
+    private val bundled by lazy { context.assets.open("runtime/manifest.json").bufferedReader().use { JSONObject(it.readText()) } }
+    @Volatile private var stage = "idle"
+    @Volatile private var operation = "idle"
+    @Volatile private var attemptId = ""
+    @Volatile private var bytesWritten = 0L
+    @Volatile private var lastDiagnostic = JSONObject()
+    @Volatile private var recoveryError = ""
+    @Volatile private var cleanupPending = false
+    @Volatile private var layoutDiagnostic = JSONObject()
+    fun recordInsets(value: JSONObject) { layoutDiagnostic = value }
+    init {
+        try {
+            transaction.recover()
+            if (diagnosticFile.isFile) lastDiagnostic = JSONObject(android.util.AtomicFile(diagnosticFile).openRead().bufferedReader().use { it.readText() })
+            if (lastDiagnostic.optString("result") == "in-progress") lastDiagnostic.put("result", "interrupted").put("recovery", "generation-restored")
+            cleanupPending = transaction.previous.exists()
+        } catch (failure: Exception) { recoveryError = failure.javaClass.simpleName }
+    }
+    private fun installedManifest(): JSONObject? = try {
+        val current = File(rootfs, ".hds-installed.json").takeIf { it.isFile } ?: marker
+        if (!current.isFile) null else JSONObject(android.util.AtomicFile(current).openRead().bufferedReader().use { it.readText() })
+    } catch (_: Exception) { null }
+    private fun environmentState(): String {
+        if (recoveryError.isNotEmpty()) return "repair-required"
+        val current = installedManifest() ?: return if (rootfs.exists()) "repair-required" else "missing"
+        if (!File(rootfs, "opt/node/bin/node").isFile || !File(rootfs, "opt/hds/host.cjs").isFile) return "repair-required"
+        return if (listOf("version", "abi", "sha256", "prootSha256", "loaderSha256").all { current.optString(it).isNotEmpty() && current.optString(it) == bundled.optString(it) }) "ready" else "update-required"
+    }
+    private fun installed() = environmentState() == "ready"
+    private fun writeAtomic(file: File, value: JSONObject) {
+        val atomic = android.util.AtomicFile(file)
+        val stream = atomic.startWrite()
+        try { stream.write(value.toString().toByteArray(Charsets.UTF_8)); atomic.finishWrite(stream) }
+        catch (failure: Throwable) { atomic.failWrite(stream); throw failure }
+    }
+    private fun manifestSummary(value: JSONObject?): JSONObject {
+        val summary = JSONObject()
+        if (value != null) for (key in listOf("version", "abi", "sha256", "compressedBytes", "expandedBytes", "prootSha256", "loaderSha256")) summary.put(key, value.opt(key))
+        return summary
+    }
+    private fun device(): JSONObject {
+        val webview = android.webkit.WebView.getCurrentWebViewPackage()
+        return JSONObject().put("model", "${Build.MANUFACTURER} ${Build.MODEL}").put("android", Build.VERSION.RELEASE)
+            .put("sdk", Build.VERSION.SDK_INT).put("build", Build.DISPLAY).put("abi", Build.SUPPORTED_ABIS.joinToString(","))
+            .put("webview", webview?.let { "${it.packageName} ${it.versionName}" } ?: "unavailable")
+            .put("pageSize", Os.sysconf(OsConstants._SC_PAGESIZE)).put("availableBytes", StatFs(store.base.absolutePath).availableBytes)
+    }
+    @Suppress("DEPRECATION")
+    private fun appVersion() = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
     @Synchronized private fun log(line: String) {
         var safe = line.replace(Regex("\\u001B\\[[;\\d]*m"), "")
         if (secret.isNotEmpty()) safe = safe.replace(secret, "[REDACTED]")
         if (token.isNotEmpty()) safe = safe.replace(token, "[REDACTED]")
         output.addLast(safe.take(1500)); while (output.size > 200) output.removeFirst()
     }
-    @Synchronized fun status(): JSONObject {
-        val device = JSONObject().put("model", "${Build.MANUFACTURER} ${Build.MODEL}").put("android", Build.VERSION.RELEASE)
-            .put("sdk", Build.VERSION.SDK_INT).put("abi", Build.SUPPORTED_ABIS.joinToString(","))
-            .put("pageSize", Os.sysconf(OsConstants._SC_PAGESIZE)).put("availableBytes", StatFs(store.base.absolutePath).availableBytes)
-        return JSONObject().put("state", state).put("installed", installed()).put("progress", progress).put("error", error)
-            .put("logs", JSONArray(output.toList())).put("device", device).put("version", "0.1.0-preview.1").put("hds", "1.0.1-rc51")
+    @Synchronized fun status(): JSONObject = JSONObject().put("state", state).put("installed", installed())
+        .put("environmentState", environmentState()).put("running", process?.isAlive == true).put("cleanupPending", cleanupPending)
+        .put("progress", progress).put("error", error).put("logs", JSONArray(output.toList())).put("device", device())
+        .put("version", appVersion()).put("hds", "1.0.1-rc51").put("diagnostic", lastDiagnostic)
+    fun diagnosticReport(probe: Boolean = false): JSONObject {
+        val report = JSONObject().put("schema", 1).put("device", device()).put("appVersion", appVersion())
+            .put("environmentState", environmentState()).put("bundled", manifestSummary(bundled))
+            .put("installed", manifestSummary(installedManifest())).put("installation", lastDiagnostic)
+            .put("cleanupPending", cleanupPending).put("recoveryError", recoveryError).put("avc", "unavailable").put("layout", layoutDiagnostic)
+        if (probe) report.put("fileCapabilities", probeFiles())
+        // Deliberately excludes runtime output, settings, cards, credentials and chat.
+        return report
     }
+    private fun errno(failure: Throwable): android.system.ErrnoException? {
+        var current: Throwable? = failure
+        repeat(16) { if (current is android.system.ErrnoException) return current as android.system.ErrnoException; current = current?.cause }
+        return null
+    }
+    private fun probeFiles(): JSONObject {
+        val directory = File(environment, "probe-${java.util.UUID.randomUUID()}")
+        val result = JSONObject()
+        fun record(name: String, action: () -> Unit) {
+            try { action(); result.put(name, JSONObject().put("success", true)) }
+            catch (failure: Exception) { val err = errno(failure); result.put(name, JSONObject().put("success", false).put("exception", failure.javaClass.simpleName).put("errno", err?.errno).put("errnoName", err?.let { android.system.OsConstants.errnoName(it.errno) })) }
+        }
+        try {
+            require(directory.mkdir())
+            val file = File(directory, "file")
+            record("regular") { file.writeText("HDS probe"); require(file.readText() == "HDS probe") }
+            record("hardlink") { Os.link(file.absolutePath, File(directory, "hard").absolutePath); require(File(directory, "hard").readText() == "HDS probe") }
+            record("symlink") { Os.symlink("file", File(directory, "symbolic").absolutePath); require(File(directory, "symbolic").readText() == "HDS probe") }
+        } finally {
+            record("cleanup") {
+                for (name in listOf("symbolic", "hard", "file")) java.nio.file.Files.deleteIfExists(File(directory, name).toPath())
+                java.nio.file.Files.deleteIfExists(directory.toPath())
+            }
+        }
+        return result
+    }
+    private fun checkpoint(nextStage: String, nextOperation: String = nextStage) {
+        stage = nextStage; operation = nextOperation
+        lastDiagnostic = JSONObject().put("attemptId", attemptId).put("stage", stage).put("operation", operation)
+            .put("bytesWritten", bytesWritten).put("result", "in-progress").put("runtime", manifestSummary(bundled))
+        writeAtomic(diagnosticFile, lastDiagnostic)
+    }
+    private fun checkCancellation() { if (cancelRequested) throw java.util.concurrent.CancellationException("安装已取消") }
+    @Synchronized fun cancelInstall() { require(state == "installing") { "没有正在进行的安装" }; cancelRequested = true }
     @Synchronized fun installAsync() {
-        require(state !in listOf("installing", "starting", "healthy", "stopping")) { "运行任务忙，请等待或停止后再安装" }
+        require(state !in listOf("installing", "starting", "healthy", "stopping") && process?.isAlive != true) { "运行任务忙，请等待或停止后再安装" }
+        cancelRequested = false; attemptId = java.util.UUID.randomUUID().toString(); bytesWritten = 0
         state = "installing"; error = ""; progress = "验证 APK 内置环境"
-        executor.execute { try { installNow(); state = "stopped"; progress = "本机环境已准备，可以启动 HDS" } catch (failure: Throwable) { fail("环境安装失败", failure) } }
-    }
-    private fun ownedDelete(file: File) {
-        require(file.canonicalPath.startsWith(environment.canonicalPath + File.separator)) { "拒绝清理运行目录之外的路径" }
-        require(file.name in listOf("staging", "previous")) { "只允许清理托管临时目录" }
-        if (file.exists()) require(file.deleteRecursively()) { "无法清理旧安装临时文件" }
+        executor.execute {
+            try { installNow(); state = "stopped"; progress = "环境文件已准备，可以启动 HDS 验证健康状态" }
+            catch (failure: Throwable) {
+                val entryFailure = failure as? RootfsExtractor.Failure
+                val err = errno(failure)
+                val cancelled = generateSequence(failure) { it.cause }.any { it is java.util.concurrent.CancellationException }
+                lastDiagnostic = JSONObject().put("attemptId", attemptId).put("stage", stage).put("operation", entryFailure?.operation ?: operation)
+                    .put("entry", entryFailure?.entry ?: "").put("target", entryFailure?.target ?: "").put("bytesWritten", entryFailure?.bytesWritten ?: bytesWritten)
+                    .put("errno", err?.errno).put("errnoName", err?.let { android.system.OsConstants.errnoName(it.errno) })
+                    .put("exception", (err ?: failure).javaClass.simpleName).put("result", if (cancelled) "cancelled" else "failed").put("runtime", manifestSummary(bundled))
+                try { writeAtomic(diagnosticFile, lastDiagnostic) } catch (_: Exception) { log("安装诊断无法保存") }
+                if (cancelled) { state = "stopped"; error = ""; progress = "安装已取消，可重新准备；原环境与剧情保留" }
+                else fail("环境安装失败（$stage / ${entryFailure?.entry ?: operation}）", failure)
+            }
+        }
     }
     private fun installNow() {
+        checkpoint("verify")
         require(Build.SUPPORTED_ABIS.contains("arm64-v8a")) { "当前预览版只支持 ARM64 手机" }
-        val manifest = context.assets.open("runtime/manifest.json").bufferedReader().use { JSONObject(it.readText()) }
-        val needed = manifest.getLong("expandedBytes") * 2 + 128L * 1024 * 1024
+        val manifest = bundled
+        val expanded = manifest.getLong("expandedBytes")
+        require(expanded in 1..(4L * 1024 * 1024 * 1024)) { "运行环境清单大小无效" }
+        checkpoint("staging")
+        transaction.prepare(); recoveryError = ""
+        checkpoint("verify")
+        val needed = expanded + 128L * 1024 * 1024
         require(StatFs(store.base.absolutePath).availableBytes >= needed) { "空间不足，安装需要至少 ${needed / 1024 / 1024} MiB 可用空间" }
         val hash = MessageDigest.getInstance("SHA-256")
         var compressed = 0L
         context.assets.open("runtime/rootfs.bundle").use { input ->
             val buffer = ByteArray(131072)
-            while (true) { val size = input.read(buffer); if (size < 0) break; compressed += size; hash.update(buffer, 0, size) }
+            while (true) { checkCancellation(); val size = input.read(buffer); if (size < 0) break; compressed += size; hash.update(buffer, 0, size) }
         }
         require(hash.digest().joinToString("") { "%02x".format(it) } == manifest.getString("sha256") && compressed == manifest.getLong("compressedBytes")) { "运行环境校验失败，请重新安装 APK" }
         for ((name, field) in listOf("libhds_proot.so" to "prootSha256", "libhds_loader.so" to "loaderSha256")) {
             val binary = File(context.applicationInfo.nativeLibraryDir, name)
             require(binary.isFile) { "APK 缺少 ARM64 运行器 $name" }
             val digest = MessageDigest.getInstance("SHA-256")
-            binary.inputStream().use { stream -> val buffer = ByteArray(65536); while (true) { val size = stream.read(buffer); if (size < 0) break; digest.update(buffer, 0, size) } }
+            binary.inputStream().use { stream -> val buffer = ByteArray(65536); while (true) { checkCancellation(); val size = stream.read(buffer); if (size < 0) break; digest.update(buffer, 0, size) } }
             require(digest.digest().joinToString("") { "%02x".format(it) } == manifest.getString(field)) { "运行器哈希不匹配" }
         }
-        val staging = File(environment, "staging")
-        ownedDelete(staging); require(staging.mkdirs()) { "无法创建安装目录" }
         progress = "解包 Ubuntu / Node / HDS，请保持应用打开"
-        val root = staging.canonicalPath + File.separator
-        val links = mutableListOf<Triple<File, String, Boolean>>()
-        var total = 0L; var count = 0
-        context.assets.open("runtime/rootfs.bundle").use { asset -> GzipCompressorInputStream(asset).use { gzip -> TarArchiveInputStream(gzip).use { tar ->
-            while (true) {
-                val entry = tar.nextTarEntry ?: break
-                val name = entry.name.removePrefix("./").trimEnd('/')
-                if (name.isEmpty() || name == ".") continue
-                require(!name.startsWith('/') && !name.split('/').contains("..") && !name.contains('\u0000')) { "解包条目路径越界" }
-                require(++count <= 80000) { "解包条目过多" }
-                val destination = File(staging, name)
-                require(destination.canonicalPath.startsWith(root)) { "解包路径越界" }
-                when {
-                    entry.isDirectory -> { require(destination.isDirectory || destination.mkdirs()) { "无法创建目录" }; Os.chmod(destination.absolutePath, entry.mode and 511) }
-                    entry.isSymbolicLink || entry.isLink -> links.add(Triple(destination, entry.linkName, entry.isLink))
-                    entry.isFile -> {
-                        require(entry.size in 0..512L * 1024 * 1024) { "解包文件超限" }
-                        total += entry.size; require(total <= manifest.getLong("expandedBytes") + 1024 * 1024) { "解包总大小超限" }
-                        destination.parentFile?.mkdirs()
-                        destination.outputStream().use { file -> tar.copyTo(file, 131072) }
-                        Os.chmod(destination.absolutePath, entry.mode and 511)
-                        if (count % 700 == 0) progress = "已解包 ${total / 1024 / 1024} MiB · $count 个文件"
-                    }
-                    else -> throw IllegalArgumentException("运行包含不支持的特殊条目")
-                }
-            }
-        } } }
-        for ((destination, target, hard) in links) {
-            require(!target.startsWith('/') && !target.contains('\u0000')) { "运行包链接目标无效" }
-            val resolved = if (hard) File(staging, target) else File(destination.parentFile, target)
-            require(resolved.canonicalPath.startsWith(root)) { "运行包链接目标越界" }
-            destination.parentFile?.mkdirs()
-            if (hard) Os.link(resolved.absolutePath, destination.absolutePath) else Os.symlink(target, destination.absolutePath)
-        }
-        require(File(staging, "opt/node/bin/node").isFile && File(staging, "opt/hds/host.cjs").isFile) { "解包缺少 Node 或 HDS" }
-        val previous = File(environment, "previous")
-        ownedDelete(previous)
-        if (rootfs.exists()) require(rootfs.renameTo(previous)) { "无法保留旧运行环境" }
-        if (!staging.renameTo(rootfs)) { if (previous.exists()) previous.renameTo(rootfs); throw IllegalStateException("无法切换运行环境") }
-        val atomic = android.util.AtomicFile(marker)
-        val stream = atomic.startWrite()
-        try { stream.write(manifest.toString().toByteArray()); atomic.finishWrite(stream) } catch (failure: Throwable) { atomic.failWrite(stream); throw failure }
-        ownedDelete(previous)
+        checkpoint("extract")
+        bytesWritten = RootfsExtractor(
+            { context.assets.open("runtime/rootfs.bundle") },
+            { file, mode -> Os.chmod(file.absolutePath, mode) },
+            { target, file -> Os.symlink(target, file.absolutePath) },
+            { cancelRequested },
+            { bytes, count -> bytesWritten = bytes; progress = "已解包 ${bytes / 1024 / 1024} MiB · $count 个条目" }
+        ).extract(transaction.staging, expanded)
+        checkpoint("validate")
+        require(File(transaction.staging, "opt/node/bin/node").isFile && File(transaction.staging, "opt/hds/host.cjs").isFile) { "解包缺少 Node 或 HDS" }
+        writeAtomic(File(transaction.staging, ".hds-installed.json"), manifest)
+        checkCancellation()
+        checkpoint("activate")
+        cleanupPending = !transaction.activate()
+        // After activation, diagnostics are best effort; never report a committed install as failed.
+        lastDiagnostic = JSONObject().put("attemptId", attemptId).put("stage", "commit").put("operation", "activate")
+            .put("result", "success").put("bytesWritten", bytesWritten).put("cleanupPending", cleanupPending).put("runtime", manifestSummary(manifest))
+        try { writeAtomic(diagnosticFile, lastDiagnostic) } catch (_: Exception) { log("环境已提交；诊断保存失败") }
         log("环境验证与安装完成；数据目录与环境目录独立")
     }
     @Synchronized fun startAsync() {
@@ -222,7 +299,7 @@ class HdsRuntime private constructor(private val context: Context) {
         while (true) { val count = stream.read(buffer); if (count < 0) break; require(result.size() + count <= limit) { "响应超过大小上限" }; result.write(buffer, 0, count) }
         result.toByteArray()
     }
-    private fun fail(stage: String, failure: Throwable) { state = "failed"; error = "$stage：${failure.message ?: failure.javaClass.simpleName}"; progress = "可重试；角色与剧情目录保持独立"; log(error) }
+    private fun fail(stage: String, failure: Throwable) { state = "failed"; error = "$stage：${failure.message ?: failure.javaClass.simpleName}".replace(store.base.absolutePath, "[app-data]"); progress = "可重试；角色与剧情目录保持独立"; log(error) }
     companion object {
         @Volatile private var instance: HdsRuntime? = null
         @JvmStatic fun get(context: Context): HdsRuntime = instance ?: synchronized(this) { instance ?: HdsRuntime(context.applicationContext).also { instance = it } }
