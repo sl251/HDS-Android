@@ -52,15 +52,14 @@ class HdsStore(private val context: Context) {
     }
     @Synchronized fun saveSettings(input: JSONObject) {
         val source = privateSettings()
-        val endpoint = input.getString("endpoint").trim()
-        val uri = java.net.URI(endpoint)
-        require(uri.scheme in listOf("https", "http") && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null) { "API 地址必须是完整 HTTP(S) 请求地址，不含凭据或片段" }
+        val endpoint = ModelEndpoint.resolve(input.getString("endpoint"))
         require(input.getString("model").trim().isNotEmpty()) { "模型名称不能为空" }
         for (field in listOf("endpoint", "model", "userName", "userProfile")) {
             val text = input.optString(field)
             require(text.length <= if (field == "userProfile") 12000 else 2048) { "设置字段过长" }
             source.put(field, text.trim())
         }
+        source.put("endpoint", endpoint)
         source.put("autoAdvance", input.optBoolean("autoAdvance", false))
         if (input.optBoolean("clearKey", false)) { source.remove("encryptedKey"); source.remove("keyIv") }
         val plain = input.optString("apiKey")

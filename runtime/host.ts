@@ -127,6 +127,9 @@ if (process.env.HDS_MOBILE_MAIN === '1') {
   const lines = createInterface({ input: process.stdin, terminal: false })
   lines.once('line', async line => {
     try {
+      // Verify the actual syscall; never hide a broken runtime by overriding cwd().
+      if (process.cwd() !== '/opt/hds') throw new Error('Unexpected guest working directory')
+      console.log('HDS runtime check: Node cwd OK; initializing Koishi / SQLite')
       const host = await startHost(JSON.parse(line))
       console.log('HDS_MOBILE_READY')
       const shutdown = async () => { await host.stop(); process.exit(0) }

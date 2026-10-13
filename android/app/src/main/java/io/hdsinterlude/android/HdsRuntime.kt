@@ -36,6 +36,7 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var secret = ""
     @Volatile private var port = 0
     @Volatile private var cancelRequested = false
+    @Volatile private var startupFailure = ""
 
     private val transaction = RuntimeTransaction(environment)
     private val diagnosticFile = File(environment, "install-diagnostic.json")
@@ -92,6 +93,7 @@ class HdsRuntime private constructor(private val context: Context) {
         var safe = line.replace(Regex("\\u001B\\[[;\\d]*m"), "")
         if (secret.isNotEmpty()) safe = safe.replace(secret, "[REDACTED]")
         if (token.isNotEmpty()) safe = safe.replace(token, "[REDACTED]")
+        if (safe.startsWith("HDS startup failed:")) startupFailure = safe.take(1500)
         output.addLast(safe.take(1500)); while (output.size > 200) output.removeFirst()
     }
     @Synchronized fun status(): JSONObject = JSONObject().put("state", state).put("installed", installed())
@@ -205,7 +207,7 @@ class HdsRuntime private constructor(private val context: Context) {
         lastDiagnostic = JSONObject().put("attemptId", attemptId).put("stage", "commit").put("operation", "activate")
             .put("result", "success").put("bytesWritten", bytesWritten).put("cleanupPending", cleanupPending).put("runtime", manifestSummary(manifest))
         try { writeAtomic(diagnosticFile, lastDiagnostic) } catch (_: Exception) { log("环境已提交；诊断保存失败") }
-        log("环境验证与安装完成；数据目录与环境目录独立")
+        log("环境文件校验与解包完成；Node / HDS 运行状态将在启动时验证")
     }
     @Synchronized fun startAsync() {
         require(state !in listOf("installing", "starting", "healthy", "stopping")) { "HDS 已运行或正在操作" }
@@ -213,7 +215,7 @@ class HdsRuntime private constructor(private val context: Context) {
         store.selectedCard()
         val prefs = store.publicSettings()
         require(prefs.optString("endpoint").isNotBlank() && prefs.optString("model").isNotBlank()) { "请先保存模型设置" }
-        cancelRequested = false; state = "starting"; error = ""; progress = "启动手机内的 HDS 核心"
+        cancelRequested = false; startupFailure = ""; state = "starting"; error = ""; progress = "启动手机内的 HDS 核心"
         executor.execute { try { startNow() } catch (failure: Throwable) { process?.destroy(); process = null; fail("HDS 启动失败", failure); context.stopService(android.content.Intent(context, HdsService::class.java)) } }
     }
     private fun startNow() {
@@ -229,13 +231,15 @@ class HdsRuntime private constructor(private val context: Context) {
         secret = store.apiKey()
         val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath, "-b", "/dev", "-b", "/proc", "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
         for (path in listOf("/system", "/apex", "/linkerconfig")) if (File(path).exists()) args.addAll(listOf("-b", path))
-        args.addAll(listOf("-w", "/opt/hds", "/usr/bin/env", "-i", "HOME=/root", "PATH=/opt/node/bin:/usr/bin:/bin", "LANG=C.UTF-8", "TMPDIR=/tmp", "HDS_MOBILE_MAIN=1", "/opt/node/bin/node", "/opt/hds/host.cjs"))
+        args.addAll(ProotLaunch.guestArgs())
         val builder = ProcessBuilder(args).directory(rootfs).redirectErrorStream(true)
-        builder.environment().apply { put("PROOT_LOADER", "$nativeDir/libhds_loader.so"); put("PROOT_TMP_DIR", temporary.absolutePath); put("TMPDIR", temporary.absolutePath); put("PROOT_NO_SECCOMP", "1"); put("LD_LIBRARY_PATH", "") }
+        ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath)
+        log("启动 PRoot：seccomp 默认开启，兼容内核 4.14.0，工作目录 /opt/hds")
         val child = builder.start(); process = child
-        val configuration = store.publicSettings().put("card", store.selectedCard()).put("apiKey", secret).put("token", token).put("port", port).put("dataDir", "/hds-data")
+        val prefs = store.publicSettings()
+        val configuration = prefs.put("endpoint", ModelEndpoint.resolve(prefs.getString("endpoint"))).put("card", store.selectedCard()).put("apiKey", secret).put("token", token).put("port", port).put("dataDir", "/hds-data")
+        val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach { log(it) } } }, "hds-output").apply { start() }
         child.outputStream.write((configuration.toString() + "\n").toByteArray(Charsets.UTF_8)); child.outputStream.flush()
-        Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach { log(it) } } }, "hds-output").start()
         val deadline = System.currentTimeMillis() + 90000
         var lastFailure = ""
         while (System.currentTimeMillis() < deadline && child.isAlive && !cancelRequested) {
@@ -243,7 +247,15 @@ class HdsRuntime private constructor(private val context: Context) {
             catch (failure: Throwable) { lastFailure = failure.javaClass.simpleName }
             Thread.sleep(500)
         }
-        if (state != "healthy") { child.destroy(); throw IllegalStateException("本机核心未在 90 秒内就绪（$lastFailure）；请查看下方日志") }
+        if (state != "healthy") {
+            if (cancelRequested) throw IllegalStateException("启动已取消")
+            if (!child.isAlive) {
+                outputReader.join(1000)
+                throw IllegalStateException("本机核心提前退出（退出码 ${child.exitValue()}）${if (startupFailure.isNotEmpty()) "：$startupFailure" else "；请查看下方日志"}")
+            }
+            child.destroy()
+            throw IllegalStateException("本机核心未在 90 秒内就绪（$lastFailure）；请查看下方日志")
+        }
         Thread({
             val code = child.waitFor()
             if (process === child && state != "stopping") { process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); context.stopService(android.content.Intent(context, HdsService::class.java)) }
@@ -279,7 +291,8 @@ class HdsRuntime private constructor(private val context: Context) {
     fun testModel(): JSONObject {
         val prefs = store.publicSettings()
         require(prefs.optString("endpoint").isNotEmpty() && prefs.optString("model").isNotEmpty()) { "请先保存模型设置" }
-        val connection = URL(prefs.getString("endpoint")).openConnection() as HttpURLConnection
+        val endpoint = ModelEndpoint.resolve(prefs.getString("endpoint"))
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
         try {
             connection.instanceFollowRedirects = false; connection.requestMethod = "POST"; connection.connectTimeout = 15000; connection.readTimeout = 60000; connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
@@ -287,7 +300,15 @@ class HdsRuntime private constructor(private val context: Context) {
             val body = JSONObject().put("model", prefs.getString("model")).put("max_tokens", 32).put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply with OK.")))
             connection.outputStream.use { it.write(body.toString().toByteArray()) }
             val status = connection.responseCode
-            require(status in 200..299) { "模型连接失败：HTTP $status。请检查完整请求地址、模型与密钥。" }
+            require(status in 200..299) {
+                val hint = when (status) {
+                    404 -> "接口路径或模型路由不存在；404 不代表密钥无效。请核对服务商的 Chat Completions 接口。"
+                    401, 403 -> "服务商拒绝认证或访问，请检查密钥权限。"
+                    429 -> "服务商限流或额度不足，请稍后重试。"
+                    else -> "服务商未接受请求，请核对模型与接口协议。"
+                }
+                "模型连接失败：HTTP $status。请求地址：${ModelEndpoint.display(endpoint)}。$hint"
+            }
             val stream = connection.inputStream
             val bytes = readLimited(stream, 1024 * 1024)
             require(bytes.size <= 1024 * 1024 && (JSONObject(String(bytes, Charsets.UTF_8)).optJSONArray("choices")?.length() ?: 0) > 0) { "模型响应没有有效 choices" }
