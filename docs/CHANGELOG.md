@@ -1,3 +1,12 @@
+# 0.1.0-preview.4 修复候选
+
+- 修复真机启动失败：preview.3 在 PRoot 内启动 Node 时报 `ENOSYS: function not implemented, uv_cwd`。对照同源 proot 二进制的 Operit2 启动配置，宿主侧 cwd 被设在 rootfs 内是根因——Node 在 guest 内 getcwd() 无法解析，返回 ENOSYS。
+- 启动侧将 proot 宿主进程 cwd 移出 rootfs（应用 filesDir），guest 内 `-w /opt/hds` 语义不变。
+- 去掉 `/usr/bin/env -i` 中转层，直接 exec `/opt/node/bin/node`；环境变量（HOME/PATH/LANG/OPENSSL_CONF 等）改由 ProcessBuilder 宿主环境传递，proot 转发给 guest。
+- 补绑 `/dev/pts` 与 `/sys`（Operit2 同款配置）；去掉 `/system`、`/apex`、`/linkerconfig` 绑定，消除 `can't sanitize binding` 警告。
+- 不再向 guest 传宿主 TMPDIR（Android 路径在 guest 内不存在），node 回退用 rootfs 自带的 /tmp；PROOT_TMP_DIR 继续服务 proot 自身。
+- 版本代码升为 4，保持包名和签名证书。
+
 # 0.1.0-preview.3 修复候选
 
 - 修复真机启动失败：preview.2 在 PRoot 内启动 Node 时，OpenSSL 因 ubuntu-base 根环境缺少 /etc/ssl/openssl.cnf 且 PRoot 无法模拟该文件的打开，报 `BIO_new_file:Function not implemented`，核心进程随即崩溃并触发 90 秒健康检查超时。

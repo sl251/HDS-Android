@@ -227,13 +227,27 @@ class HdsRuntime private constructor(private val context: Context) {
         port = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
         secret = store.apiKey()
-        val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath, "-b", "/dev", "-b", "/proc", "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
-        for (path in listOf("/system", "/apex", "/linkerconfig")) if (File(path).exists()) args.addAll(listOf("-b", path))
-        args.addAll(listOf("-w", "/opt/hds", "/usr/bin/env", "-i", "HOME=/root", "PATH=/opt/node/bin:/usr/bin:/bin", "LANG=C.UTF-8", "TMPDIR=/tmp",
-            // Ubuntu base rootfs ships no /etc/ssl/openssl.cnf and PRoot cannot emulate the open, so pin a real in-guest file and module dir.
-            "OPENSSL_CONF=/etc/ssl/openssl.cnf", "OPENSSL_MODULES=/usr/lib/aarch64-linux-gnu/ossl-modules", "HDS_MOBILE_MAIN=1", "/opt/node/bin/node", "/opt/hds/host.cjs"))
-        val builder = ProcessBuilder(args).directory(rootfs).redirectErrorStream(true)
-        builder.environment().apply { put("PROOT_LOADER", "$nativeDir/libhds_loader.so"); put("PROOT_TMP_DIR", temporary.absolutePath); put("TMPDIR", temporary.absolutePath); put("PROOT_NO_SECCOMP", "1"); put("LD_LIBRARY_PATH", "") }
+        // PRoot needs a *host-side* working dir outside the rootfs (Operit2 sets cwd to its runtime
+        // dir, never into the rootfs). Setting cwd=rootfs makes Node's getcwd() hit ENOSYS ("uv_cwd").
+        // Bind /dev/pts (Operit2 does; PTY ops fail otherwise) and drop /system,/apex,/linkerconfig
+        // bindings — they only produce proot sanitize warnings and are not needed by the guest.
+        val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,
+            "-b", "/dev", "-b", "/dev/pts", "-b", "/proc", "-b", "/sys",
+            "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
+        // Exec node directly instead of going through `env -i`; PRoot's -0 already isolates the
+        // guest environment and `env` adds an exec layer that can surface as uv_cwd/getcwd errors.
+        // Pass environment via ProcessBuilder.env (host side) — proot forwards it to the guest.
+        args.addAll(listOf("-w", "/opt/hds", "/opt/node/bin/node", "/opt/hds/host.cjs"))
+        // Host-side cwd must be OUTSIDE the rootfs (Operit2 pattern): Node inside the guest resolves
+        // its cwd via getcwd() which fails with ENOSYS when the proot process itself sits in rootfs.
+        val builder = ProcessBuilder(args).directory(context.filesDir).redirectErrorStream(true)
+        builder.environment().apply { put("PROOT_LOADER", "$nativeDir/libhds_loader.so"); put("PROOT_TMP_DIR", temporary.absolutePath); put("PROOT_NO_SECCOMP", "1"); put("LD_LIBRARY_PATH", "");
+            // Guest env for node (proot forwards host env): HOME, PATH and LANG replace `env -i`.
+            // Do NOT set host TMPDIR here — its Android path is meaningless inside the guest; node
+            // falls back to /tmp which the rootfs provides. PROOT_TMP_DIR covers proot's own temp.
+            put("HOME", "/root"); put("PATH", "/opt/node/bin:/usr/bin:/bin"); put("LANG", "C.UTF-8")
+            // Ubuntu base rootfs ships no /etc/ssl/openssl.cnf and PRoot cannot emulate the open, so pin real in-guest paths.
+            put("OPENSSL_CONF", "/etc/ssl/openssl.cnf"); put("OPENSSL_MODULES", "/usr/lib/aarch64-linux-gnu/ossl-modules"); put("HDS_MOBILE_MAIN", "1") }
         val child = builder.start(); process = child
         val configuration = store.publicSettings().put("card", store.selectedCard()).put("apiKey", secret).put("token", token).put("port", port).put("dataDir", "/hds-data")
         child.outputStream.write((configuration.toString() + "\n").toByteArray(Charsets.UTF_8)); child.outputStream.flush()

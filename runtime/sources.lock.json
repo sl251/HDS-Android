@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "0.1.0-preview.3",
+  "version": "0.1.0-preview.4",
   "abi": "arm64-v8a",
   "ubuntu": {
     "url": "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz",
@@ -12,8 +12,16 @@
     "sha256": "6b0863fb9f627bf4a6c5948dce1de4398174a2e05dbe717503d828e211ca01f0"
   },
   "debs": [
-    { "name": "libgcc-s1", "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_arm64.deb", "sha256": "5b191f79ad985a9a653dbba45214619f729f9178a9bdf92f7c68db06c50d070b" },
-    { "name": "libstdc++6", "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libstdc++6_14.2.0-4ubuntu2~24.04.1_arm64.deb", "sha256": "f84a05ac45a6884109b6527e911081a38263b89e042fc94a338cf975f61a330c" }
+    {
+      "name": "libgcc-s1",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+      "sha256": "5b191f79ad985a9a653dbba45214619f729f9178a9bdf92f7c68db06c50d070b"
+    },
+    {
+      "name": "libstdc++6",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libstdc++6_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+      "sha256": "f84a05ac45a6884109b6527e911081a38263b89e042fc94a338cf975f61a330c"
+    }
   ],
   "runnerReference": {
     "commit": "14a21621fa25e204d7218d37e193d9b861b837a8",
