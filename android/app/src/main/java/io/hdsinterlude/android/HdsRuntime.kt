@@ -230,12 +230,14 @@ class HdsRuntime private constructor(private val context: Context) {
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
         val providers = store.runtimeProviders()
         secrets = (0 until providers.length()).map { providers.getJSONObject(it).optString("apiKey") }
-        val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath, "-b", "/dev", "-b", "/proc", "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
-        for (path in listOf("/system", "/apex", "/linkerconfig")) if (File(path).exists()) args.addAll(listOf("-b", path))
+        // Preserve main's corrected host cwd and direct Node launch, with the new model settings.
+        val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,
+            "-b", "/dev", "-b", "/dev/pts", "-b", "/proc", "-b", "/sys",
+            "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
         args.addAll(ProotLaunch.guestArgs())
-        val builder = ProcessBuilder(args).directory(rootfs).redirectErrorStream(true)
+        val builder = ProcessBuilder(args).directory(context.filesDir).redirectErrorStream(true)
         ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath)
-        log("启动 PRoot：seccomp 默认开启，兼容内核 4.14.0，工作目录 /opt/hds")
+        log("启动 PRoot：宿主工作目录位于环境外，直接启动 Node，访客目录 /opt/hds")
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
         val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data")

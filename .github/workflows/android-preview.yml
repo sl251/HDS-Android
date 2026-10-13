@@ -32,7 +32,9 @@ jobs:
           npm run build
           npx cap sync android
       - name: Test runtime archive policy
-        run: python3 tests/runtime-pack.test.py
+        run: |
+          python3 tests/runtime-pack.test.py
+          python3 tests/guest-openssl-config.test.py
       - name: Verify and retain actual preview.1 rootfs regression input
         env:
           GH_TOKEN: ${{ github.token }}

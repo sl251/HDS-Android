@@ -147,6 +147,20 @@ def main():
         unpack(io.BytesIO(content), GUEST)
     (GUEST / 'etc/resolv.conf').unlink(missing_ok=True)
     (GUEST / 'etc/resolv.conf').write_text('nameserver 1.1.1.1\n')
+    # ubuntu-base ships libssl but no /etc/ssl/openssl.cnf; Node's OpenSSL then dies reading the
+    # missing default config inside PRoot ("BIO_new_file ... Function not implemented"), so the
+    # guest must always carry a minimal but valid config file at the expected path.
+    (GUEST / 'etc/ssl').mkdir(exist_ok=True)
+    (GUEST / 'etc/ssl/openssl.cnf').write_text(
+        '# Minimal OpenSSL configuration for the HDS Android guest.\n'
+        '# Node only needs a syntactically valid file; defaults apply for everything else.\n'
+        'openssl_conf = openssl_init\n\n'
+        '[openssl_init]\n'
+        'providers = provider_sect\n\n'
+        '[provider_sect]\n'
+        'default = default_sect\n\n'
+        '[default_sect]\n'
+        'activate = 1\n')
     for name in ['tmp', 'proc', 'dev', 'hds-data', 'root']:
         (GUEST / name).mkdir(exist_ok=True)
     os.chmod(GUEST / 'tmp', 0o1777)

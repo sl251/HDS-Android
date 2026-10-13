@@ -4,21 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProotLaunchTest {
-    @Test fun enablesSyscallTranslationEvenWhenParentDisabledIt() {
-        val environment = mutableMapOf("PROOT_NO_SECCOMP" to "1", "LD_LIBRARY_PATH" to "/host/lib")
+    @Test fun preservesMainLaunchEnvironmentAndSeparatesHostTemporaryDirectory() {
+        val environment = mutableMapOf("TMPDIR" to "/android/cache", "LD_LIBRARY_PATH" to "/host/lib")
         ProotLaunch.configure(environment, "/native", "/cache/proot")
-        assertFalse(environment.containsKey("PROOT_NO_SECCOMP"))
+        assertEquals("1", environment["PROOT_NO_SECCOMP"])
         assertEquals("/native/libhds_loader.so", environment["PROOT_LOADER"])
         assertEquals("/cache/proot", environment["PROOT_TMP_DIR"])
+        assertFalse(environment.containsKey("TMPDIR"))
         assertEquals("", environment["LD_LIBRARY_PATH"])
+        assertEquals("/etc/ssl/openssl.cnf", environment["OPENSSL_CONF"])
+        assertEquals("/usr/lib/aarch64-linux-gnu/ossl-modules", environment["OPENSSL_MODULES"])
+        assertEquals("1", environment["HDS_MOBILE_MAIN"])
     }
 
-    @Test fun cwdAndPwdAgreeAndCompatibilityVersionPrecedesGuestCommand() {
+    @Test fun startsNodeDirectlyInGuestWorkingDirectory() {
         val args = ProotLaunch.guestArgs()
-        assertEquals("4.14.0", args[args.indexOf("-k") + 1])
-        assertTrue(args.indexOf("-k") < args.indexOf("/usr/bin/env"))
         assertEquals("/opt/hds", args[args.indexOf("-w") + 1])
-        assertTrue(args.contains("PWD=/opt/hds"))
+        assertFalse(args.contains("/usr/bin/env"))
         assertEquals(listOf("/opt/node/bin/node", "/opt/hds/host.cjs"), args.takeLast(2))
     }
 }
