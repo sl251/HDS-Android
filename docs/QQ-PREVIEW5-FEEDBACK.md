@@ -47,3 +47,11 @@ QQ / NapCat 下载状态通过 RPC 提供当前组件、已收字节、Content-L
 - **尚未运行**：新版本 APK 构建、真实 ARM64 Xvfb/QQ 启动、用户 OriginOS 6 扫码登录与私聊/群聊收发。原有 `scripts/qq-linux-smoke.ts` 会覆盖新认证文件路径，但本次没有远程触发 CI，不能沿用旧候选结果声称此修改已通过。
 
 真机复测顺序：覆盖安装同签名新 APK → 更新本机环境 → 原模型启动 → 信箱启动 QQ → 出二维码 → 扫码确认 → 等消息通道在线 → 测试私聊与群聊。出二维码仅证明启动链路可用，不等于成功登录或消息接入完成。
+
+## 2026-10-14：preview.5.3 的 Xvfb 锁修复
+
+preview.5.2 已成功构建，并通过 ARM64 Linux QQ 获取未扫描二维码验证；随后手机反馈 Xvfb 自身报 `Linking lock file (/tmp/.X8974-lock) in place failed: Permission denied`。这是 Xserver 的 PID 锁，和之前 xauth 的认证文件锁不同。说明此前 chroot 冒烟检查未覆盖 Android 的硬链接权限限制。
+
+[上游 Xserver 源码](https://github.com/mirror/xserver/blob/master/os/utils.c) 中，`LockServer` 使用 link 建立 PID 锁；`-nolock` 在 guest root 下跳过此步骤。HDS 已使用 PRoot `-0` 提供 guest root 身份，无需手机 Root。此次改用 `-nolock`，继续设置 `-auth` 和 `-nolisten tcp`，随机选择未发现现存 socket 或锁文件的显示编号；不删除其他显示进程的 socket/锁文件，也不关闭认证。
+
+新增 `scripts/xvfb-lock-smoke.ts`：在实际打包的 ARM64 Xvfb 子进程中用 CI 专用 LD_PRELOAD 夹具强制 link/linkat 返回 EACCES；要求原参数复现同样错误，再要求新参数能接受正确 cookie 并拒绝错误和空 cookie。故障注入库只在独立测试任务中编译，不打入 APK。之后继续检查实际 Linux QQ 出二维码。真机扫码、收发和后台存活仍由手机复测确认。

@@ -1,5 +1,20 @@
 import { randomBytes } from 'node:crypto'
-import { writeFileSync, renameSync } from 'node:fs'
+import { existsSync, writeFileSync, renameSync } from 'node:fs'
+
+export function availableDisplayNumber() {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const number = 100 + randomBytes(2).readUInt16LE() % 10000
+    if (!existsSync(`/tmp/.X11-unix/X${number}`) && !existsSync(`/tmp/.X${number}-lock`)) return number
+  }
+  throw new Error('无法分配 QQ 虚拟显示编号，请停止 QQ 后重试')
+}
+
+export function xvfbArguments(display: number, authority: string) {
+  // Android can deny link(2) even inside a writable private /tmp. PRoot -0
+  // supplies the guest root UID required by Xserver's -nolock option.
+  // This bypasses only its PID lock, NOT Xauthority authentication.
+  return [`:${display}`, '-screen', '0', '640x480x24', '-nolock', '-nolisten', 'tcp', '-auth', authority]
+}
 
 /** Xauthority's binary wire format (CARD16 big-endian, length-prefixed fields).
  * FamilyWild matches the local Unix socket even when PRoot changes hostnames.

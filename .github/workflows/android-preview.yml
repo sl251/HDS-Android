@@ -46,6 +46,9 @@ jobs:
           sudo mount --bind /dev runtime/generated/rootfs/dev
           sudo mount -t proc proc runtime/generated/rootfs/proc
           sudo mount --bind /sys runtime/generated/rootfs/sys
+          cc -shared -fPIC scripts/deny-x11-hardlinks.c -o runtime/generated/rootfs/opt/hds/deny-x11-hardlinks.so
+          npx esbuild scripts/xvfb-lock-smoke.ts --bundle --platform=node --format=cjs --outfile=runtime/generated/rootfs/opt/hds/xvfb-lock-smoke.cjs
+          sudo chroot runtime/generated/rootfs /usr/bin/env PATH=/opt/node/bin:/usr/bin:/bin /opt/node/bin/node /opt/hds/xvfb-lock-smoke.cjs
           sudo chroot runtime/generated/rootfs /usr/bin/env HOME=/root PATH=/opt/node/bin:/usr/bin:/bin OPENSSL_CONF=/etc/ssl/openssl.cnf /opt/node/bin/node /opt/hds/qq-smoke.cjs
   build:
     runs-on: ubuntu-24.04
@@ -110,12 +113,12 @@ jobs:
           ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease :app:assembleDebugAndroidTest
       - name: Package verification and release materials
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.5.2-arm64.apk
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.5.3-arm64.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs artifacts/*.apk > artifacts/apk-signature.txt
           cp runtime/generated/runtime-manifest.json artifacts/
           cp docs/TEST-ON-PHONE.md artifacts/
           cp fixtures/cards/*.json fixtures/cards/*.yml artifacts/
-          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.5.2-source.tar.gz
+          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.5.3-source.tar.gz
           cd artifacts
           sha256sum *.apk *.tar.gz > SHA256SUMS.txt
       - name: Upload preview and build evidence

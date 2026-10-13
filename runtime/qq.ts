@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
 import QRCode from 'qrcode'
 import { componentsPath, componentsReady, installComponents, githubDownloadUrl } from './qq-components'
-import { writeDisplayAuthority } from './qq-display'
+import { availableDisplayNumber, writeDisplayAuthority, xvfbArguments } from './qq-display'
 import type { DownloadProgress } from '../packages/contracts'
 
 export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
@@ -181,10 +181,10 @@ export class QQRuntime {
     const root = componentsPath(this.directory), qq = join(root, 'opt/QQ/resources/app')
     // Use the upstream installer path: official QQ + NapCat application entry,
     // with a private virtual display. No window is shown outside the container.
-    const displayNumber = 100 + randomBytes(2).readUInt16LE() % 10000
+    const displayNumber = availableDisplayNumber()
     const authority = join(this.directory, 'display.auth')
     writeDisplayAuthority(authority, displayNumber)
-    const display = spawn('/usr/bin/Xvfb', [`:${displayNumber}`, '-screen', '0', '640x480x24', '-nolisten', 'tcp', '-auth', authority], { stdio: ['ignore', 'ignore', 'pipe'] })
+    const display = spawn('/usr/bin/Xvfb', xvfbArguments(displayNumber, authority), { stdio: ['ignore', 'ignore', 'pipe'] })
     this.display = display
     display.stderr?.on('data', data => this.diagnostic(String(data)))
     let displayFailure = ''
@@ -195,6 +195,7 @@ export class QQRuntime {
       if (displayFailure || Date.now() > deadline) { display.kill(); this.display = undefined; this.phase = 'failed'; throw new Error(displayFailure || 'QQ 虚拟显示初始化超时') }
       await new Promise(resolve => setTimeout(resolve, 100))
     }
+    if (displayFailure || display.exitCode !== null) throw new Error(displayFailure || `Xvfb 退出：${display.exitCode}`)
     const environment = { ...process.env,
       DISPLAY: `:${displayNumber}`, XAUTHORITY: authority, NAPCAT_MAIN_PATH: join(root, 'napcat/napcat.mjs'),
       HOME: join(this.directory, 'home'), XDG_CONFIG_HOME: join(this.directory, 'home/.config'), NAPCAT_WORKDIR: this.directory,
