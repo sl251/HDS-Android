@@ -17,7 +17,7 @@ class RootfsExtractorTest {
         val bytes = ByteArrayOutputStream()
         TarArchiveOutputStream(GzipCompressorOutputStream(bytes)).use { tar ->
             for (item in items) {
-                val entry = TarArchiveEntry(item.name, item.kind)
+                val entry = TarArchiveEntry(item.name, item.kind, true)
                 entry.mode = item.mode; entry.linkName = item.target
                 val content = item.text.toByteArray()
                 entry.size = if (item.kind == TarConstants.LF_NORMAL) content.size.toLong() else 0
@@ -84,11 +84,11 @@ class RootfsExtractorTest {
         val path = System.getenv("HDS_LEGACY_ROOTFS")
         assumeTrue("Actual preview.1 archive supplied by CI", path != null)
         withRoot { root ->
-            val extractor = RootfsExtractor({ File(path).inputStream() },
+            val extractor = RootfsExtractor({ File(path!!).inputStream() },
                 { file, mode -> file.setExecutable(mode and 64 != 0, true) },
                 { target, file -> Files.createSymbolicLink(file.toPath(), java.nio.file.Path.of(target)); Unit })
             assertEquals(318195691L, extractor.extract(root, 318195691))
-            assertEquals(File(root, "usr/bin/perl").readBytes().toList(), File(root, "usr/bin/perl5.38.2").readBytes().toList())
+            assertArrayEquals(File(root, "usr/bin/perl").readBytes(), File(root, "usr/bin/perl5.38.2").readBytes())
             assertEquals(File(root, "usr/bin/gunzip").readText(), File(root, "usr/bin/uncompress").readText())
             assertTrue(File(root, "usr/bin/perl5.38.2").canExecute())
             assertTrue(File(root, "opt/node/bin/node").isFile)

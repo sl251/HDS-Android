@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
     @Override public void onCreate(Bundle savedInstanceState) {
         registerPlugin(HdsRuntimePlugin.class);
         super.onCreate(savedInstanceState);
+        if (bridge == null) return;
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         // Own system bars/cutout here; Capacitor's CONSUMED listener is disabled in config.
@@ -31,6 +32,18 @@ public class MainActivity extends BridgeActivity {
             // Keep IME information for WebView viewport updates; zero only our bar types.
             bridge.getWebView().evaluateJavascript("document.documentElement.classList.toggle('ime-visible', "
                 + windowInsets.isVisible(WindowInsetsCompat.Type.ime()) + ");", null);
+            view.post(() -> {
+                org.json.JSONObject layout = new org.json.JSONObject();
+                try {
+                    layout.put("timestamp", java.time.Instant.now().toString());
+                    layout.put("bars", new org.json.JSONArray(new int[] {bars.left, bars.top, bars.right, bars.bottom}));
+                    layout.put("imeBottom", ime.bottom);
+                    layout.put("webViewWidth", bridge.getWebView().getWidth());
+                    layout.put("webViewHeight", bridge.getWebView().getHeight());
+                    layout.put("padding", new org.json.JSONArray(new int[] {view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), view.getPaddingBottom()}));
+                    HdsRuntime.get(this).recordInsets(layout);
+                } catch (org.json.JSONException ignored) { }
+            });
             return new WindowInsetsCompat.Builder(windowInsets).setInsets(types, Insets.NONE)
                 .setInsetsIgnoringVisibility(types, Insets.NONE).build();
         });

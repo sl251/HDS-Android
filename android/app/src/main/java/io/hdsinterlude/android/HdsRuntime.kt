@@ -47,6 +47,8 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var lastDiagnostic = JSONObject()
     @Volatile private var recoveryError = ""
     @Volatile private var cleanupPending = false
+    @Volatile private var layoutDiagnostic = JSONObject()
+    fun recordInsets(value: JSONObject) { layoutDiagnostic = value }
     init {
         try {
             transaction.recover()
@@ -100,7 +102,7 @@ class HdsRuntime private constructor(private val context: Context) {
         val report = JSONObject().put("schema", 1).put("device", device()).put("appVersion", appVersion())
             .put("environmentState", environmentState()).put("bundled", manifestSummary(bundled))
             .put("installed", manifestSummary(installedManifest())).put("installation", lastDiagnostic)
-            .put("cleanupPending", cleanupPending).put("recoveryError", recoveryError).put("avc", "unavailable")
+            .put("cleanupPending", cleanupPending).put("recoveryError", recoveryError).put("avc", "unavailable").put("layout", layoutDiagnostic)
         if (probe) report.put("fileCapabilities", probeFiles())
         // Deliberately excludes runtime output, settings, cards, credentials and chat.
         return report
