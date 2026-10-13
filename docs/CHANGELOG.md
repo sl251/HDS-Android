@@ -1,3 +1,10 @@
+# 0.1.0-preview.3 修复候选
+
+- 修复真机启动失败：preview.2 在 PRoot 内启动 Node 时，OpenSSL 因 ubuntu-base 根环境缺少 /etc/ssl/openssl.cnf 且 PRoot 无法模拟该文件的打开，报 `BIO_new_file:Function not implemented`，核心进程随即崩溃并触发 90 秒健康检查超时。
+- 构建侧在 guest 内固定创建最小合法 /etc/ssl/openssl.cnf（显式激活 default provider），环境归档随之重新打包并更新 manifest 校验和。
+- 启动侧为 PRoot 子进程显式设置 `OPENSSL_CONF=/etc/ssl/openssl.cnf` 与 `OPENSSL_MODULES=/usr/lib/aarch64-linux-gnu/ossl-modules`，指向 rootfs 内真实文件，作为双保险。
+- 版本代码升为 3，保持包名和签名证书。
+
 # 0.1.0-preview.2 修复候选
 
 - 环境归档将共享 inode 写为独立普通文件；安装器兼容 preview.1 的硬链接，先验证完整条目与链接链，再复制内容、最后创建符号链接。

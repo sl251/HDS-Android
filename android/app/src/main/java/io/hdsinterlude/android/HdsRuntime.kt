@@ -229,7 +229,9 @@ class HdsRuntime private constructor(private val context: Context) {
         secret = store.apiKey()
         val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath, "-b", "/dev", "-b", "/proc", "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
         for (path in listOf("/system", "/apex", "/linkerconfig")) if (File(path).exists()) args.addAll(listOf("-b", path))
-        args.addAll(listOf("-w", "/opt/hds", "/usr/bin/env", "-i", "HOME=/root", "PATH=/opt/node/bin:/usr/bin:/bin", "LANG=C.UTF-8", "TMPDIR=/tmp", "HDS_MOBILE_MAIN=1", "/opt/node/bin/node", "/opt/hds/host.cjs"))
+        args.addAll(listOf("-w", "/opt/hds", "/usr/bin/env", "-i", "HOME=/root", "PATH=/opt/node/bin:/usr/bin:/bin", "LANG=C.UTF-8", "TMPDIR=/tmp",
+            // Ubuntu base rootfs ships no /etc/ssl/openssl.cnf and PRoot cannot emulate the open, so pin a real in-guest file and module dir.
+            "OPENSSL_CONF=/etc/ssl/openssl.cnf", "OPENSSL_MODULES=/usr/lib/aarch64-linux-gnu/ossl-modules", "HDS_MOBILE_MAIN=1", "/opt/node/bin/node", "/opt/hds/host.cjs"))
         val builder = ProcessBuilder(args).directory(rootfs).redirectErrorStream(true)
         builder.environment().apply { put("PROOT_LOADER", "$nativeDir/libhds_loader.so"); put("PROOT_TMP_DIR", temporary.absolutePath); put("TMPDIR", temporary.absolutePath); put("PROOT_NO_SECCOMP", "1"); put("LD_LIBRARY_PATH", "") }
         val child = builder.start(); process = child
