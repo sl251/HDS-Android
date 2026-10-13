@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
 import QRCode from 'qrcode'
-import { command, componentsPath, componentsReady, installComponents } from './qq-components'
+import { componentsPath, componentsReady, installComponents, githubDownloadUrl } from './qq-components'
+import { writeDisplayAuthority } from './qq-display'
+import type { DownloadProgress } from '../packages/contracts'
 
 export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
@@ -41,6 +43,7 @@ export class QQRuntime {
   private webToken = ''; private credential = ''; private credentialAt = 0; private wsToken = ''
   private webPort = 0; private wsPort = 0; private startedAt = 0
   private phase = 'stopped'; private progress = ''; private error = ''; private logs: string[] = []
+  private download?: DownloadProgress
   private account = ''; private nickname = ''; private qr = ''; private qrImage = ''
   private loginOnline = false; private polling = false; private closing = false
   private installation?: Promise<void>; private cancellation?: AbortController
@@ -180,8 +183,7 @@ export class QQRuntime {
     // with a private virtual display. No window is shown outside the container.
     const displayNumber = 100 + randomBytes(2).readUInt16LE() % 10000
     const authority = join(this.directory, 'display.auth')
-    writeFileSync(authority, '', { mode: 0o600 })
-    await command('/usr/bin/xauth', ['-f', authority, 'add', `:${displayNumber}`, 'MIT-MAGIC-COOKIE-1', randomBytes(16).toString('hex')])
+    writeDisplayAuthority(authority, displayNumber)
     const display = spawn('/usr/bin/Xvfb', [`:${displayNumber}`, '-screen', '0', '640x480x24', '-nolisten', 'tcp', '-auth', authority], { stdio: ['ignore', 'ignore', 'pipe'] })
     this.display = display
     display.stderr?.on('data', data => this.diagnostic(String(data)))
@@ -237,7 +239,7 @@ export class QQRuntime {
     this.child = undefined; this.phase = 'stopped'; this.progress = 'QQ 已停止，登录记录保留'; this.error = ''
   }
   async close() { clearInterval(this.timer); await this.control; await this.stop(); await this.sending }
-  status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, progress: this.progress, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1 } }
+  status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, progress: this.progress, download: this.download, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1 } }
   async dispatch(method: string, payload: any) {
     if (['qq.install', 'qq.start', 'qq.stop', 'qq.refreshQr', 'qq.quickLogin', 'qq.policy'].includes(method)) {
       const result = this.control.then(() => this.handle(method, payload))
@@ -250,10 +252,13 @@ export class QQRuntime {
     if (method === 'qq.status') return this.status()
     if (method === 'qq.install') {
       if (this.child || this.installation) throw new Error('请先停止 QQ 或等待当前安装')
+      const proxy = payload?.githubProxy ?? ''
+      githubDownloadUrl('https://github.com/NapNeko/NapCatQQ', proxy)
       this.cancellation = new AbortController(); this.phase = 'installing'; this.error = ''
+      this.download = undefined; this.progress = '检查组件与可用空间'
       const timeout = setTimeout(() => this.cancellation?.abort(), 15 * 60 * 1000)
-      this.installation = installComponents(this.directory, this.cancellation.signal, text => { this.progress = text })
-        .then(() => { this.phase = 'stopped' }).catch(error => { this.phase = 'failed'; this.error = this.cancellation?.signal.aborted ? '安装已取消或超时，可重新下载' : error.message }).finally(() => { clearTimeout(timeout); this.installation = undefined })
+      this.installation = installComponents(this.directory, this.cancellation.signal, (text, download) => { this.progress = text; this.download = download }, proxy)
+        .then(() => { this.phase = 'stopped' }).catch(error => { this.phase = 'failed'; this.error = this.cancellation?.signal.aborted ? '安装已取消或超时，可重新下载' : error.message }).finally(() => { clearTimeout(timeout); this.installation = undefined; this.download = undefined })
       return this.status()
     }
     if (method === 'qq.start') { try { await this.start() } catch (error) { this.display?.kill(); this.display = undefined; this.phase = 'failed'; this.error = error instanceof Error ? error.message : 'QQ 启动失败'; throw error }; return this.status() }

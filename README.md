@@ -2,9 +2,11 @@
 
 在 Android 手机上运行 [HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude) 的叙事、记忆和持续生活核心。模型通过你配置的 API 调用，故事与人设保存在手机里。
 
-**本分支候选：0.1.0-preview.5.1 · ARM64 · Android 8+。** 新增手机本地 QQ 实验接入，无需另装 Termux。二维码启动、消息协议与 Android 真机结果分别记录；QQ 空间尚未接入。
+**本分支候选：0.1.0-preview.5.2 · ARM64 · Android 8+。** 新增手机本地 QQ 实验接入，无需另装 Termux。二维码启动、消息协议与 Android 真机结果分别记录；QQ 空间尚未接入。
 
 ## 这一版能做什么
+
+- **preview.5.2 手机反馈修复**：绕开 QQ 启动时 xauth 文件锁超时；模型连接删除按钮外置，误加的完全空白连接不再阻止启动；增加下载进度与可选 GitHub 加速地址；修正信箱深色主题白块。覆盖安装后须更新本机环境。详见 [修复记录](docs/QQ-PREVIEW5-FEEDBACK.md)。
 
 - **启动兼容性候选修复**：preview.5 在 OriginOS 6 收到 `uv_cwd / ENOSYS` 反馈。preview.5.1 启动前实际检查 Node 工作目录、HDS 模块加载、文件读写和子进程，原追踪模式失败时尝试 PRoot seccomp 加速；两种都失败会显示具体探测阶段，不会伪报运行成功。仍待该手机验证。
 
@@ -21,7 +23,7 @@
 
 ## 安装与使用
 
-本分支的 preview.5.1 APK 由 [候选分支 Actions](https://github.com/sl251/HDS-Android/actions?query=branch%3Acodex%2Fqq-integration) 提供，下载成功构建的 `HDS-Android-preview-<提交号>` 附件。它不是正式发行版。已有的 [preview.4 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.4) 继续保留；旧同名 preview.4 的替换记录见 [构建验证](docs/evidence/preview4-replacement/README.md)。
+本分支的 preview.5.2 APK 由 [候选分支 Actions](https://github.com/sl251/HDS-Android/actions?query=branch%3Acodex%2Fqq-integration) 提供，下载成功构建的 `HDS-Android-preview-<提交号>` 附件。它不是正式发行版。已有的 [preview.4 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.4) 继续保留；旧同名 preview.4 的替换记录见 [构建验证](docs/evidence/preview4-replacement/README.md)。
 
 1. 覆盖安装同签名 APK，保留本机数据；不要先卸载。
 2. 在“角色”导入人设，检查预览并选中。typ0 文件直接选下载的 YAML，无需改扩展名。

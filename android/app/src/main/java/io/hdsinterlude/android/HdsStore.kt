@@ -62,10 +62,11 @@ class HdsStore(private val context: Context) {
         target.put("keyIv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
     }
     @Synchronized fun runtimeProviders(): JSONArray {
-        val source = models.rows(privateSettings())
+        val source = models.configuredRows(models.rows(privateSettings()))
         return JSONArray().also { result ->
             for (i in 0 until source.length()) {
                 val row = source.getJSONObject(i)
+                if (!row.optBoolean("enabled", true)) continue
                 result.put(models.normalize(row).put("apiKey", decrypt(row)))
             }
         }
@@ -86,7 +87,7 @@ class HdsStore(private val context: Context) {
     @Synchronized fun saveSettings(input: JSONObject) {
         val source = privateSettings()
         val previous = models.rows(source)
-        val incoming = input.getJSONArray("providers")
+        val incoming = models.configuredRows(input.getJSONArray("providers"), previous)
         require(incoming.length() in 1..12) { "请配置 1 至 12 条模型连接" }
         val saved = JSONArray()
         for (i in 0 until incoming.length()) {

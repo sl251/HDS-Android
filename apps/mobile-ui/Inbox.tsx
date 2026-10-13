@@ -14,6 +14,7 @@ export function Inbox({ bridge, healthy, native, configure }: { bridge: NativeBr
   const [policy, setPolicy] = useState<QQPolicy>({ enabled: false, users: [], groups: [] })
   const [usersText, setUsersText] = useState(''), [groupsText, setGroupsText] = useState('')
   const [accounts, setAccounts] = useState<{ uin: string; nickName: string; isQuickLogin: boolean }[]>([])
+  const [githubProxy, setGithubProxy] = useState('')
   const request = useRef<{ requestId: string; content: string; conversation: string } | null>(null)
   const scroll = useRef<HTMLDivElement>(null)
   const rpc = async <T,>(method: string, payload?: Record<string, unknown>) => (await bridge.rpc({ method, payload })).data as T
@@ -56,8 +57,13 @@ export function Inbox({ bridge, healthy, native, configure }: { bridge: NativeBr
         <p>{status?.progress || '从腾讯与 NapCat 官方来源下载，完成校验后在手机内运行。下载约 235 MiB，安装时需 1.6 GiB 可用空间。'}</p>
         {status?.error && <p className="qq-error" role="alert">{status.error}</p>}
         {status?.qr && !status.online && <div className="qq-qr"><img src={status.qr} width="256" height="256" alt="QQ 登录二维码，请使用官方 QQ 扫描" /><p>用官方 QQ 扫描并确认登录。<br />同机可尝试保存后从相册识别；不支持时请用另一台设备展示二维码。</p><button className="secondary" disabled={busy} onClick={() => act(async () => { const result = await bridge.saveQQQr({ base64: status.qr.split(',')[1] }); setNotice(result.cancelled ? '已取消保存' : '二维码已保存，请及时扫码；二维码过期后重新获取。') })}>保存二维码</button></div>}
+        {status?.phase === 'installing' && <div className="download-progress" role="status">
+          <progress aria-label={status.download ? `${status.download.component} 下载进度` : status.progress} max={status.download?.totalBytes || 1} value={status.download?.totalBytes ? Math.min(status.download.receivedBytes, status.download.totalBytes) : undefined} />
+          {status.download && <span>{(status.download.receivedBytes / 1048576).toFixed(1)} MiB{status.download.totalBytes ? ` / ${(status.download.totalBytes / 1048576).toFixed(1)} MiB · ${Math.min(100, Math.floor(status.download.receivedBytes / status.download.totalBytes * 100))}%` : ' · 总大小未知'} · {(status.download.bytesPerSecond / 1048576).toFixed(1)} MiB/s</span>}
+        </div>}
+        {!status?.installed && <details className="download-options"><summary>下载网络设置</summary><label>GitHub 加速地址（可选）<input type="url" value={githubProxy} disabled={busy || status?.phase === 'installing'} onChange={event => setGithubProxy(event.target.value)} placeholder="https://你信任的加速服务/" autoCapitalize="none" spellCheck={false} /></label><p className="caption">默认直连。无法访问 GitHub 时，可填写支持“加速地址/https://github.com/…”的 HTTPS 服务，仅用于 NapCat 下载。QQ 仍从腾讯下载，文件均校验 SHA-256。</p></details>}
         <div className="actions">
-          {!status?.installed && <button className="primary" disabled={busy || status?.phase === 'installing'} onClick={() => act(async () => setStatus(await rpc('qq.install')))}>下载并准备组件</button>}
+          {!status?.installed && <button className="primary" disabled={busy || status?.phase === 'installing'} onClick={() => act(async () => setStatus(await rpc('qq.install', { githubProxy })))}>下载并准备组件</button>}
           {status?.installed && !status.running && <button className="primary" disabled={busy || status.phase === 'installing'} onClick={() => act(async () => setStatus(await rpc('qq.start')))}>启动 QQ · 获取二维码</button>}
           {status?.running && !status.online && <button className="secondary" disabled={busy} onClick={() => act(async () => setStatus(await rpc('qq.refreshQr')))}>刷新二维码</button>}
           {(status?.running || status?.phase === 'installing') && <button className="secondary" disabled={busy} onClick={() => act(async () => setStatus(await rpc('qq.stop')))}>{status.phase === 'installing' ? '取消下载' : '停止 QQ'}</button>}

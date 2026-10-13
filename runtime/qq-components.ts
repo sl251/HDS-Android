@@ -5,6 +5,17 @@ import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
 import { spawn } from 'node:child_process'
+import type { DownloadProgress } from '../packages/contracts'
+
+type Progress = (text: string, download?: DownloadProgress) => void
+export function githubDownloadUrl(url: string, proxy: unknown = ''): string {
+  if (typeof proxy !== 'string' || proxy.length > 2048) throw new Error('GitHub 加速地址无效')
+  if (!proxy.trim()) return url
+  let base: URL
+  try { base = new URL(proxy.trim()) } catch { throw new Error('GitHub 加速地址须为 HTTPS URL') }
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) throw new Error('GitHub 加速地址须为 HTTPS URL，不能含账号、参数或片段')
+  return new URL(url).hostname === 'github.com' ? `${base.href.replace(/\/$/, '')}/${url}` : url
+}
 
 // Official upstream artifacts, never a user-provided executable or install script.
 export const QQ_COMPONENTS = {
@@ -18,22 +29,30 @@ export async function command(executable: string, args: string[], signal?: Abort
     let error = ''
     child.stderr.on('data', data => { error = (error + data).slice(-1000) })
     child.once('error', reject)
-    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`${executable.split('/').pop()} 解包失败 (${code}): ${error}`)))
+    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`${executable.split('/').pop()} 执行失败 (${code}): ${error}`)))
   })
 }
-export async function verifiedDownload(spec: { url: string; sha256: string; maxBytes: number }, target: string, signal: AbortSignal, progress: (text: string) => void) {
+export async function verifiedDownload(spec: { url: string; sha256: string; maxBytes: number }, target: string, signal: AbortSignal, progress: Progress, component = '组件') {
   const hash = createHash('sha256')
   const response = await fetch(spec.url, { signal, redirect: 'follow' })
   if (!response.ok || !response.body || !response.url.startsWith('https://')) throw new Error(`组件下载失败：HTTP ${response.status}`)
+  const length = Number(response.headers.get('content-length'))
+  const totalBytes = !response.headers.get('content-encoding') && Number.isSafeInteger(length) && length > 0 ? length : undefined
+  if (totalBytes && totalBytes > spec.maxBytes) { await response.body.cancel(); throw new Error('组件大小超过上限') }
   let bytes = 0, last = 0
+  const started = Date.now()
+  const report = () => progress(`正在下载 ${component}`, { component, receivedBytes: bytes, totalBytes, bytesPerSecond: bytes / Math.max((Date.now() - started) / 1000, 0.001) })
+  report()
   const check = new Transform({ transform(chunk, _, done) {
     bytes += chunk.length
     if (bytes > spec.maxBytes) { done(new Error('组件大小超过上限')); return }
     hash.update(chunk)
-    if (Date.now() - last > 500) { last = Date.now(); progress(`下载组件 ${Math.floor(bytes / 1048576)} MiB`) }
+    if (Date.now() - last > 500) { last = Date.now(); report() }
     done(null, chunk)
   } })
   await pipeline(Readable.fromWeb(response.body as never), check, createWriteStream(target, { mode: 0o600 }), { signal })
+  report()
+  progress(`正在校验 ${component} SHA-256`)
   if (hash.digest('hex') !== spec.sha256) throw new Error('组件 SHA-256 不匹配，已拒绝安装')
 }
 export function componentsPath(directory: string) { return join(directory, QQ_COMPONENTS.version) }
@@ -41,7 +60,7 @@ export function componentsReady(directory: string) {
   const root = componentsPath(directory)
   return existsSync(join(root, '.complete')) && existsSync(join(root, 'opt/QQ/resources/app/wrapper.node')) && existsSync(join(root, 'napcat/napcat.mjs'))
 }
-export async function installComponents(directory: string, signal: AbortSignal, progress: (text: string) => void) {
+export async function installComponents(directory: string, signal: AbortSignal, progress: Progress, githubProxy = '') {
   await mkdir(directory, { recursive: true })
   if (componentsReady(directory)) return
   const space = await statfs(directory)
@@ -50,8 +69,10 @@ export async function installComponents(directory: string, signal: AbortSignal, 
   await rm(staging, { recursive: true, force: true })
   await mkdir(join(staging, 'napcat'), { recursive: true })
   try {
-    await verifiedDownload(QQ_COMPONENTS.qq, join(staging, 'qq.deb'), signal, progress)
-    await verifiedDownload(QQ_COMPONENTS.napcat, join(staging, 'napcat.zip'), signal, progress)
+    progress('连接 QQ 官方下载源（1/2）')
+    await verifiedDownload(QQ_COMPONENTS.qq, join(staging, 'qq.deb'), signal, progress, 'QQ · 1/2')
+    progress('连接 NapCat 下载源（2/2）')
+    await verifiedDownload({ ...QQ_COMPONENTS.napcat, url: githubDownloadUrl(QQ_COMPONENTS.napcat.url, githubProxy) }, join(staging, 'napcat.zip'), signal, progress, 'NapCat · 2/2')
     progress('校验通过，正在解包 QQ / NapCat')
     // Extract the ar data member without invoking package maintainer scripts.
     const deb = await open(join(staging, 'qq.deb'), 'r')

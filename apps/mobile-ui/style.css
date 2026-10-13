@@ -21,7 +21,7 @@ dd{min-width:0}dt{flex-shrink:0}.tag{white-space:normal}
 select{font:inherit;min-height:48px;border:1px solid var(--line);border-radius:6px;background:var(--paper);padding:12px;color:var(--ink);width:100%;max-width:100%}select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}fieldset{border:0;padding:0;margin:0;min-width:0}input[readonly]{color:var(--muted)}.model-center h2{margin-top:5px}.model-roles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:22px 0}.model-roles>div{padding:14px 10px 14px 0;min-width:0}.model-roles b{display:block;font-size:12px;color:var(--accent)}.model-roles span{display:block;font-size:11px;color:var(--muted);margin-top:7px;overflow-wrap:anywhere;line-height:1.7}.provider-tabs{display:flex;gap:8px;overflow-x:auto;padding:0 0 14px;margin:0 0 12px;scrollbar-width:thin}.provider-tabs button{border:1px solid var(--line);border-radius:5px;display:flex;gap:9px;align-items:center;white-space:nowrap;padding:10px 14px;font-size:13px}.provider-tabs button.active{background:var(--accent);color:var(--paper);border-color:var(--accent)}.provider-tabs small{font-family:monospace;font-size:10px;opacity:.65}.provider-tabs span{font-size:10px;opacity:.7}.provider-tabs .add-provider{border-style:dashed}.field-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.field-pair label{min-width:0}.model-picker-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:22px}.model-picker-heading b{font-size:13px}.model-picker-heading button{font-size:12px}.model-picker{display:grid;gap:8px;margin-top:12px}.assignment-list{border-top:1px solid var(--line);padding-top:4px;margin-top:20px}.text-button{min-height:40px;padding:0 4px;font-size:12px;text-decoration:underline;text-underline-offset:4px;color:var(--muted)}.danger{color:#8f433a}.generation-settings{border-top:1px solid var(--line);margin:26px 0;padding-top:10px}.model-center details{margin:16px 0 20px}.model-center summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:13px;color:var(--accent)}.model-center summary::before{content:'＋';margin-right:8px}.model-center details[open]>summary::before{content:'−'}.provider-editor>.wide{margin-top:4px}.model-center .toggle p{margin:4px 0 0}.model-center .caption{overflow-wrap:anywhere}@media(max-width:430px){.field-pair{grid-template-columns:1fr;gap:0}.model-roles>div{padding-right:8px}.model-roles span{font-size:10px}.model-picker-heading{flex-wrap:wrap}}
 /* QQ letters retain the paper/ink palette while keeping ordinary chat controls. */
 .story-nav { margin-top: 18px; }
-.qq-onboarding, .qq-login { position: relative; border: 1px solid var(--line, #d8d4c9); padding: 22px; margin-bottom: 22px; background: rgba(255,255,255,.28); }
+.qq-onboarding, .qq-login { position: relative; border: 1px solid var(--line, #d8d4c9); padding: 22px; margin-bottom: 22px; background: var(--paper); color: var(--ink); }
 .qq-onboarding h2 { margin-top: 26px; }
 .qq-onboarding ol { padding-left: 24px; line-height: 2.2; }
 .letter-stamp { display: inline-block; border: 2px solid #9a4d3e; color: #9a4d3e; padding: 5px 8px; transform: rotate(-7deg); font-family: serif; letter-spacing: .15em; }
@@ -34,13 +34,13 @@ select{font:inherit;min-height:48px;border:1px solid var(--line);border-radius:6
 .qq-qr { text-align: center; padding: 14px 0; }
 .qq-qr img { display: block; width: min(256px, 100%); height: auto; margin: 0 auto; padding: 8px; background: white; border: 1px solid #dfded5; }
 .qq-qr p { font-size: 13px; line-height: 1.8; }
-.qq-error { color: #923e32; overflow-wrap: anywhere; }
-.qq-policy-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 18px; background: #e4e9df; text-align: left; margin-bottom: 26px; }
+.qq-error { color: var(--danger, #923e32); overflow-wrap: anywhere; }
+.qq-policy-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 18px; background: var(--accent-soft); color: var(--ink); border: 1px solid var(--line); text-align: left; margin-bottom: 26px; }
 .qq-policy-link small { display: block; margin-top: 7px; font-size: 12px; opacity: .75; }
 .qq-policy-link > span:last-child { flex: none; font-size: 13px; }
 .inbox-title { padding-bottom: 12px; border-bottom: 1px solid var(--line, #d8d4c9); }
 .letter-row { display: flex; align-items: center; width: 100%; text-align: left; padding: 18px 0; gap: 14px; border-bottom: 1px solid var(--line, #d8d4c9); background: transparent; }
-.letter-avatar { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid #b7bdaf; background: #e7e9df; font-family: serif; font-size: 21px; flex: none; }
+.letter-avatar { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid #b7bdaf; background: var(--accent-soft); color: var(--ink); font-family: serif; font-size: 21px; flex: none; }
 .letter-content { flex: 1; min-width: 0; }
 .letter-title { display: flex; align-items: center; gap: 10px; justify-content: space-between; font-weight: 600; }
 .letter-title time { flex: none; font-size: 11px; font-weight: 400; opacity: .5; }
@@ -51,8 +51,13 @@ select{font:inherit;min-height:48px;border:1px solid var(--line);border-radius:6
 .qq-new form { padding-top: 14px; }
 .letter-thread .section-title h2 { font-size: 18px; overflow-wrap: anywhere; }
 .letter-messages { padding: 14px 0; max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; }
-.message.qq-peer .bubble { border-left: 3px solid #8c9a82; background: #e8eadf; border-radius: 0 12px 12px 12px; }
+.message.qq-peer .bubble { border-left: 3px solid #8c9a82; background: var(--accent-soft); color: var(--ink); border-radius: 0 12px 12px 12px; }
 .qq-composer { display: flex; align-items: stretch; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line, #d8d4c9); background: var(--paper, #f5f1e8); }
 .qq-composer textarea { flex: 1; min-width: 0; margin: 0; resize: vertical; }
 .qq-composer button { flex: none; }
 @media (max-width: 380px) { .qq-login, .qq-onboarding { padding: 16px; } .qq-policy-link { padding: 14px; } .letter-title { font-size: 14px; } }
+
+.download-progress { margin: 16px 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1.8; }
+.download-progress progress { display: block; width: 100%; height: 10px; accent-color: var(--accent); margin-bottom: 8px; }
+.download-options { margin: 18px 0; }
+@media(prefers-color-scheme:dark) { :root { --danger: #efa69a; } .danger { color: var(--danger); } }
