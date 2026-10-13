@@ -43,6 +43,25 @@ class RootfsExtractor(
         }
         return parts.joinToString("/")
     }
+    private fun validateSymbolicChain(entry: Entry, entries: Map<String, Entry>) {
+        val parts = entry.name.substringBeforeLast('/', "").split('/').filter { it.isNotEmpty() }.toMutableList()
+        val pending = ArrayDeque(entry.target.split('/'))
+        var expansions = 0
+        while (pending.isNotEmpty()) when (val part = pending.removeFirst()) {
+            "", "." -> Unit
+            ".." -> { require(parts.isNotEmpty()) { "符号链接链越界" }; parts.removeAt(parts.lastIndex) }
+            else -> {
+                parts.add(part)
+                val link = entries[parts.joinToString("/")]
+                if (link?.kind == "symbolic") {
+                    require(++expansions <= 256) { "符号链接循环或链过长" }
+                    symbolicTarget(link)
+                    parts.removeAt(parts.lastIndex)
+                    for (token in link.target.split('/').asReversed()) pending.addFirst(token)
+                }
+            }
+        }
+    }
     private fun archive(action: (TarArchiveInputStream) -> Unit) {
         open().use { input -> GzipCompressorInputStream(input).use { gzip -> TarArchiveInputStream(gzip).use(action) } }
     }
@@ -50,6 +69,7 @@ class RootfsExtractor(
     private fun next(tar: TarArchiveInputStream): Entry? {
         val source = tar.nextTarEntry ?: return null
         return Entry(path(source.name), when {
+            source.isSparse -> "unsupported"
             source.isDirectory -> "directory"
             source.isSymbolicLink -> "symbolic"
             source.isLink -> "hard"
@@ -100,7 +120,7 @@ class RootfsExtractor(
             when (entry.kind) {
                 "file" -> expected += entry.size
                 "hard" -> expected += resolve(entry).size
-                "symbolic" -> symbolicTarget(entry)
+                "symbolic" -> { symbolicTarget(entry); validateSymbolicChain(entry, entries) }
             }
             require(expected <= quota) { "解包总大小超限" }
         }

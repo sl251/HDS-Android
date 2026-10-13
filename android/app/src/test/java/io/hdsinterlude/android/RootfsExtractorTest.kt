@@ -66,6 +66,10 @@ class RootfsExtractorTest {
         reject(Item("a", target = "../../outside", kind = TarConstants.LF_SYMLINK))
     }
     @Test fun rejectsSymlinkParentRegardlessOfOrder() = reject(Item("a/file", "x"), Item("a", target = "dir", kind = TarConstants.LF_SYMLINK))
+    @Test fun rejectsEscapeHiddenBehindSymlinkThenParentTraversal() = reject(
+        Item("a", target = ".", kind = TarConstants.LF_SYMLINK),
+        Item("escape", target = "a/../outside", kind = TarConstants.LF_SYMLINK))
+    @Test fun rejectsSymbolicLinkCycle() = reject(Item("a", target = "b", kind = TarConstants.LF_SYMLINK), Item("b", target = "a", kind = TarConstants.LF_SYMLINK))
     @Test fun rejectsDuplicateNormalizedPaths() = reject(Item("./file", "x"), Item("file", "x"), quota = 2)
     @Test fun countsHardlinkCopiesAgainstQuota() = reject(Item("file", "x"), Item("alias", target = "file", kind = TarConstants.LF_LINK), quota = 1)
     @Test fun rejectsSpecialEntries() = reject(Item("device", kind = TarConstants.LF_CHR))

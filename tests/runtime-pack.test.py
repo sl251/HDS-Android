@@ -56,4 +56,13 @@ class RuntimePackTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'escapes root'):
                 builder.pack_guest(guest, Path(directory) / 'guest.gz')
 
+    @unittest.skipUnless(os.name == 'posix', 'Symlink creation requires Linux CI')
+    def test_rejects_escape_behind_symbolic_parent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            guest = self.guest(directory)
+            (guest / 'a').symlink_to('.')
+            (guest / 'escape').symlink_to('a/../outside')
+            with self.assertRaisesRegex(RuntimeError, 'escapes root'):
+                builder.pack_guest(guest, Path(directory) / 'guest.gz')
+
 if __name__ == '__main__': unittest.main()

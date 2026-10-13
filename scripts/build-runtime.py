@@ -57,29 +57,47 @@ def pack_guest(guest, archive):
     return audit_guest(archive)
 
 def audit_guest(archive):
-    names = set()
+    entries = {}
     expanded = 0
     symbols = 0
     with tarfile.open(archive, 'r:gz') as source:
         for entry in source:
             parts = PurePosixPath(entry.name).parts
-            if entry.name.startswith('/') or '..' in parts or entry.name in names: raise RuntimeError('Unsafe/duplicate archive entry')
-            names.add(entry.name)
+            name = '/'.join(parts)
+            if entry.name.startswith('/') or '..' in parts or name in entries: raise RuntimeError('Unsafe/duplicate archive entry')
+            entries[name] = entry
             if entry.islnk(): raise RuntimeError('Guest archive must not contain hardlinks')
-            if entry.issym():
-                symbols += 1
-                if entry.linkname.startswith('/'): raise RuntimeError('Absolute guest symlink')
-                resolved = list(PurePosixPath(entry.name).parent.parts)
-                for part in PurePosixPath(entry.linkname).parts:
-                    if part == '..':
-                        if not resolved: raise RuntimeError('Guest symlink escapes root')
-                        resolved.pop()
-                    elif part != '.': resolved.append(part)
+            if entry.issym(): symbols += 1
             elif entry.isfile(): expanded += entry.size
             elif not entry.isdir(): raise RuntimeError('Unsupported guest archive entry')
-    for required in ['./opt/node/bin/node', './opt/hds/host.cjs']:
-        if required not in names: raise RuntimeError(f'Missing guest file: {required}')
-    return {'expandedBytes': expanded, 'entries': len(names), 'hardlinks': 0, 'symlinks': symbols}
+    for name, entry in entries.items():
+        parent = PurePosixPath(name).parent
+        while str(parent) != '.':
+            if str(parent) in entries and not entries[str(parent)].isdir(): raise RuntimeError('Guest parent is not a directory')
+            parent = parent.parent
+        if not entry.issym(): continue
+        if not entry.linkname or entry.linkname.startswith('/'): raise RuntimeError('Absolute/empty guest symlink')
+        parts = list(PurePosixPath(name).parent.parts)
+        pending = entry.linkname.split('/')
+        expansions = 0
+        while pending:
+            part = pending.pop(0)
+            if part in ('', '.'): continue
+            if part == '..':
+                if not parts: raise RuntimeError('Guest symlink escapes root')
+                parts.pop()
+            else:
+                parts.append(part)
+                link = entries.get('/'.join(parts))
+                if link and link.issym():
+                    expansions += 1
+                    if expansions > 256: raise RuntimeError('Guest symlink cycle')
+                    if not link.linkname or link.linkname.startswith('/'): raise RuntimeError('Absolute/empty guest symlink')
+                    parts.pop()
+                    pending = link.linkname.split('/') + pending
+    for required in ['opt/node/bin/node', 'opt/hds/host.cjs']:
+        if required not in entries or not entries[required].isfile(): raise RuntimeError(f'Missing guest file: {required}')
+    return {'expandedBytes': expanded, 'entries': len(entries), 'hardlinks': 0, 'symlinks': symbols}
 
 def download(spec, filename):
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
