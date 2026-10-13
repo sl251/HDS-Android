@@ -6,6 +6,24 @@ import org.json.JSONObject
 /** Settings migration/validation without Android or network access. Secrets never enter public rows. */
 class ModelSettingsCodec(private val presets: JSONArray) {
     private val roles = listOf("useForMain", "useForCompaction", "useForAlter")
+    // A pristine extra row is an accidental add, not a runnable connection.
+    // Never discard a draft with typed values or a previously saved secret.
+    fun emptyDraft(input: JSONObject, previous: JSONObject? = null): Boolean =
+        input.optString("preset", "custom") == "custom" &&
+            listOf("endpoint", "model", "modelsEndpoint", "apiKey", "encryptedKey").all { input.optString(it).isBlank() } &&
+            !input.optBoolean("credentialPresent") && previous?.optString("encryptedKey").isNullOrEmpty()
+
+    fun configuredRows(rows: JSONArray, previous: JSONArray = JSONArray()): JSONArray {
+        require(rows.length() in 1..12) { "请配置 1 至 12 条模型连接" }
+        val result = JSONArray()
+        for (i in 0 until rows.length()) {
+            val row = rows.getJSONObject(i)
+            val old = (0 until previous.length()).map { previous.getJSONObject(it) }.firstOrNull { it.optString("id") == row.optString("id") }
+            if (!emptyDraft(row, old)) result.put(row)
+        }
+        require(result.length() > 0) { "请至少填写一条模型连接的 API 地址和模型名称" }
+        return result
+    }
     fun rows(settings: JSONObject): JSONArray {
         settings.optJSONArray("providers")?.let { return it }
         val legacy = JSONObject().put("id", "legacy-primary").put("preset", "custom").put("label", "原有模型连接")
@@ -24,6 +42,7 @@ class ModelSettingsCodec(private val presets: JSONArray) {
             ?: throw IllegalArgumentException("未知供应商预设")
         val protocol = if (presetId == "custom") input.optString("protocol", "chat-completions") else preset.getString("protocol")
         val endpoint = if (presetId == "custom") input.optString("endpoint").trim() else preset.getString("endpoint")
+        require(endpoint.isNotEmpty()) { "连接「${input.optString("label", "未命名") }」缺少 API 地址，请填写或删除此连接" }
         require(endpoint.length <= 2048) { "API 地址过长" }
         val result = JSONObject().put("id", id).put("preset", presetId).put("mode", preset.getString("mode"))
             .put("protocol", protocol).put("endpoint", ModelEndpoint.resolve(endpoint, protocol))

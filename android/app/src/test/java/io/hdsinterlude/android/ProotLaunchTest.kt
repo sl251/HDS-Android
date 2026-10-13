@@ -23,4 +23,28 @@ class ProotLaunchTest {
         assertFalse(args.contains("/usr/bin/env"))
         assertEquals(listOf("/opt/node/bin/node", "/opt/hds/host.cjs"), args.takeLast(2))
     }
+
+    @Test fun retriesEnosysWithAccelerationAndRemovesInheritedDisableFlag() {
+        val attempts = mutableListOf<Boolean>()
+        val selected = ProotLaunch.selectProfile { disabled ->
+            attempts.add(disabled)
+            if (disabled) ProotLaunch.ProbeResult(1, false, "ENOSYS uv_cwd")
+            else ProotLaunch.ProbeResult(0, false, ProotLaunch.PROBE_OK)
+        }
+        assertFalse(selected)
+        assertEquals(listOf(true, false), attempts)
+        val environment = mutableMapOf("PROOT_NO_SECCOMP" to "1")
+        ProotLaunch.configure(environment, "/native", "/tmp", selected)
+        assertFalse(environment.containsKey("PROOT_NO_SECCOMP"))
+    }
+
+    @Test fun retainsWorkingLegacyProfileAndRequiresExitAndActualProbeMarker() {
+        var calls = 0
+        assertTrue(ProotLaunch.selectProfile { calls++; ProotLaunch.ProbeResult(0, false, ProotLaunch.PROBE_OK) })
+        assertEquals(1, calls)
+        for (result in listOf(ProotLaunch.ProbeResult(0, false, "Node v24"), ProotLaunch.ProbeResult(1, false, ProotLaunch.PROBE_OK), ProotLaunch.ProbeResult(0, true, ProotLaunch.PROBE_OK))) {
+            assertFalse(result.passed)
+            assertThrows(IllegalStateException::class.java) { ProotLaunch.selectProfile { result } }
+        }
+    }
 }

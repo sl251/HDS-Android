@@ -1,6 +1,6 @@
 {
   "name": "hds-android",
-  "version": "0.1.0-preview.4",
+  "version": "0.1.0-preview.5.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,7 +17,9 @@
     "@cordisjs/plugin-http": "0.6.3",
     "@minatojs/driver-sqlite": "4.7.0",
     "koishi": "4.18.11",
+    "koishi-plugin-adapter-onebot": "6.9.5",
     "qface": "1.4.1",
+    "qrcode": "1.5.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "undici": "7.30.0",

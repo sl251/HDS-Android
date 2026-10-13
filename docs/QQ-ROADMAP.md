@@ -1,22 +1,45 @@
-# 下一阶段：手机本地 QQ
+# preview.5：手机本地 QQ 候选
 
-目标是在 App 内完成 QQ 登录或展示二维码，由 QQ 客户端确认后，本机 HDS 接收并回复私聊、群聊，逐步接通原项目的空间能力。当前 preview.4 未包含 QQ 登录或接入代码。
+preview.5.1 的 xauth 锁超时、空模型连接、下载进度和信箱深色主题反馈，见[修复与参考实现记录](QQ-PREVIEW5-FEEDBACK.md)。该记录区分本地测试与尚未完成的 APK / 真机验证。
 
-## 要先验证的技术路径
+本分支实现 NapCat 扫码登录、登录状态与快捷登录、OneBot 私聊/群聊文本收发、按角色保存的自动回复白名单，以及 App 信箱。真实账号扫码、Android PRoot 和锁屏存活需要用户在手机验证；Linux ARM64 检查不代替真机结论。
 
-[SnowLuma Android 文档](https://snowluma.github.io/en/docs/guide/deploy/mobile) 把移动端标为实验路径，指出 PRoot 与 ptrace 注入的冲突。现有 HDS 使用 PRoot，不能直接把 Linux 教程打包就承诺可用。其 [Linux 部署](https://snowluma.github.io/en/docs/guide/deploy/linux-manual) 还涉及 Linux QQ、显示环境与注入器，资源占用和许可需在选定方案后实测与核对。
+## 使用路径
 
-[NapCat 的 Termux 安装路径](https://github.com/NapNeko/NapCat-Installer/blob/main/script/install.termux.sh) 可作为另一项本机可行性参考，但不能据此假设 Android App UID、无外装 Termux、QQ 空间能力都已通过。
+1. 覆盖安装候选 APK，更新环境，选中角色并保存模型，启动 HDS。
+2. 打开“信箱”，点击“下载并准备组件”。从腾讯与 NapCat 官方地址下载约 235 MiB，逐个校验 SHA-256；需要至少 1.6 GiB 空闲空间。网络失败可重试，取消不会清除登录态。
+3. 点击“启动 QQ”，用官方 QQ 扫码确认。可保存二维码，尝试相册识别；不允许时在另一台设备展示二维码。App 不索取 QQ 密码，也不复用官方 Android QQ 的私有会话。
+4. 须达到“QQ 与 HDS 消息通道已连接”；二维码、已扫码或已登录均不等于消息通道在线。
+5. 在“角色自动回复”填写允许互动的 QQ 号/群号，再打开自动回复。空白名单拒绝全部；群内仅回应 @，使用 HDS 原有冷却和上下文。手动发送以登录 QQ 的身份发出。
 
-下一步先做一个独立、可停止的最小 QQ 运行实验：在应用 UID 内加载 ARM64 客户端与所需组件，产出真实二维码、完成用户确认、获取登录状态、收发一条私聊。检查是否与现有 PRoot 共存，再决定运行时方案。没有验证前不增加无效的“登录成功”界面。
+## 实现
 
-## 验收顺序
+`HdsRuntime` 保留单个 PRoot / Node 启动路径。`runtime/qq.ts` 在同一 PRoot 中监管 QQ 子进程，退出时关闭 OneBot 和 QQ。QQ 采用上游安装器的官方 Linux QQ + NapCat 应用入口路线，由独立监管的 Xvfb 提供容器内虚拟显示，不向 Android 桌面展示窗口。普通 Node 缺少 `qq_magic_napi_register`；QQ 的 Node 模式也未通过启动验证，因此采用上游实际使用的虚拟显示方案。GnuTLS 全局符号与 GTK/音频等 ELF 链接依赖一并固定。Xvfb 禁止 TCP 监听，并使用每次启动随机生成的 Xauthority cookie，防止同机其他进程连接虚拟显示。QQ 进程组与显示进程在停止时一并结束。
 
-1. **登录与生命周期**：二维码刷新/过期/扫码确认/退出/重登；登录态留在手机独立目录；后台、进程回收和覆盖升级后能明确恢复或要求重新登录。
-2. **私聊**：通过 OneBot/选定传输接入原 HDS；校验消息 ID、真实投递回执、断线重连、防重、白名单。App 本地通道与 QQ 身份分开。
-3. **群聊**：群与用户授权、触发策略、引用消息、并发与角色关系；优先接通原 HDS 行为。
-4. **空间**：分别验证读动态、发帖、评论、点赞等上游动作。接口无支持或未验证就显示未接入，不用“QQ 已连接”代表空间可用。
+- QQ 数据挂载到 `/qq-data`，对应私有 `noBackupFilesDir/hds/qq`，不在 rootfs 或某个人设目录内。修复环境、编辑人设和切换角色不会删除登录记录。切换角色会停止旧进程，重新启动 QQ 后可使用快捷登录。
+- 模型与 HDS 仍在原来的角色数据库内；QQ 通过 HDS `addStoryEndpoint` 加到当前故事，不创建第二套叙事核心。白名单按角色保存。
+- 管理 API 与 OneBot 仅监听 `127.0.0.1` 随机端口，使用不同的随机 token。WebView 不接触管理 token；操作经过原生 RPC 白名单。
+- 安装不运行联网 shell 脚本或 Debian 包维护脚本。组件固定来源见 `runtime/qq-components.ts`，Ubuntu 依赖见 `runtime/qq-libs.lock.json`。校验后解包到暂存目录，完成后才激活。
+- 使用兼容 Koishi 4.18 的 `koishi-plugin-adapter-onebot@6.9.5`。旧的带作用域 `@koishijs/plugin-adapter-onebot@6.0.2` 已弃用，不能与本项目的 Satori 4 混用。
+- 信箱按账号保存最近 2,000 条消息，每会话显示最近 200 条，单条信箱展示超过 4,000 字符时明确标注截断。重复入站在 Koishi 绑定前拦截；手动发送按 requestId 防重。结果不明时不自动重发，需在官方 QQ 核对。
+- 通知“停止全部”结束 HDS 与 QQ；运行期间使用带超时续期的部分唤醒锁，停止释放。它不保证免于 Doze、厂商回收或系统强停。
 
-最终安装体验由 App 管理运行组件和状态，不要求用户手工配置终端。能否复用系统 QQ 的既有登录态不是已验证能力；扫码通常仍需 QQ 客户端确认，网页登录授权也不等于获得收发消息权限。
+## 检查与边界
 
-组件体积、峰值内存、耗电、16 KiB 页面兼容、厂商后台回收、QQ 版本适配与异常退出恢复，都纳入真机门槛。先完成本地登录/私聊闭环，再扩展群聊与空间，避免一次引入整个未验证运行栈。
+preview.5 在 OriginOS 6 上的 HDS 启动收到 `uv_cwd / ENOSYS` 反馈；preview.5.1 增加真实 guest 启动前探测和两种 PRoot 追踪模式选择。不会覆盖 `process.cwd()` 返回假路径。参考 [运行器来源项目的启动模式选择](https://github.com/dphmoblie/deepseek-harness-android/blob/main/android/app/src/main/java/io/deepseekharness/mobile/runtime/RuntimeLaunchResolver.kt)，仅沿用“实际探测后选择”的思路。CI 新增 Linux ARM64 PRoot 运行 Node 探测；它仍不能代替 OriginOS 的系统策略验证。
+
+`tests/qq.test.ts` 使用真实 Koishi、HDS、SQLite、OneBot WebSocket 适配器和本地模型夹具，检查管理 API 鉴权、私聊白名单、@ 群触发与发送回执、共享故事、入站去重、手动文本防 CQ 注入与防重、停止后的投递门控。
+
+`scripts/qq-linux-smoke.ts` 在原生 ARM64 Linux 机器的实际打包 Ubuntu 用户空间中下载固定组件并尝试取得真实未扫描二维码。不登录账号、不发送 QQ 消息、不发布二维码或 token。以对应候选提交的 Actions 结果为准。
+
+尚待手机验证：扫码确认、真实私聊/群聊投递、断网重连、16 KiB 页设备、后台与耗电。尚未实现：QQ 空间、媒体上传/下载、好友管理、多账号同时在线、账号注销/清除登录态、旧聊天同步。图片/语音等显示类型占位，不宣称原项目完整多媒体能力。
+
+## 参考依据
+
+- [NapCat v4.18.38](https://github.com/NapNeko/NapCatQQ/tree/bbd0d2aca3d470c20b33b1d4f95123335633bf26)：读取登录 API、配置、进程与 wrapper 代码，不复制或修改实现。
+- [NapCat Termux 安装器](https://github.com/NapNeko/NapCat-Installer/blob/main/script/install.termux.sh)：证明 PRoot / Linux QQ 路线存在，不直接证明本 App 可用。
+- [Linux QQ](https://im.qq.com/linuxqq/download.html)：官方存在 Linux ARM64 客户端，无需 Windows/Wine。
+- [Lagrange 当前主线](https://github.com/LagrangeDev/Lagrange.Core)：V2 使用 Milky，旧版 OneBot/AOT 建议不能直接套用。本版未集成。
+- [Android-DIY-Sandbox](https://github.com/zz6zz666/Android-DIY-Sandbox)：参考容器管理方式，不将其当作 QQ 已通过的证据，未复制代码。
+
+先用测试账号验证。第三方客户端可能触发账号风控；不声称不同实现的风险相同，不提供设备指纹伪造。

@@ -30,6 +30,27 @@ def digest(path):
         for block in iter(lambda: stream.read(1024 * 1024), b''): value.update(block)
     return value.hexdigest()
 
+def compact_dri_aliases(guest):
+    """Mesa ships many driver names as hardlinks to one large DRI module.
+
+    Android cannot reliably create hardlinks. Preserve the names as relative
+    symlinks before pack_guest materializes other inodes, avoiding gigabytes of
+    duplicate driver data. The underlying library bytes remain unchanged.
+    """
+    directory = guest / 'usr/lib/aarch64-linux-gnu/dri'
+    if not directory.is_dir(): return
+    originals = {}
+    for path in sorted(directory.glob('*.so'), key=lambda p: (p.name != 'swrast_dri.so', p.name)):
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode): continue
+        key = (info.st_dev, info.st_ino)
+        if key not in originals:
+            originals[key] = path
+            continue
+        original = originals[key]
+        path.unlink()
+        path.symlink_to(original.name)
+
 def pack_guest(guest, archive):
     """Write every inode as a file, while preserving symbolic links exactly."""
     with tarfile.open(archive, 'w:gz', compresslevel=6) as bundle:
@@ -138,7 +159,8 @@ def main():
         shutil.rmtree(GUEST)
     unpack(download(LOCK['ubuntu'], 'ubuntu-arm64.tar.gz'), GUEST)
     unpack(download(LOCK['node'], 'node-arm64.tar.xz'), GUEST / 'opt/node', strip=1)
-    for deb in LOCK['debs']:
+    qq_libs = json.loads((ROOT / 'runtime/qq-libs.lock.json').read_text())
+    for deb in LOCK['debs'] + qq_libs:
         archive = download(deb, deb['name'] + '.deb')
         members = subprocess.check_output(['ar', 't', str(archive)], text=True).splitlines()
         data = next(name for name in members if name.startswith('data.tar.'))
@@ -169,6 +191,7 @@ def main():
     for name in ['package.json', 'package-lock.json']: shutil.copyfile(ROOT / 'runtime/profile' / name, profile / name)
     subprocess.run(['npm', 'ci', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], cwd=profile, check=True)
     shutil.copyfile(WORK / 'host.cjs', profile / 'host.cjs')
+    shutil.copyfile(ROOT / 'runtime/guest-probe.cjs', profile / 'guest-probe.cjs')
     shutil.copyfile(ROOT / 'upstream/hds-interlude/LICENSE', profile / 'HDS-LICENSE')
     LEGAL.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ROOT / 'docs/THIRD_PARTY.md', LEGAL / 'THIRD_PARTY.md')
@@ -211,10 +234,11 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(copyright_file, target)
     ASSETS.mkdir(parents=True, exist_ok=True)
+    compact_dri_aliases(GUEST)
     archive = ASSETS / 'rootfs.bundle'  # .gz suffix is stripped by AAPT; contents remain gzip.
     audit = pack_guest(GUEST, archive)
     expanded = audit['expandedBytes']
-    manifest = {'version': LOCK['version'], 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK}
+    manifest = {'version': LOCK['version'], 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK, 'qqLibraries': qq_libs}
     (ASSETS / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     (WORK / 'runtime-manifest.json').write_text(json.dumps(manifest, indent=2))
     print(f'Built runtime: {archive.stat().st_size // 1024 // 1024} MiB compressed / {expanded // 1024 // 1024} MiB expanded', flush=True)

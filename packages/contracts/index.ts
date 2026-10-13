@@ -14,6 +14,11 @@ export type ModelOptions = {
 }
 export type ModelSettings = { providers: ModelProvider[]; modelOptions: ModelOptions; userName: string; userProfile: string; autoAdvance: boolean }
 export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string }
+export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
+export type DownloadProgress = { component: string; receivedBytes: number; totalBytes?: number; bytesPerSecond: number }
+export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[] }
+export type QQConversation = { id: string; name: string; last: string; time: number; unread: number }
+export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
 export type NativeBridge = {
   status(): Promise<RuntimeStatus>;
   install(): Promise<void>;
@@ -21,6 +26,7 @@ export type NativeBridge = {
   diagnostics(options?: { probe?: boolean }): Promise<Record<string, unknown>>;
   copyDiagnostics(): Promise<void>;
   saveDiagnostics(): Promise<{ cancelled: boolean }>;
+  saveQQQr(options: { base64: string }): Promise<{ cancelled: boolean }>;
   start(): Promise<void>;
   stop(): Promise<void>;
   settings(): Promise<ModelSettings & { activeCard: string }>;

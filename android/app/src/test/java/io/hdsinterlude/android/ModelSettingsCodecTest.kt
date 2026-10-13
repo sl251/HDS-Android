@@ -8,6 +8,17 @@ import org.junit.Test
 class ModelSettingsCodecTest {
     private val codec = ModelSettingsCodec(JSONArray("""[{"id":"custom","mode":"openai-compatible","label":"自定义","protocol":"chat-completions","endpoint":""},{"id":"official","mode":"openai-official","label":"官方","protocol":"chat-completions","endpoint":"https://api.example/v1/chat/completions"}]"""))
     private fun row() = JSONObject("""{"id":"test","preset":"custom","endpoint":"https://example.com/v1","model":"model-a","enabled":true,"useForMain":true,"useForCompaction":true,"useForAlter":true}""")
+    @Test fun accidentalEmptyConnectionDoesNotBlockExistingModel() {
+        val blank = row().put("id", "accidental").put("endpoint", "").put("model", "")
+        val saved = codec.configuredRows(JSONArray().put(row()).put(blank))
+        assertEquals(1, saved.length())
+        codec.validateRows(JSONArray().put(codec.normalize(saved.getJSONObject(0))))
+        assertThrows(IllegalArgumentException::class.java) { codec.configuredRows(JSONArray().put(blank)) }
+        assertFalse(codec.emptyDraft(JSONObject(blank.toString()).put("apiKey", "typed-secret")))
+        assertFalse(codec.emptyDraft(JSONObject(blank.toString()).put("model", "unfinished")))
+        assertFalse(codec.emptyDraft(blank, row().put("encryptedKey", "saved-secret")))
+        assertFalse(codec.emptyDraft(JSONObject(blank.toString()).put("credentialPresent", true)))
+    }
     @Test fun legacyMigrationPreservesEncryptedCredentialAndAllThreeRoles() {
         val legacy = JSONObject("""{"endpoint":"https://example.com/v1","model":"old","encryptedKey":"cipher","keyIv":"iv"}""")
         val migrated = codec.rows(legacy).getJSONObject(0)

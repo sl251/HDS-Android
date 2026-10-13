@@ -59,6 +59,23 @@ class HdsRuntimePlugin : Plugin() {
         try { runtime().startAsync() } catch (failure: Throwable) { context.stopService(Intent(context, HdsService::class.java)); throw failure }
         JSONObject()
     } }
+    @PluginMethod fun saveQQQr(call: PluginCall) {
+        val data = call.getString("base64")
+        if (data == null || data.length > 256 * 1024 || !data.startsWith("iVBORw0KGgo")) { call.reject("无效二维码 PNG"); return }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).setType("image/png").addCategory(Intent.CATEGORY_OPENABLE)
+        intent.putExtra(Intent.EXTRA_TITLE, "HDS-QQ-login.png")
+        startActivityForResult(call, intent, "qqQrDestination")
+    }
+    @ActivityCallback private fun qqQrDestination(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        val uri = result.data!!.data!!
+        run(call) {
+            val bytes = Base64.decode(call.getString("base64"), Base64.NO_WRAP)
+            context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: throw IllegalArgumentException("无法保存二维码")
+            JSONObject().put("cancelled", false)
+        }
+    }
     @PluginMethod fun stop(call: PluginCall) { run(call) { runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java)); JSONObject() } }
     @PluginMethod fun cards(call: PluginCall) { run(call) { JSONObject().put("cards", runtime().store.listCards()) } }
     @PluginMethod fun saveCard(call: PluginCall) { run(call) {

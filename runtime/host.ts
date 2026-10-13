@@ -11,8 +11,9 @@ import { cardPrompt, type Card } from '../packages/card-format'
 import { mobileModelConfig } from './model-config'
 import type { ModelOptions, ModelProvider } from '../packages/contracts'
 import { personaDefaults, personaEditPatch } from './persona'
+import { QQRuntime } from './qq'
 
-export type HostConfig = { card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string }
+export type HostConfig = { card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
 export async function startHost(input: HostConfig) {
   if (!input.card?.name || !input.model || !input.endpoint || !input.token || input.token.length < 32) throw new Error('Missing valid host configuration')
   const endpoint = new URL(input.endpoint)
@@ -47,6 +48,7 @@ export async function startHost(input: HostConfig) {
     logging: { level: 'warn', colors: false, kaomoji: false, logMessageContent: false, logScriptPreview: false },
     timelineDirector: { enabled: input.autoAdvance },
     qzone: { enabled: false }, browser: { enabled: false },
+    onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
   let promptTrace: string[] = []
   config.model.mobileCardPrompt = request => {
@@ -91,7 +93,12 @@ export async function startHost(input: HostConfig) {
     await app.interlude.mobileRecordLocalOpening(story, current, input.card.firstMessage.replaceAll('{{char}}', input.card.name).replaceAll('{{user}}', input.userName || '我'))
   }
   let queue = Promise.resolve()
+  const qq = input.qqDir ? new QQRuntime(app, input.qqDir, input.dataDir, app.interlude.config, async account => {
+    const result = await app.interlude.addStoryEndpoint(story, 'onebot', account, 'qq')
+    if (!result.ok) throw new Error(result.error || '无法绑定 QQ 与当前角色故事')
+  }) : undefined
   const dispatch = async (method: string, payload: Record<string, unknown>) => {
+    if (method.startsWith('qq.')) { if (!qq) throw new Error('QQ 本机目录未配置'); return qq.dispatch(method, payload) }
     if (method === 'health') return { hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc' } } as never)).reverse()
     if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 30), memories: await app.interlude.memories(story.id, 20), promptTrace } }
@@ -134,8 +141,8 @@ export async function startHost(input: HostConfig) {
   })
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(input.port, '127.0.0.1', () => resolve()) })
   let shutdown: Promise<void> | undefined
-  const stop = () => shutdown ??= (async () => { await new Promise<void>(resolve => server.close(() => resolve())); await queue; bot.dispose(); await app.interlude.mobileDrainBeforeStop(); await app.stop() })()
-  return { app, bot, server, stop, dispatch }
+  const stop = () => shutdown ??= (async () => { await new Promise<void>(resolve => server.close(() => resolve())); await qq?.close(); await queue; bot.dispose(); await app.interlude.mobileDrainBeforeStop(); await app.stop() })()
+  return { app, bot, server, stop, dispatch, qq }
 }
 
 if (process.env.HDS_MOBILE_MAIN === '1') {
