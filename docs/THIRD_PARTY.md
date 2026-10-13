@@ -14,6 +14,8 @@
 
 实际运行时固定来源在 `runtime/sources.lock.json`。PRoot 为 GPL-2.0-or-later，其 Android 构建来自 Operit2（AGPL-3.0）固定提交 `dc4c3a9405dc7ed3ef69b2ac9a6ace65374d77cf` 的 `tools/android-runtime/`，包含 Termux PRoot 5.1.107.78 与 Android 补丁。两个导入 ELF 均验证 SHA-256；本仓库不宣称逐字节重建这些 ELF。
 
+参考 APK 整体哈希通过后，实际解出的 PRoot 哈希为 `07ef0b01a1506a364c9db3e5fe6ac9a530974371f9838bc7a5c6abb5097b4c78`；其内置说明仍列出另一个构建输入哈希。清单保留两者，不宣称二进制相同。PRoot/talloc 源码、固定 Operit 补丁与构建脚本由 `scripts/prepare-runner-source.mjs` 单独归档为发布附件。
+
 构建脚本将参考运行器的法律材料、Ubuntu copyright、Node LICENSE、HDS AGPL 和实际 guest npm 许可证加入 APK `assets/legal/`。Capacitor/React 是 MIT；Kotlin/AndroidX/Commons Compress/IO 为 Apache-2.0。npm 精确依赖见两个 package-lock.json。
 
 分发时应同时保留完整对应源码及构建材料；仅提供上游链接或提交号不等于完整对应源码。当前版本是用户私有仓库内的测试预览，不声明公开分发的合规审查已完成。
