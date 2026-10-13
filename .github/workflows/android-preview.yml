@@ -25,8 +25,16 @@ jobs:
       - name: Verify packaged Node cwd, file I/O and child execution under PRoot
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y proot
-          python3 scripts/probe-linux-proot.py
+          sudo apt-get install -y libtalloc-dev
+          git init "$RUNNER_TEMP/hds-proot-source"
+          git -C "$RUNNER_TEMP/hds-proot-source" fetch --depth=1 https://github.com/termux/proot a7147b50d708567dbf884d21e0f0c8698bba0d10
+          git -C "$RUNNER_TEMP/hds-proot-source" checkout --detach FETCH_HEAD
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/AAswordman/Operit2/dc4c3a9405dc7ed3ef69b2ac9a6ace65374d77cf/tools/android-runtime/patches/termux-proot-operit-android.patch -o "$RUNNER_TEMP/hds-proot.patch"
+          patch -d "$RUNNER_TEMP/hds-proot-source" -p1 < "$RUNNER_TEMP/hds-proot.patch"
+          mkdir -p "$RUNNER_TEMP/hds-proot-source/src/linux"
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/torvalds/linux/v5.10/drivers/staging/android/uapi/ashmem.h -o "$RUNNER_TEMP/hds-proot-source/src/linux/ashmem.h"
+          make -C "$RUNNER_TEMP/hds-proot-source/src" -j2
+          HDS_TEST_PROOT="$RUNNER_TEMP/hds-proot-source/src/proot" python3 scripts/probe-linux-proot.py
       - name: Verify QQ in actual packaged ARM64 userspace, without an account login
         run: |
           npx esbuild scripts/qq-linux-smoke.ts --bundle --platform=node --format=cjs --packages=external --outfile=runtime/generated/rootfs/opt/hds/qq-smoke.cjs

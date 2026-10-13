@@ -10,7 +10,7 @@ import subprocess
 root = Path(__file__).resolve().parents[1] / 'runtime/generated/rootfs'
 for name in ('hds-data', 'qq-data'):
     (root / name).mkdir(exist_ok=True)
-command = ['proot', '--kill-on-exit', '-0', '-r', str(root), '-b', '/dev', '-b', '/proc', '-b', '/sys', '-w', '/opt/hds', '/opt/node/bin/node', '/opt/hds/guest-probe.cjs']
+command = [os.environ['HDS_TEST_PROOT'], '--kill-on-exit', '-0', '-r', str(root), '-b', '/dev', '-b', '/proc', '-b', '/sys', '-w', '/opt/hds', '/opt/node/bin/node', '/opt/hds/guest-probe.cjs']
 passed = 0
 for disabled in (True, False):
     env = dict(os.environ, HOME='/root', HDS_MOBILE_MAIN='0', OPENSSL_CONF='/etc/ssl/openssl.cnf', LD_LIBRARY_PATH='')
