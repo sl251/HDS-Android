@@ -127,12 +127,13 @@ class RootfsExtractor(
         require(expected == quota) { "归档长度与清单不一致" }
         fun destination(entry: Entry): File = File(root, entry.name).also {
             require(it.toPath().normalize().startsWith(root.toPath().normalize()))
-            require(it.parentFile.isDirectory || it.parentFile.mkdirs()) { "无法创建父目录" }
+            val parent = requireNotNull(it.parentFile)
+            require(parent.isDirectory || parent.mkdirs()) { "无法创建父目录" }
         }
         fun copy(entry: Entry, input: InputStream, size: Long, mode: Int) {
             val target = destination(entry)
             require(!Files.exists(target.toPath(), NOFOLLOW_LINKS)) { "目标已存在" }
-            val temporary = Files.createTempFile(target.parentFile.toPath(), ".hds-", ".part").toFile()
+            val temporary = Files.createTempFile(requireNotNull(target.parentFile).toPath(), ".hds-", ".part").toFile()
             try {
                 temporary.outputStream().use { output ->
                     var remaining = size

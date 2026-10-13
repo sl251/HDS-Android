@@ -16,7 +16,7 @@ class RuntimeTransaction(
     val staging = File(environment, "staging")
     val previous = File(environment, "previous")
     fun deleteOwned(file: File) {
-        require(file.parentFile.canonicalFile == environment.canonicalFile && file.name in listOf("staging", "previous"))
+        require(file.parentFile?.canonicalFile == environment.canonicalFile && file.name in listOf("staging", "previous"))
         beforeDelete(file)
         if (!Files.exists(file.toPath(), NOFOLLOW_LINKS)) return
         fun remove(path: Path) {

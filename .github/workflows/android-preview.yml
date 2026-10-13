@@ -68,7 +68,7 @@ jobs:
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease assembleAndroidTest
+          ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease :app:assembleDebugAndroidTest
       - name: Package verification and release materials
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.2-arm64.apk
