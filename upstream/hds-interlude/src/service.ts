@@ -4271,7 +4271,15 @@ export class InterludeService extends Service {
     })
   }
 
+  // Mobile stop must retain Koishi/SQLite until streamed turns leave their finally blocks.
+  private mobileNarrativeTasks = new Set<Promise<void>>()
   private async flushBufferedNarrative(key: string, revision: number) {
+    const task = this.flushBufferedNarrativeBody(key, revision)
+    this.mobileNarrativeTasks.add(task)
+    try { await task } finally { this.mobileNarrativeTasks.delete(task) }
+  }
+
+  private async flushBufferedNarrativeBody(key: string, revision: number) {
     if (this.databaseResetting) return
     if (this.desktopRuntimePhase === 'paused') {
       // 已触发的定时器句柄若不清掉,resume 的 rescheduleTimers 会因 turn.timer
@@ -9310,6 +9318,7 @@ export class InterludeService extends Service {
   /** Android host drains connector snapshots before disposing the database. */
   async mobileDrainBeforeStop() {
     await this.setDesktopRuntimePhase('paused')
+    await Promise.allSettled([...this.mobileNarrativeTasks, ...this.queues.values()])
     await this.stop()
     await this.endpointRegistryInFlight
     await this.endpointWriteQueue

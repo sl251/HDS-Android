@@ -4,6 +4,9 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import { fromBase64, parseCard, type Card } from '../../packages/card-format'
 import type { Message, ModelSettings, NativeBridge, RuntimeStatus, SavedCard } from '../../packages/contracts'
 import './style.css'
+import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
+import { CardEditor } from './CardEditor'
+import { parsePersona, importBytes } from '../../packages/persona-format'
 
 const bridge = registerPlugin<NativeBridge>('HdsRuntime')
 type Page = 'chat' | 'cards' | 'story' | 'settings'
@@ -18,8 +21,7 @@ function App() {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
   const [cards, setCards] = useState<SavedCard[]>([])
   const [selected, setSelected] = useState('')
-  const [settings, setSettings] = useState<ModelSettings>({ endpoint: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat', credentialPresent: false, userName: '我', userProfile: '', autoAdvance: false })
-  const [apiKey, setApiKey] = useState('')
+  const [settings, setSettings] = useState<ModelSettings>({ providers: [newProvider()], modelOptions: defaultOptions, userName: '我', userProfile: '', autoAdvance: false })
   const [messages, setMessages] = useState<Message[]>([])
   const [story, setStory] = useState<{ story?: { status: string }; entries: { id: number; content: string; occurredAt: string; kind: string }[]; facts: { id: number; content: string }[]; memories: { id: number; content: string; summary?: string }[]; promptTrace: string[] } | null>(null)
   const [draft, setDraft] = useState('')
@@ -27,6 +29,9 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [preview, setPreview] = useState<{ card: Card; base64: string } | null>(null)
+  const [importChoices, setImportChoices] = useState<{ card: Card; base64: string }[]>([])
+  const [editingCard, setEditingCard] = useState<SavedCard | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<SavedCard | null>(null)
   const [newName, setNewName] = useState('')
   const [newProfile, setNewProfile] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
@@ -59,7 +64,7 @@ function App() {
         }
       } catch (error) { if (!stopped) setNotice(errorText(error)) } finally { polling = false }
     }
-    void poll(); const interval = setInterval(() => void poll(), 2200)
+    void poll(); const interval = setInterval(() => void poll(), 1000)
     return () => { stopped = true; clearInterval(interval) }
   }, [native])
   useEffect(() => { scroll.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length])
@@ -77,7 +82,16 @@ function App() {
     observer.observe(element)
     return () => observer.disconnect()
   }, [native])
-  const importCard = () => act(async () => { const file = await bridge.pickCard(); setPreview({ card: parseCard(fromBase64(file.base64)), base64: file.base64 }) })
+  const importCard = () => act(async () => {
+    const file = await bridge.pickCard()
+    const original = fromBase64(file.base64)
+    const choices = parsePersona(original).map(card => {
+      const bytes = importBytes(card, original)
+      let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte)
+      return { card, base64: btoa(binary) }
+    })
+    if (choices.length === 1) setPreview(choices[0]); else setImportChoices(choices)
+  })
   const savePreview = () => act(async () => {
     if (!preview) return
     const saved = await bridge.saveCard(preview)
@@ -106,8 +120,8 @@ function App() {
       {page === 'cards' && <>
         <div className="page-heading"><div><div className="eyebrow">CHARACTER LIBRARY</div><h1>故事里的人<span>。</span></h1><p>人设是起点，经历让她成为自己。</p></div><span className="chapter">02 / 角色</span></div>
         <div className="actions"><button className="primary" disabled={!native || busy} onClick={importCard}><Icon name="plus" />导入角色卡</button><button className="secondary" disabled={!native || busy} onClick={() => setCreateOpen(true)}>手动创建</button></div>
-        <p className="caption">JSON / PNG · Tavern V1 / V2 / V3<br />CHARX、压缩 PNG 元数据和第三方扩展暂不支持执行。</p>
-        <div className="card-list">{cards.map((saved, index) => <article className={`character ${saved.id === selected ? 'chosen' : ''}`} key={saved.id}><div className="character-number">{String(index + 1).padStart(2, '0')}</div><div className="character-body"><div className="character-title"><h2>{saved.card.name}</h2>{saved.id === selected && <span className="tag">当前角色</span>}</div><p>{saved.card.description || saved.card.personality || '尚未填写角色描述'}</p><span className="caption">{saved.card.format.toUpperCase()} · {saved.card.lorebook ? '含世界书' : '独立人设'} · {new Date(saved.importedAt).toLocaleDateString('zh-CN')}</span><div className="card-actions"><button disabled={busy || saved.id === selected} onClick={() => act(async () => { await bridge.selectCard({ id: saved.id }); setMessages([]); setStory(null); await refreshCards() }, '已切换角色，旧故事已保存。请重新启动 HDS。')}>{saved.id === selected ? '正在使用' : '使用这个角色'}</button><button onClick={() => setPreview({ card: saved.card, base64: '' })}>查看人设</button></div></div></article>)}</div>
+        <p className="caption">JSON / PNG / YAML · 酒馆 V1–V3 · typ0 / HDS koishi.yml<br />CHARX、压缩 PNG 元数据和第三方扩展暂不支持执行。</p>
+        <div className="card-list">{cards.map((saved, index) => <article className={`character ${saved.id === selected ? 'chosen' : ''}`} key={saved.id}><div className="character-number">{String(index + 1).padStart(2, '0')}</div><div className="character-body"><div className="character-title"><h2>{saved.card.name}</h2>{saved.id === selected && <span className="tag">当前角色</span>}</div><p>{saved.card.description || saved.card.personality || '尚未填写角色描述'}</p><span className="caption">{saved.card.format.toUpperCase()} · {saved.card.lorebook ? '含世界书' : '独立人设'} · {new Date(saved.importedAt).toLocaleDateString('zh-CN')}</span><div className="card-actions"><button disabled={busy || saved.id === selected} onClick={() => act(async () => { await bridge.selectCard({ id: saved.id }); setMessages([]); setStory(null); await refreshCards() }, '已切换角色，旧故事已保存。请重新启动 HDS。')}>{saved.id === selected ? '正在使用' : '使用这个角色'}</button><button onClick={() => setPreview({ card: saved.card, base64: '' })}>查看人设</button><button disabled={busy} onClick={() => setEditingCard(saved)}>编辑</button><button disabled={busy} className="danger" onClick={() => setDeleteTarget(saved)}>删除</button></div></div></article>)}</div>
         {!cards.length && <div className="quiet-empty">角色库还很安静。<br />为第一段故事选一个主角吧。</div>}
       </>}
       {page === 'story' && <>
@@ -122,12 +136,15 @@ function App() {
       {page === 'settings' && <>
         <div className="page-heading"><div><div className="eyebrow">YOUR OWN LITTLE WORLD</div><h1>让故事运行<span>。</span></h1><p>HDS 在手机内运行，模型通过你的 API 连接。</p></div><span className="chapter">04 / 设置</span></div>
         <section><div className="section-title"><h2>本机运行环境</h2><span className="tag">ARM64 · 开发预览</span></div><div className="runtime-card"><div className="runtime-symbol">hds<span>本地核心</span></div><div><b>{runtimeLabel}</b><p>{runtime?.progress || 'Ubuntu + Node + Koishi + HDS rc51'}</p>{runtime?.error && <p className="error">{runtime.error}</p>}</div></div><div className="actions"><button className="primary" disabled={!native || busy || ['installing', 'healthy', 'starting', 'stopping'].includes(runtime?.state || '')} onClick={() => act(() => bridge.install())}>{runtime?.environmentState === 'update-required' ? '更新本机环境' : runtime?.installed ? '修复本机环境' : runtime?.state === 'failed' ? '重试准备' : '准备本机环境'}</button><button className="secondary" disabled={!native || busy || !runtime?.installed || !active || ['healthy', 'starting', 'installing', 'stopping'].includes(runtime?.state || '')} onClick={() => act(() => bridge.start())}>启动 HDS</button>{runtime?.state === 'installing' ? <button className="secondary" disabled={busy} onClick={() => act(() => bridge.cancelInstall(), '取消请求已提交，等待当前操作安全结束。')}>取消准备</button> : <button className="secondary" disabled={!native || busy || !runtime?.running} onClick={() => act(() => bridge.stop(), 'HDS 已停止。')}>停止</button>}</div>{runtime?.environmentState === 'update-required' && <p className="caption">APK 包含新版环境，请先更新；角色和剧情独立保留。</p>}{runtime?.cleanupPending && <p className="caption">新版环境已提交，旧环境清理待重试。</p>}<p className="caption">首次安装从 APK 解包；无需 Termux 或电脑。启动前请先选择角色并保存模型。前台通知负责持续运行，系统强停后需手动重启。</p></section>
-        <section><h2>模型连接</h2><label>API 地址（Base URL 或完整接口）<input type="url" value={settings.endpoint} onChange={event => setSettings({ ...settings, endpoint: event.target.value })} placeholder="https://…/v1 或 …/v1/chat/completions" autoCapitalize="none" spellCheck={false} /></label><p className="caption">使用 OpenAI 兼容 Chat Completions 协议；/v1 地址会自动补全 /chat/completions。保存后显示实际请求地址。</p><label>模型名称<input value={settings.model} onChange={event => setSettings({ ...settings, model: event.target.value })} autoCapitalize="none" spellCheck={false} /></label><label>API Key <span className="caption">{settings.credentialPresent ? '已加密保存 · 留空保留原密钥' : '仅保存在手机原生加密存储'}</span><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} autoComplete="off" /></label><div className="actions"><button className="primary" disabled={!native || busy} onClick={() => act(async () => { await bridge.saveSettings({ ...settings, apiKey }); setApiKey(''); const saved = await bridge.settings(); setSettings(saved); setSelected(saved.activeCard) }, '模型设置已保存。运行中修改需停止后重新启动。')}>保存连接</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.rpc({ method: 'models.test' }); setNotice(String((result.data as { message: string }).message)) })}>测试已保存连接</button></div></section>
-        <section><h2>我与这个故事</h2><label>你的称呼<input value={settings.userName} onChange={event => setSettings({ ...settings, userName: event.target.value })} maxLength={128} /></label><label>你的故事人设<textarea rows={3} value={settings.userProfile} onChange={event => setSettings({ ...settings, userProfile: event.target.value })} maxLength={12000} placeholder="你在这个世界中的身份、与角色的关系…" /></label><label className="toggle"><input type="checkbox" checked={settings.autoAdvance} onChange={event => setSettings({ ...settings, autoAdvance: event.target.checked })} /><div><b>持续生活与主动联系</b><p>默认关闭。开启后 HDS 可在通知服务存活时自动调用模型，产生 API 费用。</p></div></label><p className="caption">修改后点击上方“保存连接”。已有故事的人设不会被设置刷新覆盖；新角色使用新的初始设置。</p></section>
+        <ModelCenter settings={settings} setSettings={setSettings} native={native} busy={busy} bridge={bridge} act={act} notify={setNotice} save={async () => { await bridge.saveSettings(settings); const saved = await bridge.settings(); setSettings(saved); setSelected(saved.activeCard) }} />
+        <section><h2>我与这个故事</h2><label>你的称呼<input value={settings.userName} onChange={event => setSettings({ ...settings, userName: event.target.value })} maxLength={128} /></label><label>你的故事人设<textarea rows={3} value={settings.userProfile} onChange={event => setSettings({ ...settings, userProfile: event.target.value })} maxLength={12000} placeholder="你在这个世界中的身份、与角色的关系…" /></label><label className="toggle"><input type="checkbox" checked={settings.autoAdvance} onChange={event => setSettings({ ...settings, autoAdvance: event.target.checked })} /><div><b>持续生活与主动联系</b><p>默认关闭。开启后 HDS 可在通知服务存活时自动调用模型，产生 API 费用。</p></div></label><p className="caption">修改后点击上方“保存全部设置”。已有故事的人设不会被设置刷新覆盖；新角色使用新的初始设置。</p></section>
         <section><h2>设备与诊断</h2><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || '—'} / rc51</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre>{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></section>
       </>}
     </main>
     <nav ref={navigation} aria-label="主导航">{(Object.keys(labels) as Page[]).map(key => <button key={key} className={key === page ? 'active' : ''} onClick={() => setPage(key)} aria-current={key === page ? 'page' : undefined}><Icon name={key} /><span>{labels[key]}</span></button>)}</nav>
+    {editingCard && <CardEditor key={editingCard.id} saved={editingCard} busy={busy} close={() => setEditingCard(null)} save={async card => { setBusy(true); try { await bridge.updateCard({ id: editingCard.id, card }); setEditingCard(null); await refreshCards(); setNotice('人设已修改，剧情与记忆保留。重新启动 HDS 后生效。') } finally { setBusy(false) } }} />}
+    {deleteTarget && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="删除角色确认"><h2>删除「{deleteTarget.card.name}」？</h2><p>将从角色库移除。已有剧情、记忆与原文件仍保留在本机，重新导入原文件可恢复。当前角色运行时会先停止 HDS。</p><div className="actions"><button className="secondary" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button><button className="primary" disabled={busy} onClick={() => void act(async () => { const id = deleteTarget.id; await bridge.deleteCard({ id }); setDeleteTarget(null); if (selected === id) { setMessages([]); setStory(null) } await refreshCards() }, '角色已从库中移除，历史保留。')}>确认删除</button></div></section></div>}
+    {importChoices.length > 0 && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="选择 HDS 人设"><div className="section-title"><h2>文件包含多个人设</h2><button aria-label="取消导入" onClick={() => setImportChoices([])}>×</button></div><p className="caption">选择要导入的 HDS 实例。</p>{importChoices.map((choice, index) => <button key={index} className="secondary wide" onClick={() => { setPreview(choice); setImportChoices([]) }}>{index + 1}. {choice.card.name}</button>)}</section></div>}
     {preview && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="角色卡预览"><div className="section-title"><span className="eyebrow">CHARACTER / {preview.card.format.toUpperCase()}</span><button aria-label="关闭" onClick={() => setPreview(null)}>×</button></div><h1>{preview.card.name}</h1><p className="preview-text">{preview.card.description}</p>{preview.card.personality && <><h3>性格</h3><p className="preview-text">{preview.card.personality}</p></>}{preview.card.firstMessage && <><h3>开场白</h3><p className="preview-text">{preview.card.firstMessage}</p></>}<h3>兼容说明</h3><ul>{preview.card.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>{preview.base64 && <button className="primary wide" disabled={busy} onClick={savePreview}>保存并使用这个角色<Icon name="arrow" /></button>}</section></div>}
     {createOpen && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="创建角色"><div className="section-title"><h2>写下一个人</h2><button aria-label="关闭" onClick={() => setCreateOpen(false)}>×</button></div><label>角色名称<input value={newName} onChange={event => setNewName(event.target.value)} maxLength={128} /></label><label>角色描述<textarea rows={6} value={newProfile} onChange={event => setNewProfile(event.target.value)} maxLength={262144} placeholder="身份、性格、说话方式与生活背景…" /></label><button className="primary wide" disabled={!newName.trim() || !newProfile.trim()} onClick={() => { const raw = JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: { name: newName.trim(), description: newProfile, personality: '', scenario: '', first_mes: '', mes_example: '', extensions: {} } }); const bytes = new TextEncoder().encode(raw); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); setPreview({ card: parseCard(bytes), base64: btoa(binary) }); setCreateOpen(false); setNewName(''); setNewProfile('') }}>预览角色<Icon name="arrow" /></button></section></div>}
   </div>

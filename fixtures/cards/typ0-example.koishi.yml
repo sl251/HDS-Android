@@ -1,0 +1,21 @@
+# Synthetic compatibility fixture; no real credentials or downloaded persona.
+plugins:
+  group:story:
+    hds-interlude:example:
+      storyDefaults:
+        characterName: 星禾
+        characterProfile: |-
+          在海边修理铺工作的年轻维修师。
+          说话简短，喜欢把小事认真做完。
+        userProfile: 偶尔带旧收音机来修理的邻居。
+        relationship: 熟悉的邻居
+        world: 当代海边小镇
+        location: 修理铺
+        perspective: 贴近角色的第三人称
+        perspectives:
+          - 从日常生活中注意到细微变化
+        supportingCast: 附近书店的店员
+        supplementaryFacts:
+          - 修理铺周日休息
+        style: 自然，具体，避免过度抒情
+        timezone: Asia/Shanghai

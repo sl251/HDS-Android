@@ -33,7 +33,7 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var error = ""
     @Volatile private var process: Process? = null
     @Volatile private var token = ""
-    @Volatile private var secret = ""
+    @Volatile private var secrets: List<String> = emptyList()
     @Volatile private var port = 0
     @Volatile private var cancelRequested = false
     @Volatile private var startupFailure = ""
@@ -91,7 +91,7 @@ class HdsRuntime private constructor(private val context: Context) {
     private fun appVersion() = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
     @Synchronized private fun log(line: String) {
         var safe = line.replace(Regex("\\u001B\\[[;\\d]*m"), "")
-        if (secret.isNotEmpty()) safe = safe.replace(secret, "[REDACTED]")
+        for (secret in secrets) if (secret.isNotEmpty()) safe = safe.replace(secret, "[REDACTED]")
         if (token.isNotEmpty()) safe = safe.replace(token, "[REDACTED]")
         if (safe.startsWith("HDS startup failed:")) startupFailure = safe.take(1500)
         output.addLast(safe.take(1500)); while (output.size > 200) output.removeFirst()
@@ -228,7 +228,8 @@ class HdsRuntime private constructor(private val context: Context) {
         File(rootfs, "etc/resolv.conf").writeText((if (dns.isEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns).joinToString("\n") { "nameserver $it" } + "\n")
         port = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
-        secret = store.apiKey()
+        val providers = store.runtimeProviders()
+        secrets = (0 until providers.length()).map { providers.getJSONObject(it).optString("apiKey") }
         val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath, "-b", "/dev", "-b", "/proc", "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
         for (path in listOf("/system", "/apex", "/linkerconfig")) if (File(path).exists()) args.addAll(listOf("-b", path))
         args.addAll(ProotLaunch.guestArgs())
@@ -237,7 +238,7 @@ class HdsRuntime private constructor(private val context: Context) {
         log("启动 PRoot：seccomp 默认开启，兼容内核 4.14.0，工作目录 /opt/hds")
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
-        val configuration = prefs.put("endpoint", ModelEndpoint.resolve(prefs.getString("endpoint"))).put("card", store.selectedCard()).put("apiKey", secret).put("token", token).put("port", port).put("dataDir", "/hds-data")
+        val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data")
         val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach { log(it) } } }, "hds-output").apply { start() }
         child.outputStream.write((configuration.toString() + "\n").toByteArray(Charsets.UTF_8)); child.outputStream.flush()
         val deadline = System.currentTimeMillis() + 90000
@@ -270,7 +271,7 @@ class HdsRuntime private constructor(private val context: Context) {
         try { child.outputStream.write("STOP\n".toByteArray()); child.outputStream.flush() } catch (_: java.io.IOException) { }
         if (!child.waitFor(15, TimeUnit.SECONDS)) { child.destroy(); if (!child.waitFor(5, TimeUnit.SECONDS)) child.destroyForcibly() }
         require(child.waitFor(5, TimeUnit.SECONDS)) { "核心未能停止；请暂勿切换角色" }
-        process = null; token = ""; secret = ""; port = 0; state = "stopped"; progress = "HDS 已停止，剧情保留在本机"; error = ""
+        process = null; token = ""; secrets = emptyList(); port = 0; state = "stopped"; progress = "HDS 已停止，剧情保留在本机"; error = ""
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {
         require(method in listOf("health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume")) { "不允许的本机 API 方法" }
@@ -288,33 +289,8 @@ class HdsRuntime private constructor(private val context: Context) {
             return result
         } finally { connection.disconnect() }
     }
-    fun testModel(): JSONObject {
-        val prefs = store.publicSettings()
-        require(prefs.optString("endpoint").isNotEmpty() && prefs.optString("model").isNotEmpty()) { "请先保存模型设置" }
-        val endpoint = ModelEndpoint.resolve(prefs.getString("endpoint"))
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
-        try {
-            connection.instanceFollowRedirects = false; connection.requestMethod = "POST"; connection.connectTimeout = 15000; connection.readTimeout = 60000; connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            val apiKey = store.apiKey(); if (apiKey.isNotEmpty()) connection.setRequestProperty("Authorization", "Bearer $apiKey")
-            val body = JSONObject().put("model", prefs.getString("model")).put("max_tokens", 32).put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply with OK.")))
-            connection.outputStream.use { it.write(body.toString().toByteArray()) }
-            val status = connection.responseCode
-            require(status in 200..299) {
-                val hint = when (status) {
-                    404 -> "接口路径或模型路由不存在；404 不代表密钥无效。请核对服务商的 Chat Completions 接口。"
-                    401, 403 -> "服务商拒绝认证或访问，请检查密钥权限。"
-                    429 -> "服务商限流或额度不足，请稍后重试。"
-                    else -> "服务商未接受请求，请核对模型与接口协议。"
-                }
-                "模型连接失败：HTTP $status。请求地址：${ModelEndpoint.display(endpoint)}。$hint"
-            }
-            val stream = connection.inputStream
-            val bytes = readLimited(stream, 1024 * 1024)
-            require(bytes.size <= 1024 * 1024 && (JSONObject(String(bytes, Charsets.UTF_8)).optJSONArray("choices")?.length() ?: 0) > 0) { "模型响应没有有效 choices" }
-            return JSONObject().put("data", JSONObject().put("message", "模型连接成功（真实 API 请求，可能产生少量费用）。"))
-        } finally { connection.disconnect() }
-    }
+    fun testModel(input: JSONObject): JSONObject = JSONObject().put("data", ModelClient().test(store.modelRequest(input, true)))
+    fun listModels(input: JSONObject): JSONObject = JSONObject().put("data", ModelClient().list(store.modelRequest(input, false)))
     private fun readLimited(input: InputStream, limit: Int): ByteArray = input.use { stream ->
         val result = ByteArrayOutputStream(); val buffer = ByteArray(8192)
         while (true) { val count = stream.read(buffer); if (count < 0) break; require(result.size() + count <= limit) { "响应超过大小上限" }; result.write(buffer, 0, count) }

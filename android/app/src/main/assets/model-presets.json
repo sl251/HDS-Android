@@ -1,0 +1,12 @@
+[
+  {"id":"custom","label":"自定义 / OpenAI 兼容","mode":"openai-compatible","protocol":"chat-completions","endpoint":"","model":""},
+  {"id":"deepseek","label":"DeepSeek","mode":"deepseek-official","protocol":"chat-completions","endpoint":"https://api.deepseek.com/v1/chat/completions","model":"deepseek-chat"},
+  {"id":"openai","label":"OpenAI","mode":"openai-official","protocol":"chat-completions","endpoint":"https://api.openai.com/v1/chat/completions","model":""},
+  {"id":"moonshot","label":"Kimi / Moonshot","mode":"moonshot-official","protocol":"chat-completions","endpoint":"https://api.moonshot.cn/v1/chat/completions","model":""},
+  {"id":"dashscope","label":"阿里云百炼 · 北京","mode":"dashscope-official","protocol":"chat-completions","endpoint":"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions","model":"qwen-plus"},
+  {"id":"siliconflow","label":"硅基流动","mode":"siliconflow-official","protocol":"chat-completions","endpoint":"https://api.siliconflow.cn/v1/chat/completions","model":""},
+  {"id":"openrouter","label":"OpenRouter","mode":"openrouter","protocol":"chat-completions","endpoint":"https://openrouter.ai/api/v1/chat/completions","model":""},
+  {"id":"zhipu","label":"智谱 GLM","mode":"zhipu-official","protocol":"chat-completions","endpoint":"https://open.bigmodel.cn/api/paas/v4/chat/completions","model":""},
+  {"id":"gemini","label":"Gemini · OpenAI 兼容","mode":"gemini-openai","protocol":"chat-completions","endpoint":"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions","model":""},
+  {"id":"anthropic","label":"Anthropic / Claude","mode":"openai-compatible","protocol":"anthropic-messages","endpoint":"https://api.anthropic.com/v1/messages","model":""}
+]

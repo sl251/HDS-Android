@@ -1,56 +1,49 @@
 # HDS Android
 
-将 HDS-Interlude Koishi 插件移植到 Android，在手机本地运行核心与 QQ 通道，通过用户配置的模型 API 推进叙事。
+在 Android 手机上运行 [HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude) 的叙事、记忆和持续生活核心。模型通过你配置的 API 调用，故事与人设保存在手机里。
 
-## 当前状态
+**当前候选：0.1.0-preview.4 · ARM64 · Android 8+。** 无需另装 Termux。preview.3 已收到用户“成功运行”的反馈；preview.4 的自动检查与真机结果分开记录。QQ 登录、私聊、群聊和空间是下一阶段目标，目前尚未接入。
 
-已发布 [0.1.0-preview.2 ARM64 修复预览版](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.2)（Android 8 / API 26 起，APK 约 91.8 MiB）。已实现 Kotlin/Capacitor 管理界面、手机内 Ubuntu/Node/Koishi/HDS rc51 宿主、JSON/PNG 角色卡导入、本地聊天与剧情查看。模型 API 由用户配置；运行环境随 APK 内置。构建与校验结果见 [修复与发布证据](docs/evidence/N06/preview-0.1.0-preview.2.md)。
+## 这一版能做什么
 
-QQ 私聊、群聊、QQ 空间尚未接入；这次交付不代表完整首版验收通过。Android 真机、后台存活和 16 KiB 页面设备仍需测试。测试步骤与已知边界见 [真机测试清单](docs/TEST-ON-PHONE.md)。
+- **模型中心**：供应商预设、自定义 Base URL、获取并搜索模型列表、手动填模型、测试当前连接。兼容 Chat Completions 与 Anthropic Messages。
+- **HDS 模型分工**：主叙事、记忆压缩、Alter 分析可分别指定连接；时间导演跟随记忆压缩。支持主叙事备用连接、优先级与轮询。
+- **流式首条回复**：沿用 HDS 的 SSE 实现，先显示首条完整回复，再完成剧本。需要供应商支持 SSE 和 JSON 模式，默认关闭。
+- **人设管理**：导入、创建、修改、从角色库删除。支持 Tavern JSON/标准 PNG，以及 [typ0](https://typ0.space/#browse) 下载的 `koishi.yml` 和 HDS 人设 JSON。
+- **本地聊天与剧情**：真实 Koishi/HDS/SQLite 运行；不同角色各有独立故事。可查看剧情、事实、记忆，按需开启持续生活。
 
-首版目标包括 QQ 私聊、群聊、QQ 空间动态，以及实际进入 HDS 叙事的角色卡导入。优先保留原版 HDS 核心，采用 Kotlin、Capacitor/React、PRoot/Ubuntu ARM64 与 Node/Koishi 的方案。
+模型密钥通过 Android Keystore 加密保存，旧版单模型设置可继续使用。typ0 导入只接收 `storyDefaults` 人设字段；模型密钥、QQ 配置和其他运行分区不导入，预览会列出未应用内容。纯状态机预设暂不支持。
 
-`0.1.0-preview.2` 处理安装硬链接依赖、环境恢复/诊断与系统安全区。构建证据和真机未执行项见 [修复证据](docs/evidence/N06/preview-0.1.0-preview.2.md)，覆盖升级步骤见 [测试清单](docs/evidence/N06/TEST-UPGRADE.md)。候选不是完整首版，typ0/HDS 人设导入导出及 QQ/空间仍待后续实施。
+## 安装与使用
 
-## 开始实施
+从 [Actions 候选构建](https://github.com/sl251/HDS-Android/actions/workflows/android-preview.yml) 下载成功任务的 APK 附件。候选分支不代表已发布正式版本；构建附件有保存期限。完整检查结果见 [preview.4 说明](docs/MODEL-CENTER-AND-PERSONAS.md)。
 
-先阅读 [任务总览](HDS-Mobile-Plan/00-START-HERE.md) 与 [交接提示词](HDS-Mobile-Plan/06-HANDOFF-PROMPTS.md)，按 T01—T03 推进源码基线、工具链、手机运行和 QQ/空间验证。
+1. 覆盖安装同签名 APK，保留本机数据；不要先卸载。
+2. 在“角色”导入人设，检查预览并选中。typ0 文件直接选下载的 YAML，无需改扩展名。
+3. 在“设置”准备本机环境。模型中心填写地址、密钥，获取模型列表或手动输入模型名。
+4. 分配模型任务，测试当前连接，再保存全部设置。连接测试会产生少量 API 费用。
+5. 启动 HDS，在“对话”发送消息。“流式首条回复”可在模型中心开启。
 
-- [源码调查](HDS-Mobile-Plan/01-RESEARCH.md)
-- [架构与接口边界](HDS-Mobile-Plan/02-ARCHITECTURE.md)
-- [角色卡导入](HDS-Mobile-Plan/03-CARD-IMPORT.md)
-- [实施任务](HDS-Mobile-Plan/04-TASKS.md)
-- [验收标准](HDS-Mobile-Plan/05-ACCEPTANCE.md)
-- [固定来源](HDS-Mobile-Plan/sources.lock.json)
+修改运行中角色会先停止 HDS，重新启动后应用新设定，并保留历史。删除是从角色库移除，保留故事和原文件；重新导入原文件可恢复。模型设置的修改在下次启动生效。
 
-上游源代码与运行时分别遵守其各自许可证。HDS 固定源码及窄范围补丁位于 `upstream/hds-interlude`，运行时来源和校验值在 `runtime/sources.lock.json`；未复制或打包 SnowLuma、Linux QQ。
-
-## 构建预览版
+## 开发与文档
 
 ```sh
 npm ci --ignore-scripts
 npm test
-npm run build
-npx cap sync android
+npm run android:sync
 python3 scripts/build-runtime.py
 cd android
 ./gradlew lintRelease testReleaseUnitTest assembleRelease
 ```
 
-Android 打包需 Linux、Python 3.12、Node 24.11.1、Java 21、Android SDK 35。签名配置通过 `HDS_SIGNING_STORE` 和 `HDS_SIGNING_PASSWORD` 提供，私钥不提交到 Git。私有仓库 Actions 可复现完整流程并保存测试日志、签名验证、运行时清单和 APK。已授权的本机签名材料在忽略目录 `.tools`，升级时需复用并自行备份。
+完整 APK 构建使用 Linux、Node 24.11.1、Python 3.12、Java 21、Android SDK 35。运行时来源由 `runtime/sources.lock.json` 固定；签名通过 `HDS_SIGNING_STORE`、`HDS_SIGNING_PASSWORD` 提供，私钥不进仓库。推荐复用 Actions 工作流，它会保留测试报告、校验值和对应源码包。
 
-## 复现 HDS 基线
+- [手机测试与已知限制](docs/TEST-ON-PHONE.md)
+- [模型中心、人设兼容与参考设计](docs/MODEL-CENTER-AND-PERSONAS.md)
+- [手机本地 QQ 接入路线](docs/QQ-ROADMAP.md)
+- [与 HDS 上游的补丁边界](docs/MOBILE-PATCHES.md)
+- [第三方来源与许可](docs/THIRD_PARTY.md)
+- [早期实施记录](HDS-Mobile-Plan/00-START-HERE.md) · [原始基线结果](docs/evidence/T01/baseline.md)
 
-需要 Git、Node.js 24.11.1 和 npm 11.6.2；在仓库根目录执行：
-
-```powershell
-node scripts/prepare-hds-baseline.mjs
-npm ci --ignore-scripts --prefix tools/hds-baseline
-node scripts/inventory-hds.mjs
-node scripts/verify-hds-baseline.mjs
-node scripts/build-hds-baseline.mjs
-```
-
-原始检查存在已记录的失败，因此 `verify-hds-baseline.mjs` 当前返回非零；原因与测试数量见 [基线报告](docs/evidence/T01/baseline.md)。`build-hds-baseline.mjs` 直接从源码打包并检查插件导出，尚不包含声明文件或 Android 宿主。
-
-[功能盘点](docs/feature-parity.csv) 保留完整产品目标的基线，当前预览版仅覆盖上述本地链路。HDS 来源和许可证见 [第三方说明](docs/THIRD_PARTY.md)，源码修改见 [移动补丁说明](docs/MOBILE-PATCHES.md)。
+HDS 固定在 rc51，保留其 AGPL-3.0 许可证与来源。APK 包含 Ubuntu/Node/PRoot 等各自许可的组件；目前未包含 Linux QQ 或 SnowLuma。后台存活、16 KiB 页面设备与 QQ 功能仍需真实设备验证。

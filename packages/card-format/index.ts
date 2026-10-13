@@ -1,8 +1,10 @@
 export type Card = {
-  format: 'v1' | 'v2' | 'v3'; name: string; description: string; personality: string;
+  format: 'v1' | 'v2' | 'v3' | 'hds'; name: string; description: string; personality: string;
   scenario: string; firstMessage: string; alternateGreetings: string[]; examples: string;
   systemPrompt: string; postHistoryInstructions: string; creatorNotes: string;
   raw: Record<string, unknown>; lorebook: Record<string, unknown> | null; warnings: string[];
+  hds?: { storyDefaults: Record<string, string | string[]> };
+  revision?: number;
 }
 const MAX_JSON = 5 * 1024 * 1024
 const decoder = new TextDecoder('utf-8', { fatal: true })

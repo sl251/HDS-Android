@@ -71,13 +71,33 @@ class HdsRuntimePlugin : Plugin() {
         val id = call.getString("id") ?: throw IllegalArgumentException("缺少角色 ID")
         runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java)); runtime().store.select(id); JSONObject()
     } }
+    @PluginMethod fun updateCard(call: PluginCall) { run(call) {
+        val id = call.getString("id") ?: throw IllegalArgumentException("缺少角色 ID")
+        val card = call.getObject("card") ?: throw IllegalArgumentException("缺少人设内容")
+        if (runtime().store.publicSettings().optString("activeCard") == id) {
+            runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java))
+        }
+        runtime().store.updateCard(id, card)
+    } }
+    @PluginMethod fun deleteCard(call: PluginCall) { run(call) {
+        val id = call.getString("id") ?: throw IllegalArgumentException("缺少角色 ID")
+        if (runtime().store.publicSettings().optString("activeCard") == id) {
+            runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java))
+        }
+        runtime().store.deleteCard(id); JSONObject()
+    } }
     @PluginMethod fun rpc(call: PluginCall) { run(call) {
         val method = call.getString("method") ?: throw IllegalArgumentException("缺少方法")
-        if (method == "models.test") runtime().testModel() else runtime().rpc(method, call.getObject("payload") ?: JSONObject())
+        val payload = call.getObject("payload") ?: JSONObject()
+        when (method) {
+            "models.test" -> runtime().testModel(payload)
+            "models.list" -> runtime().listModels(payload)
+            else -> runtime().rpc(method, payload)
+        }
     } }
     @PluginMethod fun pickCard(call: PluginCall) {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "image/png", "application/octet-stream", "text/plain"))
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "image/png", "application/octet-stream", "text/plain", "text/yaml", "application/yaml", "application/x-yaml"))
         startActivityForResult(call, intent, "cardPicked")
     }
     @ActivityCallback private fun cardPicked(call: PluginCall?, result: ActivityResult) {
