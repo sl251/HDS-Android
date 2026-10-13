@@ -45,10 +45,30 @@ export class QQRuntime {
   private policy: QQPolicy = { enabled: false, users: [], groups: [] }
   private inbox: Inbox = { messages: [], read: {}, requests: {} }
   private sending = Promise.resolve()
-  constructor(private app: Context, private directory: string, private profile: string, private config: any) {
+  private generation = 0
+  constructor(private app: Context, private directory: string, private profile: string, private config: any, private bindStory?: (account: string) => Promise<void>) {
     mkdirSync(directory, { recursive: true }); mkdirSync(join(directory, 'home'), { recursive: true }); mkdirSync(join(directory, 'config'), { recursive: true })
     if (existsSync(join(profile, 'qq-policy.json'))) this.policy = qqPolicy(JSON.parse(readFileSync(join(profile, 'qq-policy.json'), 'utf8')))
     this.applyPolicy()
+    const seen = new Set<string>()
+    app.on('bot-added', bot => {
+      // The adapter constructs its platform fields immediately after Bot's constructor.
+      queueMicrotask(() => {
+        if (bot.platform !== 'onebot') return
+        const dispatch = bot.dispatch.bind(bot)
+        bot.dispatch = session => {
+          if (session.type === 'message' || session.type === 'message-created') {
+            if (session.userId === session.selfId) return
+            const id = `${session.selfId}:${session.messageId}`
+            if (session.messageId) {
+              if (seen.has(id) || this.inbox.messages.some(message => message.id === id)) return
+              seen.add(id); if (seen.size > 4096) seen.delete(seen.values().next().value!)
+            }
+          }
+          return dispatch(session)
+        }
+      })
+    })
     app.middleware((session, next) => {
       if (session.platform !== 'onebot') return next()
       if (session.selfId !== this.account || session.userId === this.account || !this.policy.enabled) return
@@ -104,12 +124,14 @@ export class QQRuntime {
   private async poll() {
     if (!this.child || this.polling || this.closing) return
     this.polling = true
+    const generation = this.generation
     try {
       const status = await this.api('QQLogin/CheckLoginStatus')
-      if (this.closing || !this.child) return
+      if (this.closing || !this.child || generation !== this.generation) return
       this.loginOnline = status.isLogin === true && status.coreReady === true
       if (this.loginOnline) {
         const info = await this.api('QQLogin/GetQQLoginInfo')
+        if (this.closing || generation !== this.generation) return
         const account = String(info.uin || '')
         if (!/^[1-9]\d{4,14}$/.test(account)) throw new Error('QQ 返回无效账号')
         if (this.account !== account || !this.fork) {
@@ -117,6 +139,8 @@ export class QQRuntime {
           this.account = account; this.nickname = String(info.nick || account).slice(0, 100)
           this.inbox = existsSync(this.inboxFile()) ? JSON.parse(readFileSync(this.inboxFile(), 'utf8')) : { messages: [], read: {}, requests: {} }
           this.applyPolicy()
+          await this.bindStory?.(account)
+          if (this.closing || generation !== this.generation) return
           this.fork = this.app.plugin(OneBot, { selfId: account, protocol: 'ws', endpoint: `ws://127.0.0.1:${this.wsPort}`, token: this.wsToken, retryTimes: Infinity, retryInterval: 3000, retryLazy: 3000, responseTimeout: 15000 })
           for (const group of this.policy.groups) await this.app.database.upsert('channel', [{ platform: 'onebot', id: group, assignee: account }])
         }
@@ -130,6 +154,7 @@ export class QQRuntime {
         if (qr !== this.qr) { this.qr = qr; this.qrImage = qr && qr.length < 4096 ? await QRCode.toDataURL(qr, { width: 320, margin: 2 }) : '' }
       }
     } catch (error) {
+      if (this.closing || generation !== this.generation) return
       this.loginOnline = false
       if (this.phase === 'starting' && Date.now() - this.startedAt < 120000) return
       this.phase = 'failed'; this.error = `QQ 状态未就绪：${error instanceof Error ? error.message : '连接中断'}`
@@ -137,9 +162,9 @@ export class QQRuntime {
     } finally { this.polling = false }
   }
   async start() {
-    if (this.child || this.installation) throw new Error('QQ 正在运行或安装，请先停止')
+    if (this.child || this.installation || this.phase === 'starting') throw new Error('QQ 正在运行或安装，请先停止')
     if (!componentsReady(this.directory)) throw new Error('请先下载 QQ 组件')
-    this.closing = false; this.phase = 'starting'; this.progress = '启动本机 QQ，首次加载可能需要两分钟'; this.error = ''; this.logs = []; this.startedAt = Date.now()
+    this.generation++; this.closing = false; this.phase = 'starting'; this.progress = '启动本机 QQ，首次加载可能需要两分钟'; this.error = ''; this.logs = []; this.startedAt = Date.now()
     this.webToken = randomBytes(32).toString('hex'); this.wsToken = randomBytes(32).toString('hex'); this.credential = ''
     this.webPort = await freePort(); this.wsPort = await freePort()
     const configDir = join(this.directory, 'config')
@@ -151,6 +176,9 @@ export class QQRuntime {
       HOME: join(this.directory, 'home'), XDG_CONFIG_HOME: join(this.directory, 'home/.config'), NAPCAT_WORKDIR: this.directory,
       NAPCAT_WRAPPER_PATH: join(qq, 'wrapper.node'), NAPCAT_QQ_PACKAGE_INFO_PATH: join(qq, 'package.json'),
       NAPCAT_DISABLE_PIPE: '1', NAPCAT_DISABLE_TIME_SYNC: '1', NAPCAT_DISABLE_BYPASS: '1',
+      // Linux QQ's libbugly references GnuTLS symbols supplied by its desktop
+      // process. Node needs the same library in the global loader namespace.
+      LD_PRELOAD: '/usr/lib/aarch64-linux-gnu/libgnutls.so.30',
       LD_LIBRARY_PATH: [qq, join(qq, 'sharp-lib'), join(qq, 'lib'), join(root, 'opt/QQ'), '/usr/lib/aarch64-linux-gnu'].join(':'),
     }, stdio: ['ignore', 'pipe', 'pipe'] })
     this.child = child
@@ -162,7 +190,7 @@ export class QQRuntime {
     await this.poll()
   }
   async stop() {
-    this.closing = true; this.loginOnline = false; this.qrImage = ''; this.qr = ''
+    this.generation++; this.closing = true; this.loginOnline = false; this.qrImage = ''; this.qr = ''
     this.cancellation?.abort(); await this.installation
     if (this.fork) { await this.fork.dispose(); this.fork = undefined }
     const child = this.child

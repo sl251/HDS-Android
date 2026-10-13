@@ -93,7 +93,10 @@ export async function startHost(input: HostConfig) {
     await app.interlude.mobileRecordLocalOpening(story, current, input.card.firstMessage.replaceAll('{{char}}', input.card.name).replaceAll('{{user}}', input.userName || '我'))
   }
   let queue = Promise.resolve()
-  const qq = input.qqDir ? new QQRuntime(app, input.qqDir, input.dataDir, app.interlude.config) : undefined
+  const qq = input.qqDir ? new QQRuntime(app, input.qqDir, input.dataDir, app.interlude.config, async account => {
+    const result = await app.interlude.addStoryEndpoint(story, 'onebot', account, 'qq')
+    if (!result.ok) throw new Error(result.error || '无法绑定 QQ 与当前角色故事')
+  }) : undefined
   const dispatch = async (method: string, payload: Record<string, unknown>) => {
     if (method.startsWith('qq.')) { if (!qq) throw new Error('QQ 本机目录未配置'); return qq.dispatch(method, payload) }
     if (method === 'health') return { hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }

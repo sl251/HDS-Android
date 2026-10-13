@@ -56,6 +56,7 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     Object.assign(qq, { webPort: httpPort, webToken: 'fixture-secret' })
     assert.equal((await qq.api('QQLogin/CheckLoginStatus')).isLogin, false)
     Object.assign(qq, { account: '55555', nickname: '星禾', loginOnline: true })
+    await qq.bindStory('55555')
     qq.fork = host.app.plugin(OneBot, { selfId: '55555', protocol: 'ws', endpoint: `ws://127.0.0.1:${(ws.address() as any).port}`, token: 'fixture-ws-token', responseTimeout: 3000 })
     await waitFor(() => qq.status().online)
     const incoming = (id: number, user: number, text: string) => socket.send(JSON.stringify({ post_type: 'message', message_type: 'private', sub_type: 'friend', self_id: 55555, user_id: user, message_id: id, time: Math.floor(Date.now() / 1000), message: [{ type: 'text', data: { text } }], raw_message: text, font: 0, sender: { user_id: user, nickname: '邻居' } }))
@@ -73,6 +74,8 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     const history = await host.dispatch('qq.history', { conversation: 'private:12345' }) as any[]
     assert.equal(history.filter(row => row.id.endsWith(':1003')).length, 1)
     assert.ok(history.some(row => row.outgoing), 'Real HDS delivery must appear in QQ inbox')
+    const stories = await host.app.database.get('interlude_story', {})
+    assert.equal(stories.length, 1, 'QQ and local conversation must share the current persona story')
     const before = delivered.length, manual = { conversation: 'private:12345', content: '[CQ:at,qq=all] 原样文本', requestId: 'manual-message-001' }
     await host.dispatch('qq.send', manual); await host.dispatch('qq.send', manual)
     assert.equal(delivered.length, before + 1)
