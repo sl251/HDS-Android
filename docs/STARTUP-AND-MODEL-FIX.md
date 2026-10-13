@@ -32,6 +32,17 @@
 
 - 本地真实 Koishi / HDS / SQLite 与角色卡回归：5 项通过。
 - TypeScript 类型检查、Vite 构建、Capacitor Android 同步：通过。
-- 新增 JVM 回归 7 项：覆盖 Base URL、完整路径、查询参数、无效地址与 PRoot 参数；待 Android 构建环境执行。
-- 签名 APK 与 Android lint / 单元测试：等待获准推送候选分支后运行现有 Actions。当前机器没有 Android SDK / Java 21。
-- 目标手机启动与用户真实 API：未执行。没有使用用户 API 密钥。
+- Android JVM 回归：31 项通过、0 失败、0 忽略；其中新增 7 项覆盖 Base URL、完整路径、查询参数、无效地址与 PRoot 参数。
+- Kotlin 编译、Android lint、单元测试、release APK 和应用仪器测试 APK 编译：全部通过。仪器测试未在设备执行。
+- 不带密钥的服务商路由对照：原 `/v1` POST 返回 404，补全后的 `/v1/chat/completions` POST 返回 401。仅验证路由差异，未验证授权模型生成。
+- 目标手机启动与带密钥模型调用：未执行。没有使用用户 API 密钥。
+
+## 可安装候选
+
+- [Actions 构建 38380690563](https://github.com/sl251/HDS-Android/actions/runs/38380690563)：success。
+- 构建源码：`1c4b341cfcec0df7010f25810ae3c34151f31d31`；后续文档提交不改变 APK 来源。
+- 分支：`codex/fix-model-endpoint-proot-startup`。未合并 main，未创建 Release。
+- 文件：`artifacts/HDS-Android-0.1.0-preview.3-arm64.apk`，96,304,032 bytes，约 91.8 MiB。
+- SHA-256：`d710a7678ac2c3907efbe9bb678b15f187e05cc003372938b7cf414dae21a124`。
+- versionCode=3；证书与 preview.1 / preview.2 相同，具备覆盖升级条件。CI apksigner 验证通过，本地再次核对 APK 签名块证书。
+- APK CRC、rootfs 哈希/大小、原生 ELF 哈希通过；0 个硬链接。详见 [包审计](evidence/preview3/apk-audit.json)。
