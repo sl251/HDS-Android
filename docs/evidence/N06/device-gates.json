@@ -1,0 +1,13 @@
+{
+  "candidate": "0.1.0-preview.2",
+  "testedDevice": null,
+  "installationOnIqoo15": "NOT RUN",
+  "uidFileCapabilityProbe": "NOT RUN",
+  "nodeProotSqliteHdsOnPhone": "NOT RUN",
+  "sameSignatureUpgradeWithExistingProfiles": "NOT RUN",
+  "nativeInsetsKeyboardRotationFonts": "NOT RUN",
+  "safSaveCancelPermissionFailure": "NOT RUN",
+  "page16KiB": "NOT RUN",
+  "otherAndroidVersionsManufacturers": "NOT RUN",
+  "note": "Source and Linux CI checks are separate from all device gates. No user paid model request was made."
+}

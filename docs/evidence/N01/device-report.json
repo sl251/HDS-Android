@@ -1,0 +1,10 @@
+{
+  "status": "NOT RUN",
+  "userConfirmed": { "model": "iQOO 15", "system": "OriginOS 6", "app": "0.1.0-preview.1" },
+  "sdk": null,
+  "webview": null,
+  "pageSize": null,
+  "abi": null,
+  "build": null,
+  "note": "Collect in candidate app using Settings > installation diagnostics. No device connected during implementation."
+}

@@ -1,0 +1,13 @@
+id,status,evidence,remaining
+N01,BASELINE_RECORDED,docs/evidence/N01/baseline.md,Device API and WebView capture pending
+N02,IMPLEMENTED_DEVICE_PENDING,Native diagnostics and instrumentation sources,Actual UID probe and SAF operations NOT RUN
+N03,LINUX_REGRESSION_PASS,24 JVM tests including preview.1 real rootfs,Android extraction NOT RUN
+N04,UNIT_REGRESSION_PASS,Generation rollback and cleanup fault tests,Real process death and data-preserving upgrade NOT RUN
+N05,IMPLEMENTED_DEVICE_PENDING,MainActivity and UI build,Native bars cutout keyboard fonts screenshots NOT RUN
+N06,CANDIDATE_BUILT_DEVICE_PENDING,docs/evidence/N06/,iQOO 15 runtime gates NOT RUN
+N07,TODO,HDS-Android-Next-Plan/,Persona models and migration
+N08,TODO,HDS-Android-Next-Plan/,typ0 and unified import
+N09,TODO,HDS-Android-Next-Plan/,HDS persona mapping
+N10,TODO,HDS-Android-Next-Plan/,Persona export
+N11,TODO,HDS-Android-Next-Plan/,Persona end-to-end verification
+N12,TODO,HDS-Android-Next-Plan/,Device matrix and final delivery

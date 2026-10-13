@@ -10,6 +10,8 @@ QQ 私聊、群聊、QQ 空间尚未接入；这次交付不代表完整首版�
 
 首版目标包括 QQ 私聊、群聊、QQ 空间动态，以及实际进入 HDS 叙事的角色卡导入。优先保留原版 HDS 核心，采用 Kotlin、Capacitor/React、PRoot/Ubuntu ARM64 与 Node/Koishi 的方案。
 
+当前修复分支提供 `0.1.0-preview.2` 阶段 A 候选，处理安装硬链接依赖、环境恢复/诊断与系统安全区。构建证据和真机未执行项见 [修复证据](docs/evidence/N06/preview-0.1.0-preview.2.md)，覆盖升级步骤见 [测试清单](docs/evidence/N06/TEST-UPGRADE.md)。候选不是完整首版，typ0/HDS 人设导入导出及 QQ/空间仍待后续实施。
+
 ## 开始实施
 
 先阅读 [任务总览](HDS-Mobile-Plan/00-START-HERE.md) 与 [交接提示词](HDS-Mobile-Plan/06-HANDOFF-PROMPTS.md)，按 T01—T03 推进源码基线、工具链、手机运行和 QQ/空间验证。
