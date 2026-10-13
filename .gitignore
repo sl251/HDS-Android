@@ -19,6 +19,7 @@ local.properties
 runtime-data/
 .references/
 .tools/
+tools/hds-baseline/upstream/
 
 # Local editor and system files
 .idea/

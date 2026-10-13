@@ -1,0 +1,1168 @@
+✔ proactive actions dropped by the parse-level willingness gate are captured with reasons (3.0083ms)
+✔ normalizeDecision surfaces dropped proactive actions on advance turns without proactiveContact (1.6703ms)
+✔ normalizeDecision keeps legacy silence when proactiveContact is present (agency boundary owns judgment) (0.4207ms)
+✔ endpoint gate recovers a stale offline state when ctx.bots has a live matching bot (0.849ms)
+✔ endpoint gate still reports offline when no live bot matches the account key (0.3406ms)
+✔ endpoint cooldown still blocks background sends but not user-initiated replies (0.2819ms)
+✔ voided contact log entries do not consume the daily cap (0.9808ms)
+✔ recordOutgoingDeliveryFailure voids the pre-recorded contact budget entry (2.6243ms)
+✔ real story queue: advance withdrawal completes before queued incoming work (5.4528ms)
+✔ real story queue: intent-due withdrawal completes before queued incoming work (0.8341ms)
+✔ real sweep -> advanceStory releases sweepRunning and queued incoming after withdrawal (47.106ms)
+✔ withdrawal outside the queue waits for a genuine concurrent story task (3.1342ms)
+✔ withdrawal preserves a previously delivered segment (0.6402ms)
+✔ a withdrawal audit failure rejects its task without poisoning later incoming work (1.3405ms)
+✔ Agency scheduling: past request becomes a short future retry (5.5883ms)
+✔ Agency scheduling: request at commit time becomes a short future retry (0.4941ms)
+✔ Agency scheduling: valid future request is unchanged (0.2225ms)
+✔ Agency scheduling: clock is refreshed after the deduplication read (0.4236ms)
+✔ Agency scheduling: logical time still bounds a backwards host clock (0.2618ms)
+✔ Agency scheduling skips candidate: expired during model latency (0.3378ms)
+✔ Agency scheduling skips candidate: expired during deduplication read (0.1434ms)
+✔ Agency scheduling skips candidate: retry would exceed expiry (0.1171ms)
+✔ Agency scheduling skips candidate: retry at expiry is not scheduled (0.15ms)
+✔ Agency scheduling skips candidate: original request at expiry is not scheduled (0.1453ms)
+✔ Agency scheduling retains fingerprint deduplication (0.291ms)
+✔ Agency Window accepts only grounded, bounded practical state (4.6012ms)
+✔ capacity rules separate schedule, privacy and device access from emotion (0.65ms)
+✔ ordinary proactive contact respects the minimum interval while promises bypass it (0.3764ms)
+✔ contact candidates require a permitted target and real source evidence (8.1822ms)
+✔ candidate identity ignores wording changes and recheck time stays bounded (0.6471ms)
+✔ proactive checks are isolated from ordinary due messages for the same participant (0.8436ms)
+✔ Alter consumes only the analyzed snapshot and preserves concurrent scores and world changes (7.2635ms)
+✔ Alter discards stale analysis when accumulated scores are reversed (1.8221ms)
+✔ Alter discards stale analysis when accumulated scores are below threshold (1.2386ms)
+✔ Alter does not commit in-flight results after pause (1.159ms)
+✔ Alter does not commit in-flight results after generation (0.8125ms)
+✔ model Alter values are bounded integers and invalid values are ignored (1.2912ms)
+✔ dynamic threshold moves gradually from ten to seven under dense narration (2.5162ms)
+✔ same-direction movement strengthens while opposite movement decays (0.3815ms)
+✔ a trigger is completed only after a valid side-model description (0.9209ms)
+✔ legacy persisted Alter state is normalized without exposing duplicate weight (0.448ms)
+✔ Alter keeps relationship-local accumulation and analysis evidence in the same source bucket (0.5099ms)
+✔ Alter does not lose the 33rd active source during normalization (2.7893ms)
+✔ idle Alter scopes cannot evict a new participant or the protagonist life source (0.5018ms)
+✔ group event declares native audio evidence in both payload orders (39.5507ms)
+✔ Messages request lifts system, converts images and never sends OpenAI JSON mode (2.5854ms)
+✔ both payload orders retain exact JSON bytes; cache-first markers stop before live scene (11.1568ms)
+✔ Messages responses exclude thinking and normalize total input plus cache reads (2.2727ms)
+✔ native audio is explicitly unsupported and thinking sampling is compatible (0.5349ms)
+✔ protocol switching preserves gateway prefix; historical and official rows stay compatible (10.0238ms)
+✔ production main and visual side tasks use Messages while retaining the narrative contract (7.133ms)
+✔ side-task JSON path keeps max_tokens and does not retry uncapped on Messages (1.5884ms)
+✔ Anthropic SSE accumulates text only and counts cumulative usage once (178.056ms)
+✔ Anthropic truncated/error streams do not masquerade as completed script (49.8264ms)
+✔ production experimental early reply uses Anthropic SSE once and keeps the completed script (16.4751ms)
+✔ Messages failure can fall back to Chat Completions without changing payload content (2.5115ms)
+✔ whitespace-only delayed reply drops its message event instead of failing the commit (4.4327ms)
+✔ normal delayed reply still produces its message event (0.8494ms)
+✔ authored reference supplies exact words before normalization, across repeated resolver calls (4.908ms)
+✔ bad explicit ids and duplicate authored ids never create guessed outgoing text (0.4531ms)
+✔ a sole authored action rescues example-copied or omitted action ids in single-recipient private turns (0.3917ms)
+✔ the sole-action rescue stays private-scoped and never grabs a multi-channel action (0.3239ms)
+✔ legacy, delayed and already-streamed delivery keep existing content and scheduling (0.6006ms)
+✔ group and cross-contact references preserve scope and multi-bubble delivery ledger (4.942ms)
+✔ M10 20:18 phantom sending remains original prose but is explicitly unexecuted in both payload orders (33.3099ms)
+✔ new automatic original wins over its unexecuted plan without altering legacy projection (2.731ms)
+✔ local handoff replaces obsolete occupancy and activity without resetting the plot arc (1.7085ms)
+✔ handoff quotes are grounded and committed immediately without copying prose into a summary (2.218ms)
+✔ scene anchor no longer overwrites scene/arc summary with director prose (0.6789ms)
+✔ 19:39 feedback and subsequent response stay in one evidence chain without endorsing narrator interpretation (0.7469ms)
+✔ compactor receives no-action outcomes and interaction evidence, not a second confirmed timeline (4.3827ms)
+✔ main writing keeps unresolved contact and raw originals, without repeated real-time summaries (1.3623ms)
+✔ v4 source revisions survive reload and keep stale compaction from restoring local occupancy (2.2009ms)
+✔ delayed background review cannot reopen a completed working detail (2.4877ms)
+✔ new private life handoff still feeds Preplan without forwarding private prose or director guesses (0.9657ms)
+✔ 40 dense dialogue steps keep one original chain and preserve source-bound speech (38.0584ms)
+✔ a silent reply carrying a resolvable actionId is rescued to immediate in place (0.4258ms)
+✔ group replies nested inside interaction are promoted to top-level groupReply (0.2836ms)
+✔ soleActionReply survives undefined reply without crashing (0.2543ms)
+✔ agency-approved proactive contact synthesizes crossAction from script say actions (0.1924ms)
+✔ scripts without say markup produce no authoredActions for synthesis (0.1725ms)
+✔ 空格形式归一化为点分(贪心取最长命中) (2.1395ms)
+✔ 本就命中中间命令的空格写法保持语义不变 (0.3599ms)
+✔ 前缀保留;点分写法/未知子命令/裸命令不动 (0.4117ms)
+✔ default privacy no longer hides originals or ownership from the backstage editor (4.3003ms)
+✔ the editor only reads its own story and continues to exclude redacted originals (0.8112ms)
+✔ preceding originals retain scoped feedback and metadata without replaying them as the new increment (0.7104ms)
+✔ original character budget still takes a contiguous new prefix (0.5359ms)
+✔ preceding context remains limited to twelve non-redacted recent rows and the character budget (0.7284ms)
+✔ the live audience history visibility rule is unchanged (0.3037ms)
+✔ lite compaction example includes existing source ids and legal development instructions (0.9103ms)
+✔ full compaction example includes existing source ids and legal development instructions (0.4148ms)
+✔ feedback before the checkpoint supports its subsequent newly delivered response (30.6582ms)
+✔ old feedback alone cannot create a proposal or count as fresh evidence (0.5896ms)
+✔ reusing preceding feedback in the same scene keeps unique sources without raising confidence (1.5235ms)
+✔ relationship evidence outside the actually supplied context is not recovered from storage (0.4423ms)
+✔ cross-participant feedback remains invalid after the checkpoint fix (0.3364ms)
+✔ an unsent script passage cannot stand in for a delivered character response (0.446ms)
+✔ contested relationship reception still cannot create a proposal (0.368ms)
+✔ unresolved relationship reception still cannot create a proposal (0.2908ms)
+✔ a response that predates the actual feedback remains invalid (0.541ms)
+✔ non-relationship development continues to validate only the new increment (0.5535ms)
+✔ facts are not given the expanded relationship evidence range (0.7267ms)
+✔ completion logs name model output counts even when proposals were not persisted (0.4876ms)
+✔ existing direct compaction callers do not need preceding context (0.2729ms)
+✔ Console sections follow the documented setup order (3.2281ms)
+✔ chat actions are opt-in and platform-scoped (0.3797ms)
+✔ local sticker library is opt-in and requires an explicitly assigned visual provider (0.2617ms)
+✔ Blind Mode defaults to a minimal ten-minute heartbeat (0.348ms)
+✔ ignored compatibility switches stay out of the active Console (0.2777ms)
+✖ runtime and plugin exports share one version constant (4.7491ms)
+✔ layered colored logs are the Console default and remain optional (0.2615ms)
+✔ model Console centralizes connections and task assignment without exposing IDs (0.8851ms)
+✔ Zhipu official provider mode supplies its fixed endpoint and stream-capable task roles (1.1003ms)
+✔ official provider presets resolve independent Chat Completions endpoints (1.0789ms)
+✔ DeepSeek official provider exposes independent thinking controls (0.346ms)
+✔ OpenAI-compatible providers expose inherit thinking control by default (0.4722ms)
+✔ Explicit compatible-provider thinking control overrides extraBody thinking (0.582ms)
+✔ Agency Window exposes only the four bounded scheduling controls (0.2565ms)
+✔ Schedule Preplan is lightweight, enabled by default and reuses the compaction provider (0.188ms)
+✔ real model turns require non-empty narrative prose before they can succeed (0.2957ms)
+✔ memory compaction defaults leave a slightly wider short-conversation buffer (0.1901ms)
+✔ recent context combines a thirty-five-entry floor with a 45-minute raw-message window (0.1781ms)
+✔ Console exposes a separate, optional protagonist perspective layer (0.1341ms)
+✔ native audio understanding remains an opt-in main-model capability (0.1615ms)
+✔ group willingness is opt-in and remains scoped to each group rule (0.154ms)
+✔ group transport accepts its explicit field and the legacy immediate interaction fallback (1.0528ms)
+✔ reply-mode logs distinguish missing live replies from normal background silence (0.4842ms)
+✔ a silent turn that carries an actionId no longer hard-fails the turn (0.2316ms)
+✔ normalizeInteraction keeps seen and reply independent so unread silence cannot erase a sent message (0.556ms)
+✔ delayed replies outside the allowed window still collapse to none regardless of seen (0.5121ms)
+✔ visible Console section numbers are unique and continuous (0.6536ms)
+✔ candidate reveal description distinguishes inactive, vague and revealed candidates (0.2285ms)
+✔ Agency is opt-in in both schema and runtime, preserving explicit user settings (1.9242ms)
+✔ context compiler creates one seven-part scaffold without recomputing shared facts (3.1825ms)
+✔ scene evidence already visible in recentScript is not injected twice (0.621ms)
+✔ availableOutgoingEndpoints rides ongoingThreads and is dropped when absent (0.3792ms)
+✔ bubble reconstruction keeps transport binding: "在吗<sep/>" split=true (5.3753ms)
+✔ bubble reconstruction keeps transport binding: "<sep/>在吗" split=true (0.7002ms)
+✔ bubble reconstruction keeps transport binding: " <sep/> 在吗 <sep/> " split=true (0.5097ms)
+✔ bubble reconstruction keeps transport binding: "在吗||想好了吗||" split=true (0.5301ms)
+✔ bubble reconstruction keeps transport binding: "在吗<sep/>" split=false (0.5672ms)
+✔ bubble reconstruction keeps transport binding: " 在吗 " split=true (0.5284ms)
+✔ bookmark resolves original text, includes already delivered reply, excludes current incoming event (1.0771ms)
+✔ both payload orders retain clock evidence, open contact, source text and current event separately (33.4146ms)
+✔ 40 mixed fixture turns move the bookmark without turning silence into user input or rewriting originals (62.7727ms)
+✔ literal reuse observation never suppresses a new contact or modifies prose (1.0468ms)
+✔ positive continuation contract explicitly preserves renewed contact (1.5869ms)
+✔ retired rhythm state round-trips for rollback but never enters narrative context (2.1759ms)
+✔ incremental review exhausts an oversized backlog without skipping any original (2.1118ms)
+✔ empty or partial continuity output cannot acknowledge scene evidence (0.6425ms)
+✔ closing a reviewed scene retains the processed frontier despite later message arrival (1.7193ms)
+✔ failed arc persistence leaves the scene checkpoint untouched (0.5905ms)
+✔ image-only input remains an observed media event and never gains invented words (3.2092ms)
+✔ scene presence accepts explicit arrival/departure evidence and rejects inferred departures (3.2894ms)
+✔ automatic delivery summaries stay on background turns only (31.7051ms)
+✔ an in-flight request stays replaceable until its first reply is committed (1.8761ms)
+✔ cancelled split segments become interrupted typing context, not delivered dialogue (32.3158ms)
+✔ existing installations extend raw script entries with persistent embeddings (3.1906ms)
+✔ knowledge evidence is an additive nullable field and reload does not rebuild it (1.5275ms)
+✔ all bubbles retain the script event identity across delivery intents and receipts (2.5754ms)
+✔ typ-0 correlation survives persisted split-message payloads and async context ends cleanly (0.806ms)
+✔ partial requires actual delivery, while unfinished attempts remain pending (1.7588ms)
+✔ ledger read and write failures do not interrupt confirmation or remaining bubble scheduling (7.3128ms)
+✔ M6 ledger groups text and platform segments under their script event identities (1.7283ms)
+✔ M6 ledger reports partial and terminal delivery without downgrading delivered speech (0.9056ms)
+✔ cancelled is terminal: later bookkeeping cannot revive a withdrawn action (0.7487ms)
+✔ returning to pending for a retry clears the previous completion timestamp (0.7178ms)
+✔ a successful retry clears an earlier transport failure reason (0.6896ms)
+✔ M6 persistence changes metadata only and delivery preserves exact bubble text and source row (1.3704ms)
+✔ platform references resolve the exact action segment and reject absent actions (0.7426ms)
+✔ desktop bridge preserves traceId, creates one processingId per inbound round, and propagates it to realtime delivery (28.9582ms)
+✔ desktop bridge assigns independent context to replayed inbox records and advertises the capability (4.082ms)
+✔ desktop bridge forwards persisted background correlation metadata without relying on AsyncLocalStorage (3.728ms)
+✔ DialogueBurst identity follows scene identity rather than inactivity or message count (4.6047ms)
+✔ DialogueBurst changes on an explicit event boundary, scope change, or unrelated topic (1.5133ms)
+✔ stale online QQ endpoint may probe: onebot (2.6996ms)
+✔ stale online QQ endpoint may probe: onebot:v2 (0.3455ms)
+✔ stale online QQ endpoint may probe: napcat (0.1962ms)
+✔ stale online QQ endpoint may probe: napcat:v2 (0.1712ms)
+✔ stale online QQ endpoint may probe: qq:onebot (0.2016ms)
+✔ stale online QQ endpoint may probe: qq:onebot:v2 (0.1661ms)
+✔ TTL policy remains conservative without a known QQ/OneBot descriptor (0.2914ms)
+✔ stale QQ background private delivery reaches transport and refreshes only after receipt (2.5524ms)
+✔ failed probe starts existing five-minute cooldown, blocks repeats, and permits retry when due (1.5824ms)
+✔ stale QQ probe does not bypass endpoint-offline (0.8474ms)
+✔ stale QQ probe does not bypass endpoint-disabled (0.2978ms)
+✔ stale QQ probe does not bypass endpoint-cooldown (0.2375ms)
+✔ stale QQ probe does not bypass endpoint-not-deliverable (0.2643ms)
+✔ stale QQ probe does not bypass participant-not-allowed (0.2505ms)
+✔ stale QQ probe does not bypass endpoint-not-found (0.1615ms)
+✔ restored stale snapshot needs live connection evidence before QQ probe (0.444ms)
+✔ stale QQ proactive probe still respects expired-token (1.5574ms)
+✔ stale QQ proactive probe still respects forbidden-token (0.3233ms)
+✔ user-triggered reply keeps existing initiation-token exemption (0.319ms)
+✔ stale WeChat deliverability remains blocked even with valid initiation token (0.2813ms)
+✔ desktop health agrees with delivery/proactive gates without refreshing observations (0.8239ms)
+✔ default live-session reply still uses session send and refreshes stale endpoint after success (0.4419ms)
+✔ desktop transport uses stale QQ probe and existing success refresh (0.3922ms)
+✔ stale QQ group endpoint uses the same gate and outbound refresh (1.0865ms)
+✔ successful probe never refreshes a sibling account endpoint (0.3568ms)
+✔ bot status normalization accepts Koishi ONLINE and legacy online strings only (9.1385ms)
+✔ startup bot snapshot synchronizes already-online endpoints after registry load (1.9124ms)
+✔ derive functions project legacy single-endpoint shapes without inventing ids (0.9346ms)
+✔ endpointUniqueKey separates the three owner kinds (0.4288ms)
+✔ normalizeEndpointRow drops malformed rows and coerces optional fields (0.4904ms)
+✔ resolveInboundEndpoint follows the v3 boundary rules (0.8832ms)
+✔ channelContextMetadata carries the full disambiguated structure (0.3194ms)
+✔ restoreEndpointState never restores online truth across a restart (1.6855ms)
+✔ EndpointState is conservative: fresh/unknown, refreshed by inbound, cooled by failures, expired initiate (3.2361ms)
+✔ M1a migration derives endpoints that resolve identically to legacy fields (3.6595ms)
+✔ findBotForParticipant resolves via registry with legacy equivalence and drift-warns once (1.532ms)
+✔ canHandleStory whitelist judgment uses the registry-resolved account (1.5418ms)
+✔ M2-1.4: channelKindForAccount 按注册表判别，未注册默认 qq (39.4742ms)
+✔ M2-1.3: recordSource 追加端点并按接收序号排序 (9.938ms)
+✔ M2-1.2: sameParticipantEndpoint 冷注册表回落旧字段（单平台等价） (0.5613ms)
+✔ M3: resolveMostActiveEndpointId 选最近在线端点，无在线取首个启用 (4.66ms)
+✔ M3: appendProactiveContact 携带 endpointId 并保留审计窗口 (30.9258ms)
+✔ M4: projectChannelContext 五规则命中即标，不命中不标 (9.4276ms)
+✔ M4: narrator 提示词含 CHANNELS 规则行 (3.8572ms)
+✔ M3: narrator channel selection is enabled only for multi-platform target choices (0.6565ms)
+✔ episode navigation rebuilds identically and never groups separate relationships or scenes (10.943ms)
+✔ long preceding prose cannot displace the recall hit and source ids reflect included text (1.8482ms)
+✔ delivery reality preserves prose and distinguishes unconfirmed receipt from cancellation (0.6982ms)
+✔ compiled writing context excludes legacy rhythm directives and carries execution evidence (0.9423ms)
+✔ checkpoint provenance groups legacy original entries without merging relationships (0.4271ms)
+✔ cross-relationship action text stays out of delivery reality unless sharing is enabled (0.2795ms)
+✔ a narrative imagining acceptance remains interpretation, not mutual confirmation (2.3737ms)
+✔ actual acceptance can be recorded while retaining the original condition and relationship (1.5032ms)
+✔ missing or forged quotations never acquire stronger authority and old facts are not rewritten (0.4499ms)
+✔ condition chains retain whole originals, adjacent responses and missing-source markers without leaking branches (4.1403ms)
+✔ working-detail evidence survives state encoding without modifying its prose (2.0423ms)
+✔ main user and automatic windows keep contact conditions in both payload orders (33.0086ms)
+✔ unclassified or imagined completion cannot close a promise, and repeated belief adds no confidence (1.651ms)
+✔ 17:38 regression: a two-bubble terminal script block becomes one complete delivery event (3.9837ms)
+✔ tail repair respects non-actions, explicit action ids, custom separators and early-delivery idempotency (1.1131ms)
+✔ legacy knowledge rows persisted as empty objects never crash evidence reads (0.6034ms)
+✔ fix#1 normalizeDatabaseRow applies date fields to tables (2.5674ms)
+✔ fix#4 command guard recognizes dotted subcommands (0.6034ms)
+✔ fix#5 chinese half-past parses to :30 (43.9889ms)
+✔ fix#7 narrative-retry is excluded from live intents (0.5899ms)
+✔ fix#3 purgeAllStoryData invalidates history vectors (0.5496ms)
+✔ fix#2 schedule preplan migrates via create+remove, never set on primary key (1.4768ms)
+✔ fix#6 authored say survives trailing whitespace inside the tag (1.5397ms)
+✔ fix#8 stale materialized days are re-materialized locally before the window (3.698ms)
+✔ fix#9 timeline cursor parses dual-key and legacy formats (0.8124ms)
+✔ fix#10 flush failure schedules a narrative retry when nothing committed (2.0764ms)
+✔ fix#11 interruptedTyping flag is cleared even when cancel throws (1.1303ms)
+✔ fix#11 normal cancel path still clears the flag (0.2828ms)
+✔ follow-up commitment instructions are limited to live and due turns (2.4665ms)
+✔ only live and due prompt payloads carry the bounded commitment list (37.8724ms)
+✔ extracts forward ids from Koishi markup and CQ segments (3.6563ms)
+✔ normalizes mixed forward nodes with provenance and media placeholders (0.9604ms)
+✔ reads get_forward_msg only through the current session bot and expands nested nodes (1.6268ms)
+✔ returns bounded failure placeholder when action is unavailable (0.5008ms)
+✔ 合并转发图片引用收集：URL/file token 双路径，正文占位符保留 (26.6843ms)
+✔ ForwardReadResult 契约：failureResult 携带空 imageRefs (1.5135ms)
+✔ Interactions 头：API key 走 x-goog-api-key 而非 Bearer (2.0279ms)
+✔ Interactions 请求体：system/messages → system_instruction/input 步骤 + generation_config (4.3373ms)
+✔ Interactions 请求体：多模态 parts 映射（data URI 图片 → inline_data，URL → file_data，音频 → inline_data） (1.0285ms)
+✔ Interactions 响应：拼接 model_output 文本并归一化 usage（含缓存明细） (3.5541ms)
+✔ Interactions 响应：failed / incomplete / 空输出显式抛错（触发服务商重试而非静默截断） (1.3347ms)
+✔ Interactions usage：缺字段时返回 undefined 或部分字段 (0.2742ms)
+✔ 路由：gemini-interactions 预设获得独立协议与端点，embedding 任务被排除 (1.9511ms)
+✔ 端点规范化：gemini-interactions 协议把兼容层地址改写为 /interactions (0.4887ms)
+✔ fetch 失败诊断：cause 链与错误码拼进消息 (32.2039ms)
+✔ 路由：proxyAgent 透传到运行时 provider（供 postChat 分流） (0.4143ms)
+✔ 催化器截断回归：Gemini incomplete 错误文本必须命中 sideTaskJson 的重试正则 (7.2274ms)
+✔ Console exposes an opt-in per-group assignee without altering old config defaults (12.856ms)
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+✔ SQLite: switch old assignee, admit both group members and preserve other channel fields (256.4431ms)
+✔ SQLite: create only configured OneBot group and preserve ignore/user gates (83.4139ms)
+✔ disabled and unauthorized settings never write; blank assignee clears stale pinning (0.7379ms)
+✔ duplicate groups follow first enabled rule, and one database failure does not block later groups (0.787ms)
+✔ fresh group audio bypasses willingness and cooldown, reaches narrator once without forcing delivery (6.7796ms)
+✔ ordinary group text still obeys willingness (0.5459ms)
+✔ buffer retains audio sources with their original session when a later text arrives (0.727ms)
+✔ group claims the story before reading storage and releases it when storage fails (0.4562ms)
+✔ group-authored cross-conversation messages reach the shared delivery queue (1.4902ms)
+✔ reset invalidates a group draft already in flight without deleting a replacement buffer (0.7075ms)
+✔ group speaker labels retain both display name and stable QQ identity (2.0412ms)
+✔ chat action validation accepts only advertised actions and supplied message references (2.038ms)
+✔ group replies tolerate an incomplete compatibility interaction object (0.4135ms)
+✔ reaction allowlist is semantic, deduplicated and bounded (1.407ms)
+✔ native-face threshold is calibrated against reply meaning instead of a model-declared maximum (2.6947ms)
+✔ prompt payload hides message references until chat capabilities are active (31.5729ms)
+✔ quoted messages retain author ownership and bounded readable content (1.361ms)
+✔ quoted context is conditional and remains separate from the new message (2.5607ms)
+✔ group delivery uses the bot from the live session before stale story transport metadata (1.2903ms)
+✔ stale OneBot transport repairs only when its configured account is no longer online (1.0035ms)
+✔ a failed segment makes group delivery incomplete, even when an earlier segment arrived (0.705ms)
+✔ private visible messages are confirmed only after transport, while failed drafts stay system-owned (1.843ms)
+✔ tier calibration: normal first call lands on message 4~5 (baseline), neighbours scale around it (3.049ms)
+✔ off disables the gate entirely (legacy numbers ignored) (0.3888ms)
+✔ legacy numeric gate with preset off is treated as custom (migration-safe) (0.3794ms)
+✔ auto maps each life status to its configured tier (3.0728ms)
+✔ asleep blocks the mention bypass and multiplies probability (0.4851ms)
+✔ missing life status follows the configured idle tier, not a hardcoded tier (0.7059ms)
+✔ stale and invalid life status use idle and never retain the asleep penalty (1.0925ms)
+✔ fresh life status at the expiry boundary keeps its real state (0.3575ms)
+✔ reply cost uses the same idle fallback as the invocation gate (3.3411ms)
+✔ normalizeLifeStatusDraft accepts exactly the three documented values (0.5048ms)
+✔ all five tiers are distinct and ordered by invocation frequency (1.0432ms)
+✔ group willingness accumulates locally, respects threshold, and uses a bounded probability (1.4815ms)
+✔ mentions bypass group willingness while a sent group reply consumes score (0.4007ms)
+✔ disabled group willingness preserves the existing always-trigger behavior (0.2063ms)
+✔ semantic history recall keeps private branches and group transcripts out of another participant prompt (1.3763ms)
+✔ sticker filtering requests a live vector only for an active oversized library (0.3295ms)
+✔ raw history has a Chinese lexical recall lane without embeddings (1.5454ms)
+✔ a lexical anchor returns its contiguous original-script neighborhood (22.622ms)
+✔ alphatest embeds the 0.1.5 writing guidance while keeping v2 contracts (2.6003ms)
+✔ writing experiment retains owner additions and optional feature contracts (0.5503ms)
+✔ user-message logs read as a compact task timeline (7.8557ms)
+✔ Alter and error records use stable semantic markers (0.7136ms)
+✔ colors can be enabled and kaomoji can be replaced by simple symbols (0.4753ms)
+✔ dark and light themes use separate high-contrast 256-color palettes (0.5752ms)
+✔ Agency decisions have a distinct subjectivity marker (0.4455ms)
+✔ isEligibleNarrativeEntry：叙事 kind 计入，技术/空内容不计入 (2.2326ms)
+✔ resolveConversationKind：metadata 优先 > M4 通道标注 > kind 反推 > unknown (0.4798ms)
+✔ resolveConversationKind：script 优先读取 scriptEvents，避免群聊渲染行按私聊计权 (0.3386ms)
+✔ advanceLongHorizonGenerationBaseline：隐私过滤空窗口只消费一次复核基线 (2.1769ms)
+✔ calculateLongHorizonScore：私聊 1.0 / 群聊 0.5 / unknown 0 (0.5257ms)
+✔ calculateLongHorizonScore：script 群聊按 0.5 计权，混合 script 不计权 (0.2729ms)
+✔ calculateLongHorizonScore：设计文档 §4.2 示例数值验证 (0.4612ms)
+✔ shouldTriggerLongHorizon：首次达阈值/复审增量/未达阈值 (1.2336ms)
+✔ normalizeLongArcGuidance：合法催化输出通过、缺证据/非法字段拒绝 (1.5521ms)
+✔ P2-1：无 decision 字段保守落为 dormant，不创建 active 指导 (0.4476ms)
+✔ normalizeLongArcDecision：prime 允许尚未发生的首次微表达 (0.3539ms)
+✔ normalizeLongArcDecision：dormant 是合法无写入结果，不需要伪造弧线 (0.2389ms)
+✔ normalizeLongArcDecision：显式催化决策缺首次表达或响应分支时拒绝 (0.2952ms)
+✔ resolveLongHorizonConfig：默认关闭 + 范围夹取 (0.3231ms)
+✔ 进度更新载荷不得包含主键 storyId（cannot modify primary key 回归） (10.311ms)
+✔ P1-3: accountKey 平台隔离——onebot 家族折叠、原生平台专属键、同号不碰撞 (2.2569ms)
+✔ P1-1: 注册表就绪后，未注册 OneBot 账号被拒绝挂载（不触发全局 fallback/重绑） (0.7545ms)
+✔ P1-2: 运行期增量登记——新故事同步补端点行与别名 (1.6809ms)
+✔ P1-5: 多角色端点时 repair 不改写任何地址，只刷新命中端点状态 (0.8417ms)
+✔ P1-6: findParticipant 注册表 user 端点优先命中（旧字段不匹配也能找到链接端点） (0.5596ms)
+✔ P2-7: 暂停故事同样登记端点与别名（$in 查询） (0.2751ms)
+✔ P2-8: deliverable 确认超过 TTL 按不可投递保守处理 (0.4178ms)
+✔ P2-10: qzone 限流按端点分桶，历史无 id 行保守计入所有端点 (1.3957ms)
+✔ P1-1: 数据库写入失败不产生幽灵端点，注册表置脏待重试 (0.7349ms)
+✔ P1-3: 注册表就绪后解析异常 → 拒绝入站，不回落全局故事查找 (0.5427ms)
+✔ P1-4: qzone preferSelfId 精确匹配——未注册账号直接失败，不自动切换 (1.0821ms)
+✔ P2-8b: 群号归一化——group: 前缀配置与裸群号互相命中 (37.0067ms)
+✔ P2-10: 重复角色端点在解析结果中显式暴露（不再静默取首行） (0.5508ms)
+✔ user-message: event source and due task identity survive both prompt orders (64.2562ms)
+✔ conversation-follow-up: event source and due task identity survive both prompt orders (1.2197ms)
+✔ intent-due: event source and due task identity survive both prompt orders (0.9922ms)
+✔ advance: event source and due task identity survive both prompt orders (0.9193ms)
+✔ live turns never consume pending promises or host-owned executor tasks (1.3627ms)
+✔ private follow-up summaries are relationship-local while independent life keeps compact contacts (2.8547ms)
+✔ writing affordances follow transport and browsing switches without a mandatory tool routine (0.8845ms)
+✔ promise settles after all bubbles are confirmed, never after first or failed delivery (4.9948ms)
+✔ interrupted last bubble and wrong-story callbacks leave the promise pending (1.7637ms)
+✔ reschedule is idempotent even if the script settlement marker was lost (1.6637ms)
+✔ an unrelated immediate reply cannot silently fulfil an unresolved due promise (1.002ms)
+✔ mixed due work does not starve committed typing or start background narration during a live turn (0.6082ms)
+✔ quiet-life development selection uses a bounded visible scene, not a new training sample (0.353ms)
+✔ sidecar evidence does not conflict with zero native attachments (1.1526ms)
+✔ new spoken promise is registered only after full delivery and after old resolution (1.6179ms)
+✔ a completed promise cannot be recreated by replaying its original delivery callback (0.4879ms)
+✔ background summary waits for the complete delivery and projection failure is isolated (3.0979ms)
+✔ episode tags remain literal spans, and recalled inner narration never becomes user speech (3.4005ms)
+✔ a paused shared story stays reachable so pause can always be resumed (1.1929ms)
+✔ archived stories are never adopted by the paused fallback (0.5213ms)
+✔ ten turns in one scene remain one development observation; unknown provenance contributes none (0.8117ms)
+✔ short follow-up omits director, but long, cross-day and schedule-transition windows retain it (27.7056ms)
+✔ both prompt orders retain original automatic prose and separate timeline evidence (4.7948ms)
+✔ development requires an observation cycle and independent scenes, then counter-evidence retires projection (3.048ms)
+✔ dense same-scene evidence and private evidence cannot promote global personality (0.8239ms)
+✔ development projection omits unrelated and other-relationship tendencies (2.0937ms)
+✔ failed long-window director degrades to director-less advance instead of freezing (2.5122ms)
+✔ resolved working detail removes only the evidence-backed label (5.5113ms)
+✔ raw script persistence keeps a long original passage without truncation (0.5892ms)
+✔ legacy free-text continuity next is hidden and host-owned upcoming plans remain visible (32.2199ms)
+✔ raw messages inside the time window survive a large prose entry and the normal character budget (1.9388ms)
+✔ fact retrieval reserves lanes for recently resolved events and open promises (2.1923ms)
+✔ participant-specific legacy facts remain global narrative evidence (0.7852ms)
+✔ narrator facts expose content but not the legacy participant id (1.1256ms)
+✔ ambiguous relationship facts are not persisted as standalone facts (1.2834ms)
+✔ fact retrieval scans a broad bounded pool and lets literal old evidence outrank generic rows (6.337ms)
+✔ an explicit resolved fact can close the old unresolved row (2.3291ms)
+✔ legacy continuity dirty state does not restart an independent real-time summary (0.3818ms)
+﹣ model behavior: private turn contract (production prompt) (1.3935ms) # SKIP
+﹣ model behavior: group turn contract (production prompt) (0.2461ms) # SKIP
+﹣ model behavior: bubble count varies across diverse prompts (production prompt) (0.1754ms) # SKIP
+﹣ model behavior: no self-invented third-party messages (production prompt) (0.1587ms) # SKIP
+✔ one routing table resolves explicit task assignments before legacy fallback (3.8414ms)
+✔ embedding-only providers never become an accidental chat fallback (0.5989ms)
+✔ model profiles select provider and task model through the same resolver (0.9325ms)
+✔ typed chat reference distinguishes outgoing text from prose in private, advance and group turns (3.8631ms)
+✔ Alter scoring is requested only while the system is enabled (0.599ms)
+✔ current events lead reappraisal before relationship tendencies (0.3846ms)
+✔ multi-platform transport selection is opt-in while single-platform prompts stay lightweight (1.5159ms)
+✔ internal Alter accumulator and history never leak into the main prompt state (1.2748ms)
+✔ the fixed contract makes local endpoint time authoritative after long gaps (0.5177ms)
+✔ interrupted typing is context but never delivered speech (0.3951ms)
+✔ each request includes only its current phase strategy (0.4044ms)
+✔ private interaction protocol is neutral about reading and explicit about read-but-silent (0.4852ms)
+✔ a missing visible-reply structure triggers a fresh-output recovery instruction (0.4238ms)
+✔ recent script ownership makes narrative thoughts unambiguously protagonist-owned (0.5129ms)
+✔ Agency Window is available only on background action phases and stays separate from Alter (0.3819ms)
+✔ Perspective is a conditional individual-values layer, not a recurring story theme (0.3847ms)
+✔ chat action fields enter the fixed prompt only for registered turn capabilities (0.413ms)
+✔ native face expressions require semantic intent and an explicit threshold (0.4434ms)
+✔ legacy bracket faces are projected as expression semantics for protagonist history (0.4645ms)
+✔ local sticker catalog is conditional and only permits exact listed assets (0.3543ms)
+✔ admin notes carry explicit semantic weight and are never truncated in the script budget (0.9392ms)
+✔ DeepSeek 家族传输行按家族注入；standard 档协议本身与 full/lite 保持不变 (0.8765ms)
+✔ provisional development reaches the compactor only after independent scenes (2.563ms)
+✔ relationship development without received feedback never reaches proposal storage (1.2293ms)
+✔ P1 archive cursor reaches records outside latest 4000 with a strict shared attempt budget (13.5089ms)
+✔ P1 batch one, restart cursor and model change progress without clearing old vectors (1.6369ms)
+✔ P1 backfill is single-flight, preserves concurrent ledger updates, backs off on failure (1.2288ms)
+✔ P1 long original tail and its conditional sentence survive bounded exact-span recall (4.4568ms)
+✔ P1 detail handoff uses newer same-owner evidence, preserves identity age and blocks stale resurrection (4.1904ms)
+✔ P1 embedding identity follows effective route and dimensions, never credentials (0.7581ms)
+✔ P1 cold-load requests join one promise and do not overwrite a concurrent live cache entry (0.981ms)
+✔ P1 automatic recall is original-only, public-only without participant, and cached without model calls (19.2685ms)
+✔ P1 incompatible known model vectors do not enter semantic ranking (0.5678ms)
+✔ P1 6000-entry recall benchmark (synthetic, no external requests) (382.2424ms)
+ℹ 6000 rows: cold=334.9ms warm=8.9ms semantic1536=23.5ms heapDelta=13.9MiB
+✔ P03 history vector backfill invalidates recall memo despite unchanged cache size (0.9452ms)
+✔ a group turn hoists an immediate interaction reply into groupReply (1.2058ms)
+✔ an existing structured groupReply wins over the interaction fallback (0.2573ms)
+✔ delayed or advance-phase interaction replies are stripped, not hoisted (0.1906ms)
+✔ a participantless group commit with interaction-only reply passes structural validation (9.5562ms)
+✔ eligible group targets survive both payload orders without copying group history (36.3337ms)
+✔ both payload modes use the seven-part script continuation scaffold (2.022ms)
+✔ cache-first puts stable blocks first and per-turn fields beside the decision point (0.9079ms)
+✔ recentExchange anchors only transport exchanges, excludes the live message and never repeats script prose (1.372ms)
+✔ consecutive user turns keep append-only history at the cacheable front of the compiled context (4.2037ms)
+✔ group turns keep recentExchange empty because groupContext already ends near the decision point (0.8305ms)
+✔ compact tags collapse kind/actor triples and keep group and action distinctions (1.1589ms)
+✔ participantId survives only when the history actually spans several branches (0.87ms)
+✔ the ownership legend matches the payload mode (0.525ms)
+✔ workingDetails, recalledScript and previousScenes ride the payload in the right zones (1.1858ms)
+✔ the fixed contract documents the three memory blocks (0.3885ms)
+✔ the fixed contract explains recentExchange only for cache-first payloads (0.3246ms)
+✔ 权限门：白名单关闭且 managers 为空时全部放行 (1.3948ms)
+✔ 权限门：OneBot 层拒绝必须指明是机器人账号还是用户账号 (0.6448ms)
+✔ 权限门：managers 不匹配时给出当前账号与已配置列表 (0.2517ms)
+✔ 权限门：managers 匹配支持 qq: 前缀等传输限定形式 (0.1743ms)
+✔ 权限门：非 OneBot 环境（Console 沙盒）账号与 QQ managers 永不匹配，需提示环境差异 (0.2022ms)
+✔ 权限门：白名单拒绝优先于 managers 判定 (0.1643ms)
+✔ 权限门：ignoreSelfMessages 过滤机器人自消息 (0.2061ms)
+✔ 剧本历史预算：contextEntryLimit 尊重用户设置（无 35 硬地板） (146.9951ms)
+✔ 小模型换行分句：开关开启时换行运行成为气泡边界 (1.6112ms)
+✔ live writing is guided by event density instead of elapsed-time length quotas (2.7764ms)
+✔ the visible reply remains an event inside one causal script (0.3562ms)
+✔ continuity evolves positively without forced novelty templates (0.2908ms)
+✔ dense dialogue continues from changed beats without a fixed reply ceremony (0.2323ms)
+✔ M5 exposes only the transport channel available to the current phase (0.3925ms)
+✔ exceptions-only schedules persist on first review (34.2973ms)
+✔ exceptions-only schedules persist on existing empty review (1.241ms)
+✔ future regime extensions preserve today across normalization and refresh (4.6436ms)
+✔ a thirty-day horizon can retain more than six effective regimes (5.0933ms)
+✔ future exceptions do not evict today or yesterday overnight exceptions (2.6896ms)
+✔ yesterday overnight blocks remain visible and yield their real end transition (1.6304ms)
+✔ stable rejects forbidden tentative blocks instead of confirming them (3.5608ms)
+✔ contextual rejects forbidden tentative blocks instead of confirming them (0.5311ms)
+✔ granular rejects forbidden tentative blocks instead of confirming them (0.7696ms)
+✔ privacy-filtered scan persists progress past 1200 entries on initial review (7.4231ms)
+✔ privacy-filtered scan persists progress past 1200 entries on daily review (4.6644ms)
+✔ privacy-filtered scan persists progress past 1200 entries on followup review (3.8282ms)
+✔ privacy checkpoints never skip an unreviewed visible entry (0.6831ms)
+✔ explicit participant-detail sharing does not checkpoint raw evidence before review (0.2467ms)
+✔ first failed model review persists an empty checkpoint even with evidence (0.5025ms)
+✔ Preplan updates keep the primary key in the query, not in the database patch (0.4481ms)
+✔ inactive candidates stay hidden both before and inside the reveal window (1.1819ms)
+✔ advance: content-only small-model output sends without say/actionId (17.3829ms)
+✔ advance: missing/ambiguous words drop only transport before the first write: 她发出「消息甲」 (3.5096ms)
+✔ advance: missing/ambiguous words drop only transport before the first write: 她想起「消息乙」，又想起「消息乙」 (1.8113ms)
+✔ advance: valid messages survive beside rejected messages with their final ledger ids (2.0243ms)
+✔ advance: say/actionId still supplies authoritative text instead of an inconsistent mirror (2.1476ms)
+✔ advance: a wrong explicit id cannot fall back to content-only (2.3317ms)
+✔ advance: host synthesis from the sole say still passes the same gate (3.3715ms)
+✔ advance: quotation marks or say alone do not create a send (2.6121ms)
+✔ advance: content-only multi-bubble text stays supported: <sep/> (1.7381ms)
+✔ advance: content-only multi-bubble text stays supported: | (1.3551ms)
+✔ advance: checking uses final clipped prose, not the earlier raw script (1.4492ms)
+✔ advance: immediate cross-group sends are checked without removing valid groups (2.3481ms)
+✔ advance: delayed scheduling and future binding stay unchanged (1.5676ms)
+✔ user-message: unbound legacy cross-contact compatibility is unchanged (1.751ms)
+✔ advance: compatible binding does not bypass the global proactive-message switch (2.5229ms)
+✔ advance: content-only binding does not bypass Agency with no eligible candidate (1.7614ms)
+✔ all advance prompt tiers explicitly permit content-only and require literal message bubbles (1.8412ms)
+✔ strict is the byte-identical default: undefined mode equals strict and differs from natural (2.9514ms)
+✔ natural and balanced doctrines teach the quieter motives (0.5855ms)
+✔ agency config resolves mode whitelist and clamps, keeping strict defaults (0.4629ms)
+✔ the daily-cap log counts per participant inside the 24h window (3.7631ms)
+✔ normalizeProactiveContactLog drops malformed entries and survives a codec roundtrip (0.4952ms)
+✔ capacity keeps hard gates while the interval follows the config (mode applied by the caller) (0.5918ms)
+✔ normalizeProactiveContact keeps its strict validation for all origins (0.7032ms)
+✔ known QQ system faces are translated into stable incoming semantics (2.1665ms)
+✔ unknown QQ face IDs remain explicit rather than guessed (0.3178ms)
+✔ outbound native faces carry a numeric OneBot id (spec: face.id int32) (1.4822ms)
+✔ resolveQzoneConfig applies conservative defaults and clamps out-of-range values (1.8828ms)
+✔ evaluateQzoneGate enforces per-kind daily caps and counts pending as used (0.7063ms)
+✔ evaluateQzoneGate enforces cross-kind minimum interval and disabled switch (0.3686ms)
+✔ normalizeQzoneMsgEntry drops malformed rows and coerces fields (1.3644ms)
+✔ normalizeQzoneFeedEntry keeps structural fields only; freshQzoneFeeds filters by window (0.5846ms)
+✔ callQzoneAction validates echo frames and preserves retcode for risk classification (1.6832ms)
+✔ qzoneIntentFromPayload validates the three actions and their required fields (0.8707ms)
+✔ qzoneFeedCandidates keeps only fresh talk-type unseen feeds, capped at 2 (0.6215ms)
+✔ matchQzoneFeedContent aligns by exact tid only (0.433ms)
+✔ qzoneVisibilityLabel maps the five rights (0.4456ms)
+✔ feed-seen rows never consume action quota or interval; unknown outcomes do (0.4741ms)
+✔ transport errors are flagged ambiguous; explicit failure frames are not (0.4686ms)
+✔ comment/like tids must match a strict charset (0.2236ms)
+✔ matchQzoneFeedContent is exact-tid only — no nearest-time fallback (0.1989ms)
+✔ qzoneExecute serializes quota reservation: concurrent posts cannot both pass a cap of 1 (1.787ms)
+✔ executeQzoneIntent rejects comment/like tids that were never observed (0.632ms)
+✔ 被评论感知：首次立基线不报，增量>0 报，回落下修，不在列表不动 (0.6685ms)
+✔ cross-group partial delivery records only accepted segments and preserves event identity (6.5801ms)
+✔ disabled cross-group target fails ledger without transport or invented speech (0.6667ms)
+✔ cross-group queue works without a live session and never looks up a private participant (1.2442ms)
+✔ group failure is isolated from a subsequent private reply (0.9544ms)
+✔ empty group transport receipt is not recorded as delivery (2.0641ms)
+✔ cross-group delivery consumes an explicitly selected story endpoint (0.7676ms)
+✔ cross-group delivery rejects an endpoint from another story (0.5784ms)
+✔ history commands render stored segments as literal text (8.0496ms)
+✔ default private endpoint route observes the live session before gating and preserves immediate delivery (2.0058ms)
+✔ delayed OneBot private delivery prefixes bare user ids instead of sending to a group (1.1683ms)
+✔ default group endpoint route observes the live group session before gating (1.0149ms)
+✔ split-message delivery restores the explicit endpoint onto the outgoing draft (3.0525ms)
+✔ desktop bridge exposes endpoint-health with a typed result even on validation failure (11.1365ms)
+✖ release-facing files share the runtime version (17.2219ms)
+✔ published documentation includes every README-linked design index and current setup wording (17.0466ms)
+✔ detectMessageRepetition triggers on a fixed two-bubble run with delivery metadata (5.1182ms)
+✔ a trailing batch whose later bubbles are still typing counts by its leader metadata (0.3949ms)
+✔ contiguous character-message runs without metadata still form batches (0.2984ms)
+✔ a broken run or a single-bubble habit does not trigger the guard (0.4246ms)
+✔ narration entries separate batches, so one mixed passage cannot fake a run (0.2829ms)
+✔ repetitionGuardInstruction renders the observed numbers and refuses weak signals (0.4724ms)
+✔ writingAffordances carries the guard paragraph only when a run was detected (0.4318ms)
+✔ both contract tiers surface the guard inside the system prompt when the host reports a run (1.411ms)
+✔ C01 transport and receipt waits retain exclusive event ownership against recovery (27.4818ms)
+✔ C03 group-authored cross-private delivery creates one receipt and settles ledger (3.2415ms)
+✔ C04 persisted success plus failed ledger reconciles after service restart without transport (1.3686ms)
+✔ C04 receipt insertion failure keeps accepted result; cancellation does not erase actual success (3.0162ms)
+✔ C02 recovering group bubble 2 preserves original index in receipt and ledger (2.0125ms)
+✔ C01/C02/C04 partial group retries reconcile accepted segments without resending them (2.6475ms)
+✔ C08 paused delivery does not send; resume recovers; reset during transport never resurrects receipt (22.0798ms)
+✔ C08 reset while success confirmation is waiting for story serial cannot append old receipt (1.4041ms)
+✔ split reconciliation preserves terminal intent ownership and schedules later bubbles only once (1.7718ms)
+✔ early reply confirmation output comes from the shared entrance without a second append (1.305ms)
+✔ C04 group accepted success survives cancelled ledger and releases memory after durable receipt (1.7351ms)
+✔ C08 persisted group delivery with missing source cannot bypass the private-path source guard (0.4571ms)
+✔ C04/C08 actual pause/resume preserves in-flight acceptance but stops remaining old-task bubbles (9.0454ms)
+✔ C04/C08 receipt confirmation waiting for story serial survives actual pause, not purge (3.2778ms)
+✔ C04/C08 group pause records accepted bubble and keeps unstarted bubbles pending until resume (4.2816ms)
+✔ C08 pause/reset after owner lookup prevents obsolete terminal-ledger reconciliation (5.8566ms)
+✔ C11 OpenAI completes on DONE-open, decodes chunk boundaries and collects usage (32.6382ms)
+✔ C11 OpenAI completes on EOF-final, decodes chunk boundaries and collects usage (1.5474ms)
+✔ C11 OpenAI cancels its response reader when the visible callback fails (1.6031ms)
+✔ C11 Zhipu completes on DONE-open, decodes chunk boundaries and collects usage (2.0851ms)
+✔ C11 Zhipu completes on EOF-final, decodes chunk boundaries and collects usage (1.389ms)
+✔ C11 Zhipu cancels its response reader when the visible callback fails (0.7471ms)
+✔ C11 OpenAI ordinary JSON fallback is retained for gateways ignoring stream:true (2.4594ms)
+✔ C10 assigned main providers respect cooldown and recover through normal selection (1.4991ms)
+✔ C10 assigned main providers rotate round-robin rather than fixing the first provider (0.562ms)
+✔ C10 native-audio capability filtering occurs before disabled-failover truncation (0.4576ms)
+✔ C10 successful failover cools only the failed assigned provider (0.9135ms)
+✔ C12 OpenAI, Zhipu, Anthropic streams and embedding all traverse an explicit HTTP CONNECT proxy (801.5073ms)
+✔ C12 unproxied embedding still uses the Koishi HTTP path and validates vectors (0.8446ms)
+✔ C06 works keeps the new persisted job after pruning 0 terminal jobs (13.2944ms)
+✔ C06 works keeps the new persisted job after pruning 8 terminal jobs (2.4ms)
+✔ C06 works keeps the new persisted job after pruning 9 terminal jobs (1.4387ms)
+✔ C06 works keeps the new persisted job after pruning 30 terminal jobs (2.403ms)
+✔ C06 works keeps the new persisted job after pruning 32 terminal jobs (15.2439ms)
+✔ C09 stale busy fire cannot override cancel (2.0655ms)
+✔ C09 stale undefined fire cannot override cancel (0.7841ms)
+✔ C09 stale throw fire cannot override cancel (1.0795ms)
+✔ C09 stale busy fire cannot override new-wake (1.5633ms)
+✔ C09 stale undefined fire cannot override new-wake (0.8054ms)
+✔ C09 stale throw fire cannot override new-wake (0.7817ms)
+✔ C13 browser FIFO handoff never exceeds 1 slots, including a thrown task (2.8225ms)
+✔ C13 browser FIFO handoff never exceeds 2 slots, including a thrown task (1.1546ms)
+✔ C13 browser FIFO handoff never exceeds 4 slots, including a thrown task (1.0848ms)
+✔ C07 readForward failure leaves replay eligible, then records once (2.3218ms)
+✔ C07 appendEntry failure leaves replay eligible, then records once (0.4462ms)
+✔ C07 concurrent duplicates, durable restart and distinct bot accounts keep correct ownership (0.7956ms)
+✔ C07 post-commit pause failure cannot lose narrative input and no-ID events remain distinct (0.7265ms)
+✔ P01 historical image ok deduplicates sources and preserves full failure traversal (0.8562ms)
+✔ P01 historical image empty deduplicates sources and preserves full failure traversal (0.8595ms)
+✔ P01 historical image error deduplicates sources and preserves full failure traversal (1.1798ms)
+✔ P01 bounded concurrency preserves source order even when later images finish first (2.352ms)
+✔ P01 valid tail images after many failed sources remain reachable without a hidden deadline (1.0599ms)
+✔ expired QQ CDN sources are skipped without network or warn spam (0.4037ms)
+✔ disposed-context errors abort narrative retries without provider cooldown or scheduled retry (0.3934ms)
+✔ isContextDisposedError matches both cordis shutdown signatures (89.8485ms)
+✔ P02 recovery pages only scripts, scans old candidates and loads split owners once (5.6873ms)
+✔ P03 episode index preserves first-match semantics with disjoint unsorted checkpoints (1.5596ms)
+✔ P03 episode index preserves first-match semantics with overlapping unsorted checkpoints (1.2228ms)
+✔ P03 audience navigation survives changing excludes without rebuild or visibility leakage (29.3881ms)
+✔ C14 assigned embedding route schedules backfill without legacy model and only updates matching facts (3.0474ms)
+✔ C14 backfill drops an obsolete result after reset (0.8874ms)
+✔ P04 background compaction prepares vectors outside serial and carries them into the persistence phase (2.9028ms)
+✔ P04 normalized identical facts reuse vectors once and embedding failure remains an optional index (0.9007ms)
+✔ C07 shared canonical participant accepts identical IDs from different bot accounts without replay duplication (0.6724ms)
+✔ C07 group insertion failure remains replayable, concurrent replay and durable replay are single-write (7.2931ms)
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+✔ C05 real SQLite rolls back tags failure and retries all outputs once (386.0193ms)
+✔ C05 real SQLite rolls back arc failure and retries all outputs once (179.4429ms)
+✔ C05 real SQLite rolls back fact failure and retries all outputs once (176.3054ms)
+✔ C05 real SQLite rolls back proposal failure and retries all outputs once (168.3412ms)
+✔ C05 real SQLite rolls back checkpoint failure and retries all outputs once (182.9355ms)
+✔ C05 real SQLite rolls back close failure and retries all outputs once (187.4364ms)
+✔ C05 real SQLite rolls back new-scene failure and retries all outputs once (175.7767ms)
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_story
+[I] sqlite auto creating table interlude_participant
+[I] sqlite auto creating table interlude_script_entry
+[I] sqlite auto creating table interlude_memory
+[I] sqlite auto creating table interlude_intent
+[I] sqlite auto creating table interlude_scene
+[I] sqlite auto creating table interlude_arc
+[I] sqlite auto creating table interlude_fact
+[I] sqlite auto creating table interlude_state_patch
+[I] sqlite auto creating table interlude_web_observation
+[I] sqlite auto creating table interlude_overlay_snapshot
+[I] sqlite auto creating table interlude_sticker
+[I] sqlite auto creating table interlude_schedule_preplan
+[I] sqlite auto creating table interlude_seeded_event
+[I] sqlite auto creating table interlude_qzone_post
+[I] sqlite auto creating table interlude_endpoint
+[I] sqlite auto creating table interlude_endpoint_state
+[I] sqlite auto creating table interlude_story_alias
+[I] sqlite auto creating table interlude_work
+[I] sqlite auto creating table interlude_long_arc_guidance
+[I] sqlite auto creating table interlude_long_arc_progress
+✔ C05 external service reads wait for rollback rather than expose uncommitted arc (118.6832ms)
+✔ C02/C04 successful receipt JSON keys and original group segment indexes work on real SQLite (96.7869ms)
+✔ R02 group context and cooldown SQL filter before limit, preserving numeric/prefixed metadata (248.4865ms)
+✔ C07 durable replay SQL distinguishes current bot accounts while retaining unscoped legacy evidence (102.9129ms)
+✔ SceneFrame projects only sourced values and keeps one id across message densities (7.5373ms)
+✔ a successful commit appends a SceneDelta without replacing the frame (2.8426ms)
+✔ Schedule Preplan expands recurring rules and applies dated exceptions deterministically (4.4088ms)
+✔ life-stage boundaries switch from vacation to school without leaking the old weekly plan (0.4949ms)
+✔ main narration receives only the coming twelve hours, not the stored multi-day horizon (28.2861ms)
+✔ daily review is once per local day and unchanged reviews preserve revision (3.779ms)
+✔ an evidence-free first review persists an explicit empty schedule instead of retrying forever (0.5203ms)
+✔ Chinese stable ids from a Chinese compaction model remain distinct (2.5461ms)
+✔ fixed blocks can anchor automatic advance while flexible hobbies cannot (0.8278ms)
+✔ granular tentative blocks use a stable activation and reveal only their vague availability early (1.0884ms)
+✔ stable and contextual reviews reject model-proposed tentative blocks (1.7544ms)
+✔ prompt payload exposes Schedule Preplan as planned structure separate from story state (3.4301ms)
+✔ 当天例外触发扫描：改约/取消/新确认命中，愿望与闲聊不命中 (0.672ms)
+✔ 当天跟进审查到期：日审已过 + 冷却已过 + 未读含信号 (0.527ms)
+✔ 审查教学：单次事件只进例外、不得吸收进周规律；愿望不算证据 (8.0402ms)
+✔ scheduleWake keeps the earliest wake and cancels a later existing one (8.6697ms)
+✔ wake fire returning busy rearms after retryDelayMs and retries (16.3753ms)
+✔ wake fire throwing reports to onWakeError without rearm (18.9493ms)
+✔ cancelWake cancels a single story; cancelWakes filters by story (0.5078ms)
+✔ scheduleExclusive dedupes, defers while busy, and releases after completion (1.5989ms)
+✔ scheduleExclusive halted releases the gate without running the task (0.4471ms)
+✔ scheduleExclusive task failure reports to onTaskError and still releases (1.3422ms)
+✔ backoff gates by fingerprint and expires into deletion (0.4634ms)
+✔ script-first output becomes one deterministic host-owned commit with causal message events (6.7724ms)
+✔ an absent or ambiguous prose action is diagnostic and keeps compatibility delivery intact (0.688ms)
+✔ service persists and restores typ-0 correlation for a background split delivery (5.4077ms)
+▶ fetchShare 异常状态
+  ✔ 网络不可达 → 抛出含"无法连接"的错误 (31.418ms)
+  ✔ 404 → 抛出"分享码不存在" (90.5577ms)
+  ✔ 429 → 抛出"限流" (10.7591ms)
+  ✔ 500 → 抛出"异常状态" (23.0263ms)
+  ✔ HTML 网关页 → 不崩溃,抛 Error (32.1519ms)
+  ✔ null body → 抛出格式异常 (37.3892ms)
+  ✔ 数组 body → 抛出格式异常 (2.7575ms)
+  ✔ 返回码与请求码不一致 → 抛出"不一致" (2.4484ms)
+  ✔ revision=0 → 抛出"revision 无效" (2.5112ms)
+  ✔ revision=非数字 → 抛出"revision 无效" (2.5811ms)
+  ✔ revision=1.5(非整数)→ 抛出"revision 无效" (2.4696ms)
+  ✔ revision=-1(负数)→ 抛出"revision 无效" (1.9044ms)
+  ✔ sections=字符串 → 抛出"sections 无效" (2.0623ms)
+  ✔ sections=[字符串+数字混合] → 抛出"sections 无效" (2.0927ms)
+  ✔ sections=null → 抛出"sections 无效" (12.3014ms)
+  ✔ payload 空(无任何白名单分区)→ 抛出"没有可应用的分区" (6.0497ms)
+  ✔ payload 含 model 污染 → 正常返回但 model 被剔除 (2.8459ms)
+  ✔ payload 全部是 model → 抛出"没有可应用的分区" (2.4938ms)
+  ✔ 合法响应 → 正常返回 (3.5829ms)
+✔ fetchShare 异常状态 (322.895ms)
+▶ fetchShare 输入校验
+  ✔ 空字符串 → 格式不正确 (0.441ms)
+  ✔ 7 位 → 格式不正确 (0.2541ms)
+  ✔ 9 位 → 格式不正确 (0.2287ms)
+  ✔ 含排除字符 I → 格式不正确 (0.2165ms)
+  ✔ 含排除字符 L → 格式不正确 (0.3192ms)
+  ✔ 含排除字符 O → 格式不正确 (0.2101ms)
+  ✔ 含排除字符 U → 格式不正确 (0.2268ms)
+  ✔ null → 格式不正确(转为空串) (0.2186ms)
+  ✔ 数字(合法码格式)→ 不在输入校验层拦截,走到网络层 (0.6047ms)
+  ✔ 对象 → 格式不正确(转为 [object Object] 不满足正则) (0.2472ms)
+  ✔ baseUrl 带尾斜杠 → 正常处理 (0.4741ms)
+✔ fetchShare 输入校验 (3.9502ms)
+▶ share-sync 分享码同步
+  ✔ normalizeShareCode:大写/小写/连字符/空白→统一 8 位大写;非法字符拒收 (1.1689ms)
+  ✔ sanitizeSharePayload:白名单分区保留,连接类字段深度剔除 (0.7716ms)
+  ✔ diffSection:识别修改/新增/移除 (1.1707ms)
+  ✔ buildConfigPatch:白名单分区整段替换,非白名单分区不动;storyDefaults 默认跳过、显式开启后作为模板写入 (0.4246ms)
+  ✔ storyDefaultsToSettingPatch:字段映射与空值跳过 (0.5355ms)
+  ✔ storyDefaultsToSettingPatch:部分 character 字段不会清空另一字段 (0.2072ms)
+  ✔ SHARE_SECTIONS:17 个分区,不含 model/onebot (0.1795ms)
+✔ share-sync 分享码同步 (5.8374ms)
+✔ sidecar observations remain in the current event and never become native image input (35.0448ms)
+✔ a dedicated vision provider receives OpenAI image_url content and returns bounded plain observations (2.3946ms)
+✔ sticker describer supports prompt-only transport while retaining its JSON text contract (1.9019ms)
+✔ specialization tier inference follows the documented family rules (2.5145ms)
+✔ systemPrompt without specialty stays byte-identical to the rc12 contract (1.3485ms)
+✔ LITE contract trims to the core and applies the gemini-flash family blocks (0.457ms)
+✔ STANDARD keeps the full contract with content-only transport and family extras (0.5352ms)
+✔ FULL tier applies claude/gpt blocks with simple protocol (0.3031ms)
+✔ LITE group turns get the groupReply channel and grok gets the single-focus block (0.3179ms)
+✔ decide() applies the manually selected tier with family auto-detection (57.6759ms)
+✔ side-task prompts follow the same manual tier (lite compaction and timeline director) (94.0225ms)
+✔ future split bubbles gate a due promise, including automatic fallback, without becoming character speech (6.9966ms)
+✔ due split is delivered first, remaining future split blocks the promise until the chain drains (4.2875ms)
+✔ a promise settled by the last split is removed from the stale pre-send due snapshot (2.1309ms)
+✔ an unrelated participant due turn is not blocked or cancelled by another typing chain (0.9435ms)
+✔ global due work waits for any chain because its recipient is only known after writing (0.8886ms)
+✔ automatic life advance cannot bypass future pending splits (0.7386ms)
+✔ manual life advance cannot bypass future pending splits (0.6025ms)
+✔ conversation follow-up for alice waits only for its own chain (0.9316ms)
+✔ conversation follow-up for bob waits only for its own chain (26.5588ms)
+✔ browser and qzone execution remain available behind the narrative barrier (0.971ms)
+✔ failed split transport neither confirms character speech nor releases the due narration barrier (1.2084ms)
+✔ incoming interruption cancels the typing chain and releases subsequent due work (1.4033ms)
+✔ past expiresAt retires both due and future-dated zombies before any model invocation (0.7405ms)
+✔ legacy promises use creation+24h, persist that deadline, and never get a sliding lifespan (0.8393ms)
+✔ already-old legacy promises do not consume the two-commitment prompt budget (0.5601ms)
+✔ unresolved promise expires at the hard deadline, without a new wake or a fictional completion (0.7153ms)
+✔ unresolved deferral is capped at five checks and cannot wake the model forever (1.1059ms)
+✔ deferral cannot schedule evaluation beyond expiry or resurrect a resolved task (0.5925ms)
+✔ explicit rescheduling cannot escape a promise hard deadline (0.5726ms)
+✔ a stale pending split with delivered ledger does not send or create character speech again (0.5576ms)
+✔ a stale pending split with cancelled ledger does not send or create character speech again (0.4913ms)
+✔ outbox recovery respects pending split ownership instead of competing with its sender (1.3624ms)
+✔ outbox recovery respects completed split ownership instead of competing with its sender (0.4736ms)
+✔ outbox recovery respects cancelled split ownership instead of competing with its sender (0.586ms)
+✔ orphan pending outgoing ledger still uses normal recovery when there is no split owner (0.8537ms)
+✔ split waiting wakes at the promise deadline instead of extending it past a long typing chain (0.6582ms)
+✔ standalone split executor reconciles a delivered segment without a second transport call (0.8878ms)
+✔ standalone split executor reconciles a cancelled segment without a second transport call (0.4522ms)
+✔ terminal split preflight safely ignores damaged ledger metadata (0.383ms)
+✔ C08 advance cannot complete or retry a split owned by an obsolete generation (0.5361ms)
+✔ C08 split retry cannot overwrite an intent cancelled during transport (0.615ms)
+✔ rankStickerCatalog passes through when below the limit or without a query vector (1.7065ms)
+✔ rankStickerCatalog orders by cosine similarity and fills leftover slots with unvectorized assets (0.8669ms)
+✔ semantic sticker limit is twelve (0.2734ms)
+✔ shouldDownscaleImage gates mime types and small payloads (0.8797ms)
+✔ stableStickerAssetId keeps punctuation-colliding filenames globally distinct (0.869ms)
+✔ assetId 联合唯一：中文路径同内容不碰撞（UNIQUE 扫描崩溃根因） (0.4153ms)
+✔ 表情包投递 URL：HTTP 回源（OneBot 实现分容器时 file:// 必然失败） (0.4753ms)
+✔ 贴纸投递基址配置经缓存 getter 透传（Docker 部署回归） (144.6552ms)
+✔ resolveStoryAlias: hit, miss, self-alias rejected, chain detected (3.5167ms)
+✔ M1b migration registers derived-id aliases idempotently and skips identical ids (9.7641ms)
+✔ resolveStoryIdAlias ignores dangling targets and chains with one-time warnings (3.6499ms)
+✔ recordStoryAlias refuses conflicting redirects; removeStoryAlias rolls back with audit (1.4994ms)
+✔ findStory redirects registry hits to the existing story instead of deriving a new id (4.765ms)
+✔ legacy beta10 state upgrades without losing chat rhythm or unknown extensions (3.2731ms)
+✔ migration inspection is diagnostic and never injects configured perspective into canon (0.3957ms)
+✔ scene frame codec retains only fields backed by script entry provenance (0.7717ms)
+✔ stream parser emits only a complete private interaction before the script arrives (2.6959ms)
+✔ stream parser supports a complete groupReply field without requiring the later script (0.3428ms)
+✔ fixed contract asks for transport before script when experimental streaming is enabled (1.6211ms)
+✔ typing delay applies bounded ±30 percent variation and can be made deterministic (0.4914ms)
+✔ 16:00 in Shanghai is an authoritative daylight afternoon (29.4255ms)
+✔ long intervals expose both endpoint clocks and continuity age (2.9515ms)
+✔ reload-style ISO timestamp rows are materialized as Date objects (2.0603ms)
+✔ timezone formatters are reused instead of rebuilt on every turn (5.1347ms)
+✔ recentScript payload carries derived ownership without changing stored entries (1.4763ms)
+✔ timeline display uses the story timezone and prints its GMT offset (0.3551ms)
+✔ explicit user-reported clocks stay distinct from the message receive time (3.9775ms)
+✔ prompt payload keeps receive time and user-reported action time as separate fields (0.9854ms)
+✔ short live windows reject explicit future clocks and multiple completed lesson stages (1.7306ms)
+✔ midnight wraparound and latency grace do not drop legitimate live scripts (0.8421ms)
+✔ the current user message remains both a durable event and the explicit currentEvent (0.6734ms)
+✔ background Agency payload includes relationship identity but not raw chat history (0.7871ms)
+✔ headline-window semantics: narrative declarations block, references and user deadlines pass (1.2243ms)
+✔ user-endorsed clocks from the message exempt the guard while unendorsed ones stay blocked (0.9869ms)
+✔ normalizeTimelinePlan coerces string positions and near-miss kinds (2.1567ms)
+✔ normalizeTimelinePlan still rejects genuinely unusable beats (0.3213ms)
+✔ describeTimelinePlanRejection explains each rejected beat (0.5334ms)
+✔ director transport failure counts once, retains cause and does not reschedule life (41.9483ms)
+✔ expired persistent fuse permits recovery and clears durable failure state (1.2267ms)
+✔ invalid ledger remains a validation failure rather than transport failure (1.4519ms)
+✔ legacy director health accepts missing and malformed counts without migration (0.4801ms)
+✔ real narrator preserves network timeout instead of returning an empty plan (4.1872ms)
+✔ malformed director JSON is identified separately from a request failure (2.1897ms)
+✔ failed health persistence keeps the in-memory cooldown effective (1.1854ms)
+✔ timeline director accepts only bounded relative beats and discards malformed output (2.3358ms)
+✔ automatic script entries project to their host timeline ledger on later turns (0.5967ms)
+✔ desktop Arrangement uses an explicit automatic window and leaves legacy prose as a point event (0.7714ms)
+✔ timeline director reuses the compaction route and requests a small JSON ledger (4.3007ms)
+✔ timeline director accepts JSON from a later gateway response field (1.0918ms)
+✔ side tasks drop max_tokens and retry once when thinking budget truncates the JSON (2.4969ms)
+✔ Alter usage stays aggregated across the uncapped retry instead of fragmenting (2.6125ms)
+✔ protocol 4 desktop projection carries commit identity, delivery ledger truth and scene checkpoints (0.7808ms)
+✔ protocol 4 projection survives hostile metadata shapes without throwing (0.8635ms)
+✔ parseTokenUsage reads OpenAI and DeepSeek cache shapes and ignores unknown ones (1.9925ms)
+✔ aggregateTokenUsages sums attempts and keeps the final attempt identity and pricing (0.5289ms)
+✔ computeTokenCost bills cached tokens at the cache price and reports savings (0.4774ms)
+✔ computeTokenCost is undefined without prices and falls back to the input price (0.2521ms)
+✔ formatTokenUsageLine renders usage, hit rate and optional billing (0.5459ms)
+✔ bufferUserNarrative creates turn, sets debounce timer, accumulates messages (3.2008ms)
+✔ beginFlush guards against narrating stories and revision mismatch (3.349ms)
+✔ signalIncomingInterruption marks in-flight request as obsolete (0.3866ms)
+✔ invalidateNarratives cancels timers and clears turns for target story (0.7463ms)
+✔ bufferUserNarrative keeps endpoint identity on each message and active batch metadata (2.3033ms)
+✔ recordSource keeps the first source after the turn has been created (0.5338ms)
+✔ invalidateNarratives keeps an in-flight owner until endFlush releases narrating (0.3543ms)
+✔ shouldSupersedeRequest pure function covers the three guard conditions (0.2767ms)
+✔ fast model return waits out the typing floor for the first message (1.3066ms)
+✔ slow model return sends immediately with zero hold (0.2544ms)
+✔ the floor is clamped by the configured maximum and never negative (0.2269ms)
+✔ Urge legacy JSON including empty/partial state always reads defensively (1.1427ms)
+✔ Urge round trips through existing story JSON without schema migration or leaking into prompts (1.0535ms)
+✔ dense real turns shorten cadence, split messages merge, silence decays (0.2372ms)
+✔ only committed quoted script can supply Urge, never a missing/imagined quote (0.1289ms)
+✔ burst begins only at matching actual delivery, duplicate/other receipts do not restart it (0.1549ms)
+✔ burst cadence backs off and exhausts budget without self-rearming (0.7111ms)
+✔ low Urge stops acceleration without inventing density (0.1396ms)
+✔ slow/rest/device constraints win over high urge, real input clears slow (0.1721ms)
+✔ restart expires stale armed/burst state and keeps the already sampled deadline (0.179ms)
+✔ Urge handoff exists only on automatic main narration and does not request independent speech (0.2311ms)
+✔ Console schema has opt-in defaults and advanced ranges validate (1.1518ms)
+✔ real service scheduling replaces fixed followups, persists one deadline and shares willingness threshold (19.8057ms)
+✔ delayed reply anchors Urge at actual/planned endpoint without adding density (0.6452ms)
+✔ disabled Urge preserves old followup scheduling (0.6179ms)
+✔ service first-bubble receipt activates Urge but still waits to summarize all bubbles (1.2313ms)
+✔ service slow excludes soft Preplan and due planning never overwrites unrelated state (0.5059ms)
+✔ OneBot record CQ segments are recognized as incoming voice (1.4257ms)
+✔ voice records resolve to OneBot file tokens for the native-audio channel (2.0126ms)
+✔ QQ audio files (<file> elements with CDN URLs) enter the native-audio channel (0.7637ms)
+✔ extractSessionFileFacts reports names, sizes and audio flags without URL soup (0.2957ms)
+✔ guessAudioFormat sniffs model-readable containers from magic bytes and filename hints (0.3428ms)
+✔ visible replies never materialize echoed attachment markup into real sends (0.5442ms)
+✔ group inbound attachments become fact placeholders instead of URL soup (0.4653ms)
+✔ blank-line boundaries in reply content become bubble separators; single line breaks stay inside one bubble (0.1607ms)
+✔ review#1 resolved proposals are pruned at propose time; pending cap still enforced (9.8705ms)
+✔ review#1 revisions roll instead of bricking at 64 (33.8475ms)
+✔ review#1 terminal jobs pruned before the generate cap check (21.24ms)
+✔ review#2 startup recovery marks stale running jobs failed and frees mayPropose (0.9541ms)
+✔ review#3 deleteAll goes through the store abstraction (1.2044ms)
+✔ review#4 splitDumpParts chunks oversized dumps losslessly (0.3638ms)
+✔ review#11 lastFailure carries a timestamp the model can judge recency by (0.5783ms)
+✔ review#5 instructions state the mayPropose semantics consistently (0.3079ms)
+[I] sqlite auto creating table user
+[I] sqlite auto creating table binding
+[I] sqlite auto creating table channel
+[I] sqlite auto creating table interlude_work
+✔ CEV real in-memory SQLite atomically saves versions and rejects stale generations (122.3632ms)
+✔ CEV separate generation returns before inference, persists status, deduplicates and needs acceptance (17.7226ms)
+✔ CEV asynchronous stale result is retained as a proposal, never overwrites a newer revision (4.0308ms)
+✔ CEV failure has no retry; old rows, interruption and cancellation remain explicit (5.576ms)
+✔ CEV deletion/recreation and disposal invalidate pending results; concurrency is bounded (3.6535ms)
+✔ CEV create -> proposal -> accept keeps immutable versions and survives reopening (1.0245ms)
+✔ CEV rejection does not modify head; other user and other story cannot access it (0.7376ms)
+✔ CEV stale proposal stays pending instead of overwriting a newer revision (0.9927ms)
+✔ CEV concurrent edits use compare-and-swap, not last-writer overwrite (0.8568ms)
+✔ CEV operation idempotence, failure feedback and corrupt legacy rows are safe (1.2915ms)
+✔ CEV bounded full-text proposals preserve literal source and reject oversized drafts (0.4741ms)
+✔ runtime resolves from the assignment checkbox: no assigned provider means disabled, clamps applied (1.407ms)
+✔ parseWorldSeedEvents trims defensively and drops malformed entries (1.1695ms)
+✔ validation gates reject each documented failure mode (22.2548ms)
+✔ high importance is allowed during waking hours and duplicates below threshold pass (0.606ms)
+✔ summaryJaccard separates near-duplicates from unrelated text (0.3793ms)
+✔ seeder prompt teaches the critical rules (0.4761ms)
+✔ 世界切面轮换：同槽稳定、跨槽前进、一个周期覆盖全部切面 (0.6404ms)
+✔ 播种提示词按切面提问且每轮至多一事件 (0.352ms)
+✔ Zhipu side tasks honor the total timeout even after the first visible SSE token (1043.5979ms)
+ℹ tests 837
+ℹ suites 3
+ℹ pass 831
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 4
+ℹ todo 0
+ℹ duration_ms 12905.8456
+
+✖ failing tests:
+
+test at test\configuration.test.ts:2:4451
+✖ runtime and plugin exports share one version constant (4.7491ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '1.0.1-rc51'
+  - '1.0.1-rc50'
+              ^
+  
+      at TestContext.<anonymous> (D:\文件仓库\Hds app\tools\hds-baseline\upstream\test\configuration.test.ts:68:10)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:788:18)
+      at Test.postRun (node:internal/test_runner/test:1235:19)
+      at Test.run (node:internal/test_runner/test:1163:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '1.0.1-rc51',
+    expected: '1.0.1-rc50',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test\release-consistency.test.ts:2:1690
+✖ release-facing files share the runtime version (17.2219ms)
+  AssertionError [ERR_ASSERTION]: docs/development/logging/LAYERED_LOG_IMPLEMENTATION.md
+      at TestContext.<anonymous> (D:\文件仓库\Hds app\tools\hds-baseline\upstream\test\release-consistency.test.ts:21:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:358:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '# 分层彩色日志实现\r\n\r\n适用版本：`1.0.1-rc50`\r\n\r\n## 目标\r\n\r\n标准日志围绕用户能理解的任务时间线组织：收到事件、模型处理、完成、投递。故事 ID、队列、游标、周期扫描、计时器和 SQLite 临时重试只在 diagnostic 模式出现。\r\n\r\n## 格式\r\n\r\n`logging.format` 支持：\r\n\r\n- `layered`：默认。阶段主行配合 `├─ / └─` 字段树。\r\n- `compact`：兼容脚本解析的单行文本。\r\n- `detailed`：兼容旧配置的分行文本。\r\n\r\n`colors=true` 使用 ANSI 语义色，`colorTheme` 提供两套高对比 256 色调色板：\r\n\r\n- `dark`：柔亮青蓝、薄荷绿、粉紫、暖金和珊瑚红，避免深色背景上的灰暗色。\r\n- `light`：深蓝、墨绿、深紫、赭金和暗红，避免白色背景上的浅色发虚。\r\n\r\n日志由服务端生成，无法读取 Koishi Console 的 CSS 主题，因此必须在 Console 手动选择。`kaomoji=false` 时改用简洁符号。\r\n\r\n## 固定动作映射\r\n\r\n| 动作 | 颜文字 | 简洁符号 |\r\n| --- | --- | --- |\r\n| 接收 | `(*^▽^*)` | `←` |\r\n| 处理中 | `(•̀ᴗ•́)و` | `⋯` |\r\n| 完成 | `(ﾉ´ヮ`)ﾉ*: ･ﾟ` | `✓` |\r\n| 投递 | `(・ω・)ノ` | `→` |\r\n| Alter 触发 | `(๑•̀ㅂ•́)و✧` | `⚡` |\r\n| 情绪偏移 | `(*>ω<*)` | `★` |\r\n| 记忆 | `₍ᐢ- ˕ -ᐢ₎zzZ` | `◈` |\r\n| 推进 | `(⊙ω⊙)` | `⟳` |\r\n| 主体节奏 | `ᕙ( •̀ ᗜ •́ )ᕗ` | `◇` |\r\n| 群聊 | `(´▽｀)ノ` | `◎` |\r\n| 错误 | `(˶ˊᜊˋ˶)` | `✗` |\r\n| 重试 | `(ง •̀_•́)ง` | `↻` |\r\n| 警告 | `(´･_･`)` | `!` |\r\n\r\n## 实现边界\r\n\r\n`src/logging.ts` 负责格式化、动作识别、字段拆分和颜色。业务层仍决定哪些事件属于 summary、standard 或 diagnostic。所有 `Error` 参数只输出 message，不在标准日志展开堆栈；底层 Provider 的重复警告已降为 debug，最终错误由业务时间线统一报告。\r\n\r\n`blindMode.enabled=true` 时，HDSI 不使用上述业务时间线：普通运行、错误详情、预览与模型侧调试都会静默，仅由服务层按配置间隔输出不含故事内容的健康心跳。失明模式不会改写其它 Koishi 插件的日志策略。\r\n\r\n## 测试\r\n\r\n`test/logging.test.ts` 固定验证用户消息、模型开始、Alter 触发、错误、ANSI 颜色和简洁符号，防止后续改动重新退化成字段堆叠。\r\n\r\n',
+    expected: /1\.0\.1-rc51/,
+    operator: 'match',
+    diff: 'simple'
+  }

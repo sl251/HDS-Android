@@ -1,5 +1,5 @@
 ﻿id,title,depends_on,gate,status,owner,evidence,notes
-"T01","固定基线与依赖核查","","G0","TODO","","",""
+"T01","固定基线与依赖核查","","G0","IN_PROGRESS","sl251","docs/evidence/T01/baseline.md","已固定HDS并运行原始检查和源码bundle；Android工具链与二进制清单待验证"
 "T02","iQOO本地运行验证","T01","G0","TODO","","",""
 "T03","QQ与空间可行性","T02","G0","TODO","","",""
 "T04","工程骨架与协议","T01","G1","TODO","","",""

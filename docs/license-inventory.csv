@@ -1,0 +1,12 @@
+component,version_or_commit,declared_license,use,distribution_status,evidence
+HDS-Interlude,9a77fadb88c6e57914ebac8ca75cf54a27354d01,AGPL-3.0,baseline verification,source fetched locally and excluded from git,docs/legal/HDS-Interlude-AGPL-3.0.txt
+deepseek-harness-android,14a21621fa25e204d7218d37e193d9b861b837a8,MIT,architecture reference,no code reused,.references/deepseek-harness-android/LICENSE
+AstrBot-Bubble-Android-App,f54ed74930683ac9f8ef76390f53980e2d537cb5,BSD-3-Clause,QQ runtime reference,no code reused,.references/AstrBot-Bubble-Android-App/LICENSE
+SnowLuma,87527cb7641a5a42f8f0efb73cb066102e004dee,Source-Available Non-Commercial License,candidate backend source review,integration and redistribution boundary unresolved,.references/SnowLuma/LICENSE sections 3 through 5
+SnowLuma native addon,v1.14.22,proprietary,not downloaded,no independent redistribution granted,.references/SnowLuma/LICENSE section 5
+Linux QQ,not pinned,proprietary,candidate client,not downloaded and redistribution not cleared,HDS-Mobile-Plan/01-RESEARCH.md
+PRoot runner,v5.1.107.78,GPL-2.0-or-later,candidate runtime,not built or packaged,.references/deepseek-harness-android/THIRD_PARTY_NOTICES.md
+Operit2 runtime tooling,dc4c3a9405dc7ed3ef69b2ac9a6ace65374d77cf,AGPL-3.0,candidate runner build source,not built or packaged,.references/deepseek-harness-android/THIRD_PARTY_NOTICES.md
+Koishi,4.18.11,MIT,host baseline,installed locally and locked,tools/hds-baseline/package-lock.json
+Minato SQLite driver,4.7.0,MIT,upstream integration tests,installed locally and locked,tools/hds-baseline/package-lock.json
+Minato sql.js,3.1.0,MIT,SQLite WASM baseline,installed locally and locked,tools/hds-baseline/package-lock.json

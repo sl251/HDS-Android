@@ -1,0 +1,43 @@
+{
+  "node": "v24.11.1",
+  "platform": "win32",
+  "arch": "x64",
+  "results": [
+    {
+      "name": "typecheck",
+      "started": "2026-10-13T02:59:32.363Z",
+      "finished": "2026-10-13T02:59:35.166Z",
+      "status": "FAIL",
+      "exitCode": 2,
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "D:\\文件仓库\\Hds app\\tools\\hds-baseline\\node_modules\\typescript\\bin\\tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+        "--noUnusedLocals",
+        "--noUnusedParameters"
+      ],
+      "cwd": "D:\\文件仓库\\Hds app\\tools\\hds-baseline\\upstream"
+    },
+    {
+      "name": "test",
+      "started": "2026-10-13T02:59:35.167Z",
+      "finished": "2026-10-13T02:59:48.132Z",
+      "status": "FAIL",
+      "exitCode": 1,
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "--import",
+        "file:///D:/%E6%96%87%E4%BB%B6%E4%BB%93%E5%BA%93/Hds%20app/tools/hds-baseline/node_modules/tsx/dist/loader.mjs",
+        "--test",
+        "test/*.test.ts"
+      ],
+      "cwd": "D:\\文件仓库\\Hds app\\tools\\hds-baseline\\upstream"
+    }
+  ]
+}

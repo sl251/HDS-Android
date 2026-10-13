@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "timezone": "Asia/Shanghai",
+  "status": "partial-baseline-only",
+  "verifiedHost": {
+    "os": "Windows",
+    "arch": "x64",
+    "node": "24.11.1",
+    "npm": "11.6.2",
+    "pnpm": "11.25.0",
+    "dependencyLock": "tools/hds-baseline/package-lock.json",
+    "koishi": "4.18.11",
+    "typescript": "5.9.3",
+    "tsx": "4.23.15",
+    "esbuild": "0.28.2",
+    "minatoSqlite": "4.7.0",
+    "minatoSqlJs": "3.1.0",
+    "cordisHttp": "0.6.3"
+  },
+  "androidCandidate": {
+    "status": "NOT RUN",
+    "referenceCommit": "14a21621fa25e204d7218d37e193d9b861b837a8",
+    "agp": "8.7.3",
+    "gradle": "8.11.1",
+    "gradleDistributionSha256": "f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6",
+    "kotlin": "2.0.21",
+    "capacitor": "7.4.3",
+    "compileSdk": 35,
+    "targetSdk": 35,
+    "minSdk": 26,
+    "abi": "arm64-v8a",
+    "ndk": null,
+    "jdk": null,
+    "notes": "Candidate values come from the pinned runtime reference, not a successful Android build. JAVA_HOME currently points to JDK 11; Android SDK/adb not configured."
+  },
+  "guestRuntime": {
+    "status": "NOT RUN",
+    "ubuntu": null,
+    "node": null,
+    "prootArtifactSha256": null,
+    "loaderArtifactSha256": null,
+    "qqVersion": null,
+    "snowluma": "1.14.22",
+    "notes": "No binary downloaded, built, packaged, or validated on Android. SnowLuma is only a candidate."
+  }
+}

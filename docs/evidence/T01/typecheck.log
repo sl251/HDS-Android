@@ -1,0 +1,3 @@
+src/service.ts(17,80): error TS6133: 'WeatherConfig' is declared but its value is never read.
+src/service.ts(17,100): error TS6133: 'WeatherSnapshot' is declared but its value is never read.
+src/service.ts(10171,17): error TS6133: 'compactUnlocked' is declared but its value is never read.

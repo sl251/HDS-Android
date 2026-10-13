@@ -4,3 +4,6 @@
 *.csv text eol=lf
 *.sh text eol=lf
 *.ps1 text eol=crlf
+*.mjs text eol=lf
+# Preserve raw command output, including whitespace in assertion diagnostics.
+*.log text eol=lf whitespace=-blank-at-eol
