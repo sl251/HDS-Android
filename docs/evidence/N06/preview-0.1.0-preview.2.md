@@ -26,4 +26,6 @@ iQOO 15 / OriginOS 6 未连接。本次不能确认 Android UID 内实际安装�
 
 N01 已固定输入，N02—N05 为实现及构建/回归通过、手机门槛待验收；N06 交付候选，未标整阶段真机 PASS。N07—N11（typ0/HDS 双格式导入、映射、导出、旧库迁移）未实施；原计划 QQ 私聊/群聊/空间和完整首版要求仍未完成。逐项状态见 [task-status.csv](task-status.csv)。
 
-候选沿用原签名，测试时保留旧 App 与数据，按覆盖升级步骤操作。运行环境、角色/剧情和密钥目录分离，修复逻辑不清用户资料。未合并主分支，未发布新 Release。
+候选沿用原签名，测试时保留旧 App 与数据，按覆盖升级步骤操作。运行环境、角色/剧情和密钥目录分离，修复逻辑不清用户资料。源码已通过 [PR #1](https://github.com/sl251/HDS-Android/pull/1) 合并到 main；[v0.1.0-preview.2](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.2) 已正式发布为预发布版。
+
+发布核验：2026-10-13 15:00:10（Asia/Shanghai），12 个附件均为 uploaded，远端 SHA-256 与本地逐项一致；标签固定在已验证构建提交。完整记录见 [publication.json](publication.json)。

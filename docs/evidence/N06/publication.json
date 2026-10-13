@@ -1,0 +1,88 @@
+{
+  "tag": "v0.1.0-preview.2",
+  "url": "https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.2",
+  "releaseId": 411379649,
+  "isDraft": false,
+  "isPrerelease": true,
+  "publishedAt": "2026-10-13T07:00:10Z",
+  "publishedAtAsiaShanghai": "2026-10-13T15:00:10+08:00",
+  "buildSource": "6d7f2d4f90b39319850941d560d14bc05561da1e",
+  "mergedPr": "https://github.com/sl251/HDS-Android/pull/1",
+  "mergeCommit": "593886711ece165538f52659581ef82ea7782a49",
+  "allUploadedDigestsVerified": true,
+  "assets": [
+    {
+      "name": "apk-audit.json",
+      "bytes": 3915,
+      "sha256": "aee843bc9b415ae070f71b73810dcb4ecf0afd40325daf43772d6688edb64f4a",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/apk-audit.json"
+    },
+    {
+      "name": "apk-signature.txt",
+      "bytes": 969,
+      "sha256": "c3231c076b2117a4324d4f5f9f151a7b5340a2d75f1478903a66edd771558ca5",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/apk-signature.txt"
+    },
+    {
+      "name": "BUILD-VERIFICATION.md",
+      "bytes": 3582,
+      "sha256": "0c12292a6a901ae6cb3e7221e635a5e3c4409cb32894b38dfbb3e686f6cbfdc6",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/BUILD-VERIFICATION.md"
+    },
+    {
+      "name": "device-gates.json",
+      "bytes": 522,
+      "sha256": "6c971b712325b93074dc8799927ff102862ef71191834180963cf82d6f35ab2e",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/device-gates.json"
+    },
+    {
+      "name": "HDS-Android-0.1.0-preview.2-arm64.apk",
+      "bytes": 96302928,
+      "sha256": "2b38754fe62bec298ec7127148eb088a5f1ddcdb234901eab34f8e38c8885aaf",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/HDS-Android-0.1.0-preview.2-arm64.apk"
+    },
+    {
+      "name": "HDS-Android-0.1.0-preview.2-runtime-manifest.json",
+      "bytes": 2619,
+      "sha256": "86a02f166e2beed70ed2cb0c5fd610568a97e0af30e9bab454fb483bb7929b72",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/HDS-Android-0.1.0-preview.2-runtime-manifest.json"
+    },
+    {
+      "name": "HDS-Android-0.1.0-preview.2-source.tar.gz",
+      "bytes": 2854510,
+      "sha256": "ddabc12f6961636c317e8aab6398c3752d91ba924a4de6887a1eac33e6053f0f",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/HDS-Android-0.1.0-preview.2-source.tar.gz"
+    },
+    {
+      "name": "HDS-Android-native-sources.tar.gz",
+      "bytes": 1005018,
+      "sha256": "5aa3f2060accd0d9cce057213a60f8a1b9b5f70188b6e916d3608f7a333776a6",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/HDS-Android-native-sources.tar.gz"
+    },
+    {
+      "name": "host-tests.log",
+      "bytes": 2451,
+      "sha256": "a5192948acc690352422b814d306a4fb0a79373de1e4c97dd6215cc5a61bc6d8",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/host-tests.log"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "bytes": 1020,
+      "sha256": "4d00ec2632a9e2d8dcaa0661c5dee8ce0139445b219a9d2a48fc386899d5153f",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/SHA256SUMS.txt"
+    },
+    {
+      "name": "TEST-UPGRADE.md",
+      "bytes": 1648,
+      "sha256": "8068226c2d149ac76b350ac3087244ed0d7b7398a654190c6abb23eaacd3637f",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/TEST-UPGRADE.md"
+    },
+    {
+      "name": "THIRD_PARTY.md",
+      "bytes": 2501,
+      "sha256": "2f9ea8e87311fdfd84369cf03321e0c18427b0cf3d85a5590510df861e2a2a13",
+      "url": "https://github.com/sl251/HDS-Android/releases/download/v0.1.0-preview.2/THIRD_PARTY.md"
+    }
+  ],
+  "deviceTests": "NOT RUN"
+}

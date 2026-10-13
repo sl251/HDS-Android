@@ -4,13 +4,13 @@
 
 ## 当前状态
 
-已发布 [0.1.0-preview.1 ARM64 开发预览版](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.1)（Android 8 / API 26 起，APK 约 91.1 MiB）。已实现 Kotlin/Capacitor 管理界面、手机内 Ubuntu/Node/Koishi/HDS rc51 宿主、JSON/PNG 角色卡导入、本地聊天与剧情查看。模型 API 由用户配置；运行环境随 APK 内置。构建与校验结果见 [预览证据](docs/evidence/T04/preview-0.1.0.md)。
+已发布 [0.1.0-preview.2 ARM64 修复预览版](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.2)（Android 8 / API 26 起，APK 约 91.8 MiB）。已实现 Kotlin/Capacitor 管理界面、手机内 Ubuntu/Node/Koishi/HDS rc51 宿主、JSON/PNG 角色卡导入、本地聊天与剧情查看。模型 API 由用户配置；运行环境随 APK 内置。构建与校验结果见 [修复与发布证据](docs/evidence/N06/preview-0.1.0-preview.2.md)。
 
 QQ 私聊、群聊、QQ 空间尚未接入；这次交付不代表完整首版验收通过。Android 真机、后台存活和 16 KiB 页面设备仍需测试。测试步骤与已知边界见 [真机测试清单](docs/TEST-ON-PHONE.md)。
 
 首版目标包括 QQ 私聊、群聊、QQ 空间动态，以及实际进入 HDS 叙事的角色卡导入。优先保留原版 HDS 核心，采用 Kotlin、Capacitor/React、PRoot/Ubuntu ARM64 与 Node/Koishi 的方案。
 
-当前修复分支提供 `0.1.0-preview.2` 阶段 A 候选，处理安装硬链接依赖、环境恢复/诊断与系统安全区。构建证据和真机未执行项见 [修复证据](docs/evidence/N06/preview-0.1.0-preview.2.md)，覆盖升级步骤见 [测试清单](docs/evidence/N06/TEST-UPGRADE.md)。候选不是完整首版，typ0/HDS 人设导入导出及 QQ/空间仍待后续实施。
+`0.1.0-preview.2` 处理安装硬链接依赖、环境恢复/诊断与系统安全区。构建证据和真机未执行项见 [修复证据](docs/evidence/N06/preview-0.1.0-preview.2.md)，覆盖升级步骤见 [测试清单](docs/evidence/N06/TEST-UPGRADE.md)。候选不是完整首版，typ0/HDS 人设导入导出及 QQ/空间仍待后续实施。
 
 ## 开始实施
 
