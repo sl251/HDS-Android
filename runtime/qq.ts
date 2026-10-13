@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
 import QRCode from 'qrcode'
-import { componentsPath, componentsReady, installComponents } from './qq-components'
+import { command, componentsPath, componentsReady, installComponents } from './qq-components'
 
 export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
@@ -21,7 +21,9 @@ export function qqPolicy(value: any): QQPolicy {
   return { enabled: value.enabled, users: ids(value.users), groups: ids(value.groups) }
 }
 export function plainMessage(content: string) {
-  return h.parse(content).map(part => part.type === 'text' ? part.attrs.content : part.type === 'at' ? `@${part.attrs.name || part.attrs.id || '成员'} ` : `[${({ image: '图片', audio: '语音', video: '视频', file: '文件', face: '表情', quote: '引用' } as Record<string, string>)[part.type] || '消息'}]`).join('').slice(0, 12000)
+  const text = h.parse(content).map(part => part.type === 'text' ? part.attrs.content : part.type === 'at' ? `@${part.attrs.name || part.attrs.id || '成员'} ` : `[${({ image: '图片', audio: '语音', video: '视频', file: '文件', face: '表情', quote: '引用' } as Record<string, string>)[part.type] || '消息'}]`).join('')
+  // Bound a 200-message history below the native bridge's 4 MiB response cap.
+  return text.length > 4000 ? text.slice(0, 4000) + '…（信箱显示已截断）' : text
 }
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -177,7 +179,10 @@ export class QQRuntime {
     // Use the upstream installer path: official QQ + NapCat application entry,
     // with a private virtual display. No window is shown outside the container.
     const displayNumber = 100 + randomBytes(2).readUInt16LE() % 10000
-    const display = spawn('/usr/bin/Xvfb', [`:${displayNumber}`, '-screen', '0', '640x480x24', '-nolisten', 'tcp', '-ac'], { stdio: ['ignore', 'ignore', 'pipe'] })
+    const authority = join(this.directory, 'display.auth')
+    writeFileSync(authority, '', { mode: 0o600 })
+    await command('/usr/bin/xauth', ['-f', authority, 'add', `:${displayNumber}`, 'MIT-MAGIC-COOKIE-1', randomBytes(16).toString('hex')])
+    const display = spawn('/usr/bin/Xvfb', [`:${displayNumber}`, '-screen', '0', '640x480x24', '-nolisten', 'tcp', '-auth', authority], { stdio: ['ignore', 'ignore', 'pipe'] })
     this.display = display
     display.stderr?.on('data', data => this.diagnostic(String(data)))
     let displayFailure = ''
@@ -189,7 +194,7 @@ export class QQRuntime {
       await new Promise(resolve => setTimeout(resolve, 100))
     }
     const environment = { ...process.env,
-      DISPLAY: `:${displayNumber}`, NAPCAT_MAIN_PATH: join(root, 'napcat/napcat.mjs'),
+      DISPLAY: `:${displayNumber}`, XAUTHORITY: authority, NAPCAT_MAIN_PATH: join(root, 'napcat/napcat.mjs'),
       HOME: join(this.directory, 'home'), XDG_CONFIG_HOME: join(this.directory, 'home/.config'), NAPCAT_WORKDIR: this.directory,
       NAPCAT_WRAPPER_PATH: join(qq, 'wrapper.node'), NAPCAT_QQ_PACKAGE_INFO_PATH: join(qq, 'package.json'),
       NAPCAT_DISABLE_PIPE: '1', NAPCAT_DISABLE_TIME_SYNC: '1', NAPCAT_DISABLE_BYPASS: '1',

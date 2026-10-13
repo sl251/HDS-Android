@@ -10,6 +10,24 @@ builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
 
 class RuntimePackTest(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'Symlink creation requires Linux CI')
+    def test_dri_aliases_remain_loadable_without_repeated_driver_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            guest = self.guest(directory)
+            dri = guest / 'usr/lib/aarch64-linux-gnu/dri'
+            dri.mkdir(parents=True)
+            (dri / 'swrast_dri.so').write_bytes(b'one-shared-driver')
+            os.link(dri / 'swrast_dri.so', dri / 'iris_dri.so')
+            os.link(dri / 'swrast_dri.so', dri / 'nouveau_dri.so')
+            builder.compact_dri_aliases(guest)
+            self.assertFalse((dri / 'swrast_dri.so').is_symlink())
+            self.assertEqual((dri / 'iris_dri.so').read_bytes(), b'one-shared-driver')
+            archive = Path(directory) / 'guest.gz'
+            audit = builder.pack_guest(guest, archive)
+            self.assertEqual(audit['expandedBytes'], 8 + len(b'one-shared-driver'))
+            self.assertEqual(audit['symlinks'], 2)
+            self.assertEqual(audit['hardlinks'], 0)
+
     def guest(self, directory):
         guest = Path(directory) / 'guest'
         (guest / 'opt/node/bin').mkdir(parents=True)

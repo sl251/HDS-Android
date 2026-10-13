@@ -30,6 +30,27 @@ def digest(path):
         for block in iter(lambda: stream.read(1024 * 1024), b''): value.update(block)
     return value.hexdigest()
 
+def compact_dri_aliases(guest):
+    """Mesa ships many driver names as hardlinks to one large DRI module.
+
+    Android cannot reliably create hardlinks. Preserve the names as relative
+    symlinks before pack_guest materializes other inodes, avoiding gigabytes of
+    duplicate driver data. The underlying library bytes remain unchanged.
+    """
+    directory = guest / 'usr/lib/aarch64-linux-gnu/dri'
+    if not directory.is_dir(): return
+    originals = {}
+    for path in sorted(directory.glob('*.so'), key=lambda p: (p.name != 'swrast_dri.so', p.name)):
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode): continue
+        key = (info.st_dev, info.st_ino)
+        if key not in originals:
+            originals[key] = path
+            continue
+        original = originals[key]
+        path.unlink()
+        path.symlink_to(original.name)
+
 def pack_guest(guest, archive):
     """Write every inode as a file, while preserving symbolic links exactly."""
     with tarfile.open(archive, 'w:gz', compresslevel=6) as bundle:
@@ -212,6 +233,7 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(copyright_file, target)
     ASSETS.mkdir(parents=True, exist_ok=True)
+    compact_dri_aliases(GUEST)
     archive = ASSETS / 'rootfs.bundle'  # .gz suffix is stripped by AAPT; contents remain gzip.
     audit = pack_guest(GUEST, archive)
     expanded = audit['expandedBytes']

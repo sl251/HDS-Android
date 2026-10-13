@@ -12,14 +12,14 @@
 
 ## 实现
 
-`HdsRuntime` 保留单个 PRoot / Node 启动路径。`runtime/qq.ts` 在同一 PRoot 中监管 QQ 子进程，退出时关闭 OneBot 和 QQ。QQ 采用上游安装器的官方 Linux QQ + NapCat 应用入口路线，由独立监管的 Xvfb 提供容器内虚拟显示，不向 Android 桌面展示窗口。普通 Node 缺少 `qq_magic_napi_register`；QQ 的 Node 模式也未通过启动验证，因此采用上游实际使用的虚拟显示方案。GnuTLS 全局符号与 GTK/音频等 ELF 链接依赖一并固定。Xvfb 禁止 TCP 监听，Unix 套接字位于 App 私有 rootfs。QQ 进程组与显示进程在停止时一并结束。
+`HdsRuntime` 保留单个 PRoot / Node 启动路径。`runtime/qq.ts` 在同一 PRoot 中监管 QQ 子进程，退出时关闭 OneBot 和 QQ。QQ 采用上游安装器的官方 Linux QQ + NapCat 应用入口路线，由独立监管的 Xvfb 提供容器内虚拟显示，不向 Android 桌面展示窗口。普通 Node 缺少 `qq_magic_napi_register`；QQ 的 Node 模式也未通过启动验证，因此采用上游实际使用的虚拟显示方案。GnuTLS 全局符号与 GTK/音频等 ELF 链接依赖一并固定。Xvfb 禁止 TCP 监听，并使用每次启动随机生成的 Xauthority cookie，防止同机其他进程连接虚拟显示。QQ 进程组与显示进程在停止时一并结束。
 
 - QQ 数据挂载到 `/qq-data`，对应私有 `noBackupFilesDir/hds/qq`，不在 rootfs 或某个人设目录内。修复环境、编辑人设和切换角色不会删除登录记录。切换角色会停止旧进程，重新启动 QQ 后可使用快捷登录。
 - 模型与 HDS 仍在原来的角色数据库内；QQ 通过 HDS `addStoryEndpoint` 加到当前故事，不创建第二套叙事核心。白名单按角色保存。
 - 管理 API 与 OneBot 仅监听 `127.0.0.1` 随机端口，使用不同的随机 token。WebView 不接触管理 token；操作经过原生 RPC 白名单。
 - 安装不运行联网 shell 脚本或 Debian 包维护脚本。组件固定来源见 `runtime/qq-components.ts`，Ubuntu 依赖见 `runtime/qq-libs.lock.json`。校验后解包到暂存目录，完成后才激活。
 - 使用兼容 Koishi 4.18 的 `koishi-plugin-adapter-onebot@6.9.5`。旧的带作用域 `@koishijs/plugin-adapter-onebot@6.0.2` 已弃用，不能与本项目的 Satori 4 混用。
-- 信箱按账号保存最近 2,000 条消息，每会话显示最近 200 条。重复入站在 Koishi 绑定前拦截；手动发送按 requestId 防重。结果不明时不自动重发，需在官方 QQ 核对。
+- 信箱按账号保存最近 2,000 条消息，每会话显示最近 200 条，单条信箱展示超过 4,000 字符时明确标注截断。重复入站在 Koishi 绑定前拦截；手动发送按 requestId 防重。结果不明时不自动重发，需在官方 QQ 核对。
 - 通知“停止全部”结束 HDS 与 QQ；运行期间使用带超时续期的部分唤醒锁，停止释放。它不保证免于 Doze、厂商回收或系统强停。
 
 ## 检查与边界
