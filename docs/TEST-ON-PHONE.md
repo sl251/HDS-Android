@@ -4,7 +4,7 @@
 
 ## 安装与首次使用
 
-1. 下载 `HDS-Android-0.1.0-preview.5.4-arm64.apk`，在 ARM64、Android 8 或以上手机安装。安装包使用本项目自己的固定预览签名，不需要电脑或 Termux。
+1. 下载 `HDS-Android-0.1.0-preview.5.4-arm64.apk`（可从 [Actions Run #38434506843](https://github.com/sl251/HDS-Android/actions/runs/38434506843) 的构建附件或 [Release 页面](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.5.4) 获取），在 ARM64、Android 8 或以上手机安装。安装包使用本项目自己的固定预览签名，不需要电脑或 Termux。
 2. 打开“角色”，导入提供的合成 JSON 样例或自己的 Tavern JSON/标准 tEXt PNG 卡、typ0 下载的 koishi.yml；检查预览再保存。也可手动创建。
 3. 打开“设置”，点击“准备本机环境”，等待 APK 内置 Ubuntu/Node/HDS 校验和解包。确保可用空间满足应用显示的实际需求。
 4. 在模型中心选择预设或填写自定义 Base URL、API Key，获取模型列表或手动填模型名。分配主叙事、记忆压缩、Alter，再填写你的故事称呼/人设。按“测试当前连接”验证后保存全部设置；这一步真的调用 API，可能有少量费用。
