@@ -1,3 +1,5 @@
+> 此处记录的是已被替代的早期模型候选。当前下载与校验值见 [preview.4 替换记录](../preview4-replacement/README.md)。
+
 # preview.4 候选构建证据
 
 - 构建源码：`3606b68d7c9e5b120d98b5c3958d2e96d8c09999`。

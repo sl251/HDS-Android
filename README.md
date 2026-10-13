@@ -16,7 +16,7 @@
 
 ## 安装与使用
 
-从 [Actions 候选构建](https://github.com/sl251/HDS-Android/actions/workflows/android-preview.yml) 下载成功任务的 APK 附件。候选分支不代表已发布正式版本；构建附件有保存期限。完整检查结果见 [preview.4 说明](docs/MODEL-CENTER-AND-PERSONAS.md)。
+从 [preview.4 候选版 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.4) 下载 APK。旧的同名 preview.4 已废弃并替换，请重新下载；当前 APK SHA-256 为 `30de39b1333d813f4c15d02e3a681ba52cfd717246fa3e5cdd92005b5cb9217d`。对应源码、校验表随 Release 提供，详见 [替换记录与构建验证](docs/evidence/preview4-replacement/README.md)。
 
 1. 覆盖安装同签名 APK，保留本机数据；不要先卸载。
 2. 在“角色”导入人设，检查预览并选中。typ0 文件直接选下载的 YAML，无需改扩展名。
