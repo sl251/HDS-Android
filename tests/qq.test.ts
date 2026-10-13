@@ -41,6 +41,7 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
       if (request.action === 'get_login_info') data = { user_id: 55555, nickname: '星禾' }
       if (request.action === 'get_guild_service_profile') data = { tiny_id: '0' }
       if (request.action === 'get_stranger_info') data = { user_id: request.params.user_id, nickname: '邻居' }
+      if (request.action === 'get_group_info') data = { group_id: request.params.group_id, group_name: '朋友群' }
       if (request.action === 'send_private_msg' || request.action === 'send_group_msg') { delivered.push(request); data = { message_id: 70000 + delivered.length } }
       client.send(JSON.stringify({ status: 'ok', retcode: 0, data, echo: request.echo }))
     })
@@ -80,6 +81,14 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     await host.dispatch('qq.send', manual); await host.dispatch('qq.send', manual)
     assert.equal(delivered.length, before + 1)
     assert.deepEqual(delivered.at(-1).params.message, [{ type: 'text', data: { text: manual.content } }])
+    const count = calls.length
+    await host.dispatch('qq.policy', { enabled: true, users: ['12345'], groups: ['88888'] })
+    const group = (id: number, mention: boolean) => socket.send(JSON.stringify({ post_type: 'message', message_type: 'group', sub_type: 'normal', self_id: 55555, user_id: 77777, group_id: 88888, message_id: id, time: Math.floor(Date.now() / 1000), message: [...(mention ? [{ type: 'at', data: { qq: '55555' } }] : []), { type: 'text', data: { text: 'GROUP_FIXTURE，今天好吗？' } }], sender: { user_id: 77777, nickname: '群友', role: 'member' } }))
+    group(1004, false); await delay(1500); assert.equal(calls.length, count, 'Ordinary group messages must not trigger a model')
+    group(1005, true); await waitFor(() => calls.length > count)
+    assert.match(JSON.stringify(calls.at(-1)), /GROUP_FIXTURE/)
+    await waitFor(async () => (await host.dispatch('qq.conversations', {}) as any[]).some(row => row.id === 'group:88888'))
+    await waitFor(() => delivered.some(row => row.action === 'send_group_msg' && String(row.params.group_id) === '88888'))
     await host.dispatch('qq.policy', { enabled: false, users: ['12345'], groups: [] })
     const bot = host.app.bots.find(bot => bot.platform === 'onebot')!
     await assert.rejects(() => bot.sendMessage('private:12345', 'must not send'), /暂停|授权/)

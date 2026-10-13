@@ -115,9 +115,9 @@ export class QQRuntime {
     }
     const response = await fetch(`http://127.0.0.1:${this.webPort}/api/${method}`, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000), headers: { 'Content-Type': 'application/json', ...(authenticate ? { Authorization: `Bearer ${this.credential}` } : {}) }, body: JSON.stringify(data) })
     if (!response.ok) throw new Error(`QQ 本地接口 HTTP ${response.status}`)
-    const reader = response.body!.getReader(); let body = '', bytes = 0
-    try { while (true) { const chunk = await reader.read(); if (chunk.done) break; bytes += chunk.value.length; if (bytes > 1024 * 1024) throw new Error('QQ 响应过大'); body += Buffer.from(chunk.value).toString('utf8') } } finally { await reader.cancel() }
-    const result = JSON.parse(body)
+    const reader = response.body!.getReader(); const chunks: Uint8Array[] = []; let bytes = 0
+    try { while (true) { const chunk = await reader.read(); if (chunk.done) break; bytes += chunk.value.length; if (bytes > 1024 * 1024) throw new Error('QQ 响应过大'); chunks.push(chunk.value) } } finally { await reader.cancel() }
+    const result = JSON.parse(Buffer.concat(chunks).toString('utf8'))
     if (result.code !== 0) { this.credential = ''; throw new Error(String(result.message || 'QQ 请求失败').slice(0, 200)) }
     return result.data
   }
@@ -172,7 +172,10 @@ export class QQRuntime {
     const network = { network: { websocketServers: [{ name: 'hds-local', enable: true, host: '127.0.0.1', port: this.wsPort, token: this.wsToken, messagePostFormat: 'array', reportSelfMessage: false, enableForcePushEvent: true }] } }
     for (const filename of ['onebot11.json', ...readdirSync(configDir).filter(name => /^onebot11_\d+\.json$/.test(name))]) atomic(join(configDir, filename), network)
     const root = componentsPath(this.directory), qq = join(root, 'opt/QQ/resources/app')
-    const child = spawn(process.execPath, [join(root, 'napcat/napcat.mjs')], { cwd: join(root, 'napcat'), env: { ...process.env,
+    // QQ's wrapper requires qq_magic_napi_register from the official QQ host.
+    // Electron's Node mode provides that ABI without starting a desktop/display.
+    const child = spawn(join(root, 'opt/QQ/qq'), [join(root, 'napcat/napcat.mjs')], { cwd: join(root, 'napcat'), env: { ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
       HOME: join(this.directory, 'home'), XDG_CONFIG_HOME: join(this.directory, 'home/.config'), NAPCAT_WORKDIR: this.directory,
       NAPCAT_WRAPPER_PATH: join(qq, 'wrapper.node'), NAPCAT_QQ_PACKAGE_INFO_PATH: join(qq, 'package.json'),
       NAPCAT_DISABLE_PIPE: '1', NAPCAT_DISABLE_TIME_SYNC: '1', NAPCAT_DISABLE_BYPASS: '1',
