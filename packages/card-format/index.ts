@@ -95,7 +95,8 @@ export function cardPrompt(card: Card, userName: string, history: string[]): { b
   const macro = (text: string) => text.replaceAll('{{char}}', card.name).replaceAll('{{user}}', userName).replaceAll('{{original}}', '')
   const entries = Array.isArray(card.lorebook?.entries) ? card.lorebook.entries : []
   const scanDepth = Math.max(1, Math.min(30, Number(card.lorebook?.scan_depth) || 10))
-  const budget = Math.max(0, Math.min(4096, Number(card.lorebook?.token_budget) || 1024))
+  const configuredBudget = Number(card.lorebook?.token_budget ?? 1024)
+  const budget = Math.max(0, Math.min(4096, Number.isFinite(configuredBudget) ? configuredBudget : 1024))
   const recent = history.slice(-scanDepth).join('\n')
   const trace: string[] = [], selected: { content: string; order: number; after: boolean; priority: number }[] = []
   for (const [index, value] of entries.slice(0, 2000).entries()) {

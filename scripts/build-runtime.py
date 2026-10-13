@@ -72,7 +72,9 @@ def main():
         archive = download(deb, deb['name'] + '.deb')
         members = subprocess.check_output(['ar', 't', str(archive)], text=True).splitlines()
         data = next(name for name in members if name.startswith('data.tar.'))
-        unpack(io.BytesIO(subprocess.check_output(['ar', 'p', str(archive), data])), GUEST)
+        content = subprocess.check_output(['ar', 'p', str(archive), data])
+        if data.endswith('.zst'): content = subprocess.check_output(['zstd', '-d', '-c'], input=content)
+        unpack(io.BytesIO(content), GUEST)
     (GUEST / 'etc/resolv.conf').unlink(missing_ok=True)
     (GUEST / 'etc/resolv.conf').write_text('nameserver 1.1.1.1\n')
     for name in ['tmp', 'proc', 'dev', 'hds-data', 'root']:
