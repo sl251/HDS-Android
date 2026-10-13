@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "documentVersion": "1.0",
+  "researchedOn": "2026-10-13",
+  "timezone": "Asia/Shanghai",
+  "verification": "source-and-document-review-only",
+  "repositories": [
+    {
+      "role": "target",
+      "repository": "ISEKAI-MomoiCore/HDS-Interlude",
+      "branch": "master",
+      "commit": "9a77fadb88c6e57914ebac8ca75cf54a27354d01",
+      "declaredVersion": "1.0.1-rc51",
+      "url": "https://github.com/ISEKAI-MomoiCore/HDS-Interlude"
+    },
+    {
+      "role": "android-runtime-reference",
+      "repository": "dphmoblie/deepseek-harness-android",
+      "branch": "main",
+      "commit": "14a21621fa25e204d7218d37e193d9b861b837a8",
+      "declaredVersion": "0.2.13",
+      "url": "https://github.com/dphmoblie/deepseek-harness-android"
+    },
+    {
+      "role": "readme-reference",
+      "repository": "zz6zz666/AstrBot-Android-App",
+      "branch": "master",
+      "commit": "7ea03f0be5e3d780394f35959aac23ad13a772ee",
+      "url": "https://github.com/zz6zz666/AstrBot-Android-App"
+    },
+    {
+      "role": "qq-android-reference",
+      "repository": "MuFengDR/AstrBot-Bubble-Android-App",
+      "branch": "master",
+      "commit": "f54ed74930683ac9f8ef76390f53980e2d537cb5",
+      "declaredVersion": "0.1.0-beta5.5+5",
+      "url": "https://github.com/MuFengDR/AstrBot-Bubble-Android-App"
+    },
+    {
+      "role": "qzone-candidate",
+      "repository": "SnowLuma/SnowLuma",
+      "branch": "main",
+      "commit": "87527cb7641a5a42f8f0efb73cb066102e004dee",
+      "releaseTag": "v1.14.22",
+      "url": "https://github.com/SnowLuma/SnowLuma",
+      "androidVerified": false
+    }
+  ],
+  "rollingReferences": [
+    "https://snowluma.github.io/en/docs/guide/deploy/mobile",
+    "https://snowluma.github.io/en/docs/guide/deploy/linux-manual",
+    "https://github.com/malfoyslastname/character-card-spec-v2/blob/main/spec_v2.md",
+    "https://github.com/kwaroran/character-card-spec-v3/blob/main/SPEC_V3.md",
+    "https://developer.android.com/training/data-storage/shared/documents-files",
+    "https://developer.android.com/develop/background-work/services/fgs/service-types",
+    "https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work",
+    "https://developer.android.com/about/versions/15/behavior-changes-all#16-kb",
+    "https://napneko.github.io/guide/boot/Shell"
+  ],
+  "notes": [
+    "Rolling card specifications must be pinned by T01.",
+    "No APK build or device test was performed for this planning deliverable.",
+    "No QQ login, message, post, comment or like was performed."
+  ]
+}

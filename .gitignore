@@ -1,0 +1,30 @@
+# Development dependencies and generated output
+node_modules/
+.pnpm-store/
+.gradle/
+build/
+dist/
+coverage/
+.cache/
+local.properties
+
+# Credentials, local runtime data, and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.key
+runtime-data/
+.references/
+.tools/
+
+# Local editor and system files
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Original planning archive: extracted documents are versioned
+HDS-Mobile-Plan-v1.0.zip
