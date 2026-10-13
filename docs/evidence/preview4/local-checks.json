@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-preview.4",
+  "hostTests": {
+    "passed": 13,
+    "failed": 0,
+    "modelTransport": "Local fixed HTTP/SSE responses; real Koishi/HDS/SQLite execution"
+  },
+  "typecheck": "PASS",
+  "frontendBuildAndCapacitorSync": "PASS",
+  "browser": {
+    "engine": "Installed Microsoft Edge (headless, Playwright)",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "checks": [
+      "Provider preset changes API address",
+      "Add provider connection",
+      "Streaming enables JSON mode",
+      "Prompt-only mode disables streaming",
+      "No horizontal page overflow",
+      "No page JavaScript errors"
+    ],
+    "result": "PASS",
+    "scope": "Browser preview; Android native calls disabled"
+  },
+  "deviceTests": "NOT RUN for preview.4; user reported preview.3 starts successfully",
+  "commercialProviders": "NOT RUN; no user API key used",
+  "personaImport": "Synthetic typ0-style YAML and JSON envelopes; native story defaults appear in actual model request; revised persona survives host restart with existing chat history",
+  "streaming": "First complete reply visible before upstream SSE closes; stop/restart after stream release preserves exactly one visible reply"
+}

@@ -1,0 +1,92 @@
+{
+  "apk": "HDS-Android-0.1.0-preview.4-arm64.apk",
+  "apkSha256": "c3d97565d7bce10603b17ff66d5006f422335f877499b34e06fa752956910238",
+  "apkBytes": 96354506,
+  "bundleSha256": "f6732dd91e37debb48db0f16988255ed1b9cc42daecb0f1cd30ae4fd919560b8",
+  "bundleBytes": 91358822,
+  "manifestHashMatches": true,
+  "manifestCompressedBytesMatches": true,
+  "manifest": {
+    "version": "0.1.0-preview.4",
+    "abi": "arm64-v8a",
+    "compressedBytes": 91358822,
+    "expandedBytes": 318199946,
+    "archiveAudit": {
+      "expandedBytes": 318199946,
+      "entries": 12961,
+      "hardlinks": 0,
+      "symlinks": 200
+    },
+    "sha256": "f6732dd91e37debb48db0f16988255ed1b9cc42daecb0f1cd30ae4fd919560b8",
+    "prootSha256": "07ef0b01a1506a364c9db3e5fe6ac9a530974371f9838bc7a5c6abb5097b4c78",
+    "loaderSha256": "f149774236db1e69b36cc1e4ed3866c7094db2eee52da0d4956aa63a9bb26929",
+    "sourceLock": {
+      "format": 1,
+      "version": "0.1.0-preview.4",
+      "abi": "arm64-v8a",
+      "ubuntu": {
+        "url": "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz",
+        "sha256": "7b2dced6dd56ad5e4a813fa25c8de307b655fdabc6ea9213175a92c48dabb048"
+      },
+      "node": {
+        "version": "24.11.1",
+        "url": "https://nodejs.org/dist/v24.11.1/node-v24.11.1-linux-arm64.tar.xz",
+        "sha256": "6b0863fb9f627bf4a6c5948dce1de4398174a2e05dbe717503d828e211ca01f0"
+      },
+      "debs": [
+        {
+          "name": "libgcc-s1",
+          "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+          "sha256": "5b191f79ad985a9a653dbba45214619f729f9178a9bdf92f7c68db06c50d070b"
+        },
+        {
+          "name": "libstdc++6",
+          "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libstdc++6_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+          "sha256": "f84a05ac45a6884109b6527e911081a38263b89e042fc94a338cf975f61a330c"
+        }
+      ],
+      "runnerReference": {
+        "commit": "14a21621fa25e204d7218d37e193d9b861b837a8",
+        "url": "https://github.com/dphmoblie/deepseek-harness-android/releases/download/v0.2.13-mobile-413/app-release.apk",
+        "sha256": "4ccf2261ba10072c3ce7a35d2a34c7a44be6a4a8431a9efd5522693d72d02472",
+        "prootEntry": "lib/arm64-v8a/libdsh_proot.so",
+        "prootSha256": "07ef0b01a1506a364c9db3e5fe6ac9a530974371f9838bc7a5c6abb5097b4c78",
+        "upstreamNoticeProotSha256": "cb40a1ced11cee76569b4008a9e478c87883ce831152be4eb9570763b82e580d",
+        "prootDigestNote": "Actual ELF independently extracted from whole-APK-SHA256-verified release; bundled notice lists a different prepackaging input hash. No binary identity with that notice hash is claimed.",
+        "loaderEntry": "lib/arm64-v8a/libdsh_proot_loader.so",
+        "loaderSha256": "f149774236db1e69b36cc1e4ed3866c7094db2eee52da0d4956aa63a9bb26929",
+        "sourceRepository": "https://github.com/AAswordman/Operit2",
+        "sourceCommit": "dc4c3a9405dc7ed3ef69b2ac9a6ace65374d77cf",
+        "prootVersion": "5.1.107.78"
+      }
+    }
+  },
+  "tarEntries": 12961,
+  "typeCounts": {
+    "5": 2298,
+    "2": 200,
+    "0": 10463
+  },
+  "hardlinks": [],
+  "nonOwnerRwxDirs": [],
+  "regularBytes": 318199946,
+  "materializedHardlinkBytes": 0,
+  "materializedTotalMatchesManifest": true,
+  "limitations": "Static read-only inspection; not proof of Android extraction, SELinux behavior, or runtime execution.",
+  "buildSource": "3606b68d7c9e5b120d98b5c3958d2e96d8c09999",
+  "actionsRun": 38388070666,
+  "certificateSha256": "2adf611b828fdbbf530a5a7617a053014b9ec1115e26aac98397fb3037b5709e",
+  "samePreview1Certificate": true,
+  "zipCrc": "PASS",
+  "nativeHashes": "PASS",
+  "newUiAndInsetsConfig": "PASS",
+  "jvmTests": {
+    "passed": 40,
+    "failed": 0,
+    "ignored": 0
+  },
+  "deviceTests": "NOT RUN",
+  "signatureVerification": "CI apksigner PASS; local signing-block certificate matches preview.1",
+  "presetCatalog": "Matches source model-presets.json",
+  "yamlLicense": "ISC notice present in APK"
+}

@@ -43,4 +43,4 @@ YAML 不执行标签、脚本或合并引用；拒绝重复键、别名引用、
 
 Node 测试覆盖原 HDS/Koishi/SQLite 的实际运行、模型分工、格式导入、敏感字段丢弃、流式提前投递、编辑后保留历史；模型网络响应由本地固定 HTTP/SSE 服务提供，不使用用户密钥。JVM 测试覆盖模型列表、协议、404 诊断、加密字段迁移边界及原有运行时回归。Actions 另执行 Kotlin 编译、Android lint、APK 签名验证和打包。
 
-真机覆盖升级、Keystore、文件选择器、商业模型服务与后台运行需要手机验证。具体构建证据随候选完成后记录在 `docs/evidence/preview4/`。
+真机覆盖升级、Keystore、文件选择器、商业模型服务与后台运行需要手机验证。已完成构建及签名审计，详见 [preview.4 证据](evidence/preview4/README.md)。
