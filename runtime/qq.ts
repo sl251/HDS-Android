@@ -209,7 +209,14 @@ export class QQRuntime {
     for (const stream of [child.stdout, child.stderr]) stream?.on('data', data => {
       for (const line of data.toString().split(/\r?\n/)) if (/error|fatal|sandbox|failed|not found|undefined symbol|cannot|失败/i.test(line) && !/qrcode|二维码|token|message content/i.test(line)) this.diagnostic(line)
     })
-    child.once('error', error => { this.phase = 'failed'; this.error = `QQ 无法启动：${error.message}`; this.diagnostic(this.error) })
+    child.once('error', error => {
+      if (this.child !== child) return
+      // A failed spawn emits error/close, but never exit. Clear it here so
+      // stop/retry cannot wait forever for a process that was never created.
+      this.child = undefined; this.display?.kill(); this.display = undefined
+      this.loginOnline = false; this.qrImage = ''; this.phase = 'failed'
+      this.error = `QQ 无法启动：${error.message}`; this.diagnostic(this.error)
+    })
     child.once('exit', (code, signal) => { if (this.child !== child) return; this.child = undefined; this.display?.kill(); this.display = undefined; this.loginOnline = false; this.qrImage = ''; if (!this.closing) { this.phase = 'failed'; this.error = `QQ 进程退出（${signal || code}），请查看 QQ 日志`; void this.fork?.dispose(); this.fork = undefined } })
     await this.poll()
   }

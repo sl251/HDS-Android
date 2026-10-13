@@ -3,7 +3,9 @@
 import { Context } from 'koishi'
 import { HTTP } from '@cordisjs/plugin-http'
 import { QQRuntime } from '../runtime/qq'
-import { mkdirSync } from 'node:fs'
+import { chmodSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { componentsPath } from '../runtime/qq-components'
 
 async function main() {
   if (process.arch !== 'arm64' || process.platform !== 'linux') throw new Error('ARM64 Linux required')
@@ -18,6 +20,17 @@ async function main() {
     let limit = Date.now() + 12 * 60 * 1000
     while (qq.status().phase === 'installing' && Date.now() < limit) await new Promise(resolve => setTimeout(resolve, 1000))
     if (!qq.status().installed) throw new Error(`Component install: ${qq.status().error}`)
+    // A phone can reject native execution. That must leave stop/retry usable.
+    const binary = join(componentsPath(directory), 'opt/QQ/qq')
+    chmodSync(binary, 0o600)
+    try {
+      await qq.start()
+      limit = Date.now() + 10000
+      while (qq.status().phase !== 'failed' && Date.now() < limit) await new Promise(resolve => setTimeout(resolve, 100))
+      if (qq.status().phase !== 'failed' || qq.status().running) throw new Error('Rejected QQ execution was not cleaned up')
+      await Promise.race([qq.stop(), new Promise((_, reject) => setTimeout(() => reject(new Error('Stop hung after rejected QQ execution')), 5000))])
+      console.log('PASS: rejected QQ execution can be stopped and retried.')
+    } finally { chmodSync(binary, 0o755) }
     await qq.start()
     limit = Date.now() + 130000
     while (Date.now() < limit) {
