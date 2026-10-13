@@ -50,9 +50,9 @@ select{font:inherit;min-height:48px;border:1px solid var(--line);border-radius:6
 .qq-groups summary, .qq-new summary { cursor: pointer; font-size: 14px; }
 .qq-new form { padding-top: 14px; }
 .letter-thread .section-title h2 { font-size: 18px; overflow-wrap: anywhere; }
-.letter-messages { padding: 14px 0; }
+.letter-messages { padding: 14px 0; max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; }
 .message.qq-peer .bubble { border-left: 3px solid #8c9a82; background: #e8eadf; border-radius: 0 12px 12px 12px; }
-.qq-composer { display: flex; align-items: stretch; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line, #d8d4c9); position: sticky; bottom: var(--nav-height, 70px); background: var(--paper, #f5f1e8); }
+.qq-composer { display: flex; align-items: stretch; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line, #d8d4c9); background: var(--paper, #f5f1e8); }
 .qq-composer textarea { flex: 1; min-width: 0; margin: 0; resize: vertical; }
 .qq-composer button { flex: none; }
 @media (max-width: 380px) { .qq-login, .qq-onboarding { padding: 16px; } .qq-policy-link { padding: 14px; } .letter-title { font-size: 14px; } }
