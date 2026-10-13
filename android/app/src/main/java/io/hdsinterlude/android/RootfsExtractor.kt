@@ -29,7 +29,7 @@ class RootfsExtractor(
     private fun path(raw: String): String {
         require(raw.isNotEmpty() && raw.length <= 4096 && !raw.startsWith('/') && !raw.contains('\u0000') && !raw.contains('\\')) { "无效归档路径" }
         val parts = raw.split('/').filter { it.isNotEmpty() && it != "." }
-        require(parts.none { it == ".." }) { "归档路径越界" }
+        require(parts.size <= 128 && parts.none { it == ".." }) { "归档路径越界或过深" }
         return parts.joinToString("/")
     }
     private fun symbolicTarget(entry: Entry): String {

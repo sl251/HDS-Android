@@ -3,26 +3,35 @@ package io.hdsinterlude.android
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
-import java.nio.file.SimpleFileVisitor
-import java.nio.file.FileVisitResult
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 
 /** The manifest lives inside each generation, so one rename switches files and marker. */
-class RuntimeTransaction(private val environment: File, private val rename: (File, File) -> Boolean = { a, b -> a.renameTo(b) }) {
+class RuntimeTransaction(
+    private val environment: File,
+    private val beforeDelete: (File) -> Unit = {},
+    private val rename: (File, File) -> Boolean = { a, b -> a.renameTo(b) }
+) {
     val root = File(environment, "rootfs")
     val staging = File(environment, "staging")
     val previous = File(environment, "previous")
     fun deleteOwned(file: File) {
         require(file.parentFile.canonicalFile == environment.canonicalFile && file.name in listOf("staging", "previous"))
+        beforeDelete(file)
         if (!Files.exists(file.toPath(), NOFOLLOW_LINKS)) return
-        Files.walkFileTree(file.toPath(), object : SimpleFileVisitor<Path>() {
-            override fun visitFile(path: Path, attrs: BasicFileAttributes): FileVisitResult { Files.delete(path); return FileVisitResult.CONTINUE }
-            override fun postVisitDirectory(path: Path, exc: java.io.IOException?): FileVisitResult {
-                if (exc != null) throw exc
-                Files.delete(path); return FileVisitResult.CONTINUE
+        fun remove(path: Path) {
+            val attrs = Files.readAttributes(path, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+            if (attrs.isDirectory) {
+                // A finished/cancelled archive may have made owned directories read-only.
+                val directory = path.toFile()
+                if (!directory.setReadable(true, true) || !directory.setWritable(true, true) || !directory.setExecutable(true, true)) {
+                    throw java.io.IOException("无法恢复托管临时目录权限")
+                }
+                Files.newDirectoryStream(path).use { children -> for (child in children) remove(child) }
             }
-        })
+            Files.delete(path)
+        }
+        remove(file.toPath())
     }
     fun recover() {
         if (!Files.exists(root.toPath(), NOFOLLOW_LINKS) && Files.exists(previous.toPath(), NOFOLLOW_LINKS)) {

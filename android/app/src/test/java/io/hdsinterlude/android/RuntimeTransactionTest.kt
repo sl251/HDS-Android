@@ -63,4 +63,23 @@ class RuntimeTransactionTest {
         assertEquals("keep", story.readText()); story.delete(); profile.delete()
         assertThrows(IllegalArgumentException::class.java) { transaction.deleteOwned(env) }
     }
+    @Test fun cleanupHandlesReadOnlyDirectories() = scenario { env ->
+        val transaction = RuntimeTransaction(env)
+        val directory = File(transaction.staging, "readonly").apply { mkdirs() }
+        File(directory, "file").writeText("temporary")
+        directory.setWritable(false, false)
+        transaction.deleteOwned(transaction.staging)
+        assertFalse(transaction.staging.exists())
+    }
+    @Test fun failedCleanupKeepsCommittedGenerationReady() = scenario { env ->
+        var previousDeletes = 0
+        val transaction = RuntimeTransaction(env, beforeDelete = { file ->
+            if (file.name == "previous" && ++previousDeletes == 2) throw java.io.IOException("injected cleanup failure")
+        })
+        generation(transaction.root, "old"); generation(transaction.staging, "new")
+        assertFalse(transaction.activate())
+        assertEquals("new", File(transaction.root, "host").readText())
+        assertEquals("new", File(transaction.root, ".hds-installed.json").readText())
+        assertTrue(transaction.previous.exists())
+    }
 }
