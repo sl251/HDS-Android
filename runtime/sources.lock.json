@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  "version": "0.1.0-preview.1",
+  "abi": "arm64-v8a",
+  "ubuntu": {
+    "url": "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz",
+    "sha256": "7b2dced6dd56ad5e4a813fa25c8de307b655fdabc6ea9213175a92c48dabb048"
+  },
+  "node": {
+    "version": "24.11.1",
+    "url": "https://nodejs.org/dist/v24.11.1/node-v24.11.1-linux-arm64.tar.xz",
+    "sha256": "6b0863fb9f627bf4a6c5948dce1de4398174a2e05dbe717503d828e211ca01f0"
+  },
+  "debs": [
+    { "name": "libgcc-s1", "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_arm64.deb", "sha256": "5b191f79ad985a9a653dbba45214619f729f9178a9bdf92f7c68db06c50d070b" },
+    { "name": "libstdc++6", "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libstdc++6_14.2.0-4ubuntu2~24.04.1_arm64.deb", "sha256": "f84a05ac45a6884109b6527e911081a38263b89e042fc94a338cf975f61a330c" }
+  ],
+  "runnerReference": {
+    "commit": "14a21621fa25e204d7218d37e193d9b861b837a8",
+    "url": "https://github.com/dphmoblie/deepseek-harness-android/releases/download/v0.2.13-mobile-413/app-release.apk",
+    "sha256": "4ccf2261ba10072c3ce7a35d2a34c7a44be6a4a8431a9efd5522693d72d02472",
+    "prootEntry": "lib/arm64-v8a/libdsh_proot.so",
+    "prootSha256": "cb40a1ced11cee76569b4008a9e478c87883ce831152be4eb9570763b82e580d",
+    "loaderEntry": "lib/arm64-v8a/libdsh_proot_loader.so",
+    "loaderSha256": "f149774236db1e69b36cc1e4ed3866c7094db2eee52da0d4956aa63a9bb26929",
+    "sourceRepository": "https://github.com/AAswordman/Operit2",
+    "sourceCommit": "dc4c3a9405dc7ed3ef69b2ac9a6ace65374d77cf",
+    "prootVersion": "5.1.107.78"
+  }
+}

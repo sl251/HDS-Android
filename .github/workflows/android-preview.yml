@@ -1,0 +1,72 @@
+name: Android development preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['android/**', 'apps/**', 'packages/**', 'runtime/**', 'scripts/build-mobile-host.mjs', 'scripts/build-runtime.py', 'tests/**', 'package*.json', 'capacitor.config.ts', 'vite.config.ts', 'tsconfig.json', 'index.html', '.github/workflows/android-preview.yml']
+permissions:
+  contents: read
+concurrency:
+  group: android-preview-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.11.1'
+          cache: npm
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install fixed JavaScript dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build and test actual HDS host
+        run: |
+          mkdir -p artifacts
+          npm test 2>&1 | tee artifacts/host-tests.log
+          npm run build
+          npx cap sync android
+      - name: Build checksum-verified ARM64 runtime
+        run: python3 scripts/build-runtime.py
+      - name: Ensure Android SDK components
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Restore private signing key
+        env:
+          HDS_SIGNING_STORE_B64: ${{ secrets.HDS_SIGNING_STORE_B64 }}
+        run: |
+          test -n "$HDS_SIGNING_STORE_B64"
+          printf '%s' "$HDS_SIGNING_STORE_B64" | base64 --decode > "$RUNNER_TEMP/hds-preview.keystore"
+      - name: Build signed APK and run Android checks
+        env:
+          HDS_SIGNING_STORE: ${{ runner.temp }}/hds-preview.keystore
+          HDS_SIGNING_PASSWORD: ${{ secrets.HDS_SIGNING_PASSWORD }}
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease
+      - name: Package verification and release materials
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.1-arm64.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs artifacts/*.apk > artifacts/apk-signature.txt
+          cp runtime/generated/runtime-manifest.json artifacts/
+          cp docs/TEST-ON-PHONE.md artifacts/
+          cp fixtures/cards/*.json artifacts/
+          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.1-source.tar.gz
+          cd artifacts
+          sha256sum *.apk *.tar.gz > SHA256SUMS.txt
+      - name: Upload preview and build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: HDS-Android-preview-${{ github.sha }}
+          path: |
+            artifacts/
+            android/app/build/reports/lint-results-release.html
+            android/app/build/reports/tests/testReleaseUnitTest/
+          if-no-files-found: error
+          retention-days: 30

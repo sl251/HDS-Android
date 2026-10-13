@@ -4,7 +4,9 @@
 
 ## 当前状态
 
-仓库已导入 2026-10-13 编制的实施计划，并开始 T01 源码基线验证。当前尚无 Android 应用源码、APK 或真机验证结果。任务状态以 [任务表](HDS-Mobile-Plan/TASK-BOARD.csv) 和 `docs/evidence/` 中的证据为准。
+正在构建 `0.1.0-preview.1` ARM64 开发预览版（Android 8 / API 26 起）。已实现 Kotlin/Capacitor 管理界面、手机内 Ubuntu/Node/Koishi/HDS rc51 宿主、JSON/PNG 角色卡导入、本地聊天与剧情查看。模型 API 由用户配置；运行环境随 APK 内置。
+
+QQ 私聊、群聊、QQ 空间尚未接入；这次交付不代表完整首版验收通过。Android 真机、后台存活和 16 KiB 页面设备仍需测试。测试步骤与已知边界见 [真机测试清单](docs/TEST-ON-PHONE.md)。
 
 首版目标包括 QQ 私聊、群聊、QQ 空间动态，以及实际进入 HDS 叙事的角色卡导入。优先保留原版 HDS 核心，采用 Kotlin、Capacitor/React、PRoot/Ubuntu ARM64 与 Node/Koishi 的方案。
 
@@ -19,7 +21,21 @@
 - [验收标准](HDS-Mobile-Plan/05-ACCEPTANCE.md)
 - [固定来源](HDS-Mobile-Plan/sources.lock.json)
 
-上游源代码、运行时与 QQ 后端分别遵守其各自许可证和分发条件。当前交付为实施计划和基线验证工具，未打包第三方运行时，也不声明未验证的 Android 或 QQ 空间支持。
+上游源代码与运行时分别遵守其各自许可证。HDS 固定源码及窄范围补丁位于 `upstream/hds-interlude`，运行时来源和校验值在 `runtime/sources.lock.json`；未复制或打包 SnowLuma、Linux QQ。
+
+## 构建预览版
+
+```sh
+npm ci --ignore-scripts
+npm test
+npm run build
+npx cap sync android
+python3 scripts/build-runtime.py
+cd android
+./gradlew lintRelease testReleaseUnitTest assembleRelease
+```
+
+Android 打包需 Linux、Python 3.12、Node 24.11.1、Java 21、Android SDK 35。签名配置通过 `HDS_SIGNING_STORE` 和 `HDS_SIGNING_PASSWORD` 提供，私钥不提交到 Git。私有仓库 Actions 可复现完整流程并保存测试日志、签名验证、运行时清单和 APK。已授权的本机签名材料在忽略目录 `.tools`，升级时需复用并自行备份。
 
 ## 复现 HDS 基线
 
@@ -35,4 +51,4 @@ node scripts/build-hds-baseline.mjs
 
 原始检查存在已记录的失败，因此 `verify-hds-baseline.mjs` 当前返回非零；原因与测试数量见 [基线报告](docs/evidence/T01/baseline.md)。`build-hds-baseline.mjs` 直接从源码打包并检查插件导出，尚不包含声明文件或 Android 宿主。
 
-[功能盘点](docs/feature-parity.csv) 覆盖全部顶层配置分区与命令；其中移动实现状态仍为待实现。参考源码与本地工作副本放在忽略目录，不随本仓库推送。HDS 来源和许可证见 [第三方说明](docs/THIRD_PARTY.md)。
+[功能盘点](docs/feature-parity.csv) 保留完整产品目标的基线，当前预览版仅覆盖上述本地链路。HDS 来源和许可证见 [第三方说明](docs/THIRD_PARTY.md)，源码修改见 [移动补丁说明](docs/MOBILE-PATCHES.md)。

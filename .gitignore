@@ -29,3 +29,10 @@ Thumbs.db
 
 # Original planning archive: extracted documents are versioned
 HDS-Mobile-Plan-v1.0.zip
+artifacts/
+runtime/generated/
+android/app/src/main/assets/runtime/
+android/app/src/main/jniLibs/
+*.tsbuildinfo
+__pycache__/
+android/app/src/main/assets/legal/

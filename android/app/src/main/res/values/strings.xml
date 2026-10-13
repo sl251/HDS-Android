@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HDS</string>
+    <string name="title_activity_main">HDS</string>
+    <string name="package_name">io.hdsinterlude.android</string>
+    <string name="custom_url_scheme">io.hdsinterlude.android</string>
+</resources>
