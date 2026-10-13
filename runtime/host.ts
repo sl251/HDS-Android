@@ -3,13 +3,16 @@ import { HTTP } from '@cordisjs/plugin-http'
 import { SQLiteDriver } from '@minatojs/driver-sqlite'
 import { createServer } from 'node:http'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import * as HDS from '../upstream/hds-interlude/src/index'
 import { cardPrompt, type Card } from '../packages/card-format'
+import { mobileModelConfig } from './model-config'
+import type { ModelOptions, ModelProvider } from '../packages/contracts'
+import { personaDefaults, personaEditPatch } from './persona'
 
-export type HostConfig = { card: Card; endpoint: string; model: string; apiKey: string; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string }
+export type HostConfig = { card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string }
 export async function startHost(input: HostConfig) {
   if (!input.card?.name || !input.model || !input.endpoint || !input.token || input.token.length < 32) throw new Error('Missing valid host configuration')
   const endpoint = new URL(input.endpoint)
@@ -38,8 +41,8 @@ export async function startHost(input: HostConfig) {
   let bot!: LocalBot
   app.plugin(ctx => { bot = new LocalBot(ctx) })
   const config = HDS.Config({
-    storyDefaults: { characterName: input.card.name, characterProfile: [`[角色描述]\n${input.card.description}`, `[性格]\n${input.card.personality}`].join('\n\n'), userProfile: input.userProfile, world: input.card.scenario, timezone: 'Asia/Shanghai' },
-    model: { providers: [{ id: 'mobile-primary', label: '手机模型连接', mode: 'openai-compatible', endpoint: input.endpoint, apiKey: input.apiKey, model: input.model, enabled: true, useForMain: true, useForCompaction: true, useForAlter: true, temperature: 0.8, maxTokens: 4096, timeout: 60000 }], failover: { enabled: false } },
+    storyDefaults: personaDefaults(input.card, input.userProfile),
+    model: mobileModelConfig(input),
     runtime: { autoCreate: true, autoAdvanceEnabled: input.autoAdvance, allowProactiveMessages: input.autoAdvance, userMessageDebounceSeconds: 1, conversationFollowUpMinutes: input.autoAdvance ? [10, 20] : [], typingMaxDelaySeconds: 12 },
     logging: { level: 'warn', colors: false, kaomoji: false, logMessageContent: false, logScriptPreview: false },
     timelineDirector: { enabled: input.autoAdvance },
@@ -47,6 +50,7 @@ export async function startHost(input: HostConfig) {
   })
   let promptTrace: string[] = []
   config.model.mobileCardPrompt = request => {
+    if (input.card.format === 'hds') { promptTrace = ['HDS 原生 storyDefaults 映射']; return { before: '', after: '' } }
     const history = request.recentEntries.filter(entry => entry.kind === 'user-message' || entry.kind === 'character-message').map(entry => entry.content)
     if (request.userMessage) history.push(request.userMessage)
     const compiled = cardPrompt(input.card, input.userName || '我', history)
@@ -68,7 +72,18 @@ export async function startHost(input: HostConfig) {
   }
   // A dedicated profile owns this database; no QQ identity is fabricated.
   const current = session()
-  const story = await app.interlude.findStory(current) ?? await app.interlude.createStory(current)
+  let story = await app.interlude.findStory(current) ?? await app.interlude.createStory(current)
+  const cardRevisionFile = join(input.dataDir, 'card-revision.json')
+  const appliedRevision = existsSync(cardRevisionFile) ? JSON.parse(readFileSync(cardRevisionFile, 'utf8')).revision : 0
+  if ((input.card.revision ?? 0) > appliedRevision) {
+    const patch = personaEditPatch(input.card)
+    if (input.card.hds && !input.userProfile.trim() && 'userProfile' in input.card.hds.storyDefaults) {
+      patch.user = { ...story.setting.user, profile: String(input.card.hds.storyDefaults.userProfile) }
+    }
+    story = await app.interlude.updateSetting(story, patch)
+    writeFileSync(`${cardRevisionFile}.tmp`, JSON.stringify({ revision: input.card.revision }))
+    renameSync(`${cardRevisionFile}.tmp`, cardRevisionFile)
+  }
   if (input.card.firstMessage) {
     const key = 'card-opening-v1'
     const old = await app.database.get('mobile_message' as never, { id: key } as never)
@@ -127,6 +142,9 @@ if (process.env.HDS_MOBILE_MAIN === '1') {
   const lines = createInterface({ input: process.stdin, terminal: false })
   lines.once('line', async line => {
     try {
+      // Verify the actual syscall; never hide a broken runtime by overriding cwd().
+      if (process.cwd() !== '/opt/hds') throw new Error('Unexpected guest working directory')
+      console.log('HDS runtime check: Node cwd OK; initializing Koishi / SQLite')
       const host = await startHost(JSON.parse(line))
       console.log('HDS_MOBILE_READY')
       const shutdown = async () => { await host.stop(); process.exit(0) }

@@ -191,6 +191,12 @@ def main():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(bundle.read(entry))
     # Carry exact npm package notices and Ubuntu copyright files alongside binaries.
+    # YAML is bundled into the WebView frontend, not the guest's npm dependencies.
+    yaml_package = ROOT / 'node_modules/yaml'
+    yaml_legal = LEGAL / 'npm/yaml'
+    yaml_legal.mkdir(parents=True, exist_ok=True)
+    for filename in ['package.json', 'LICENSE']:
+        shutil.copyfile(yaml_package / filename, yaml_legal / filename)
     for package in (profile / 'node_modules').rglob('package.json'):
         if not package.is_file(): continue
         value = json.loads(package.read_text())

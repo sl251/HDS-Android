@@ -19,3 +19,5 @@
 构建脚本将参考运行器的法律材料、Ubuntu copyright、Node LICENSE、HDS AGPL 和实际 guest npm 许可证加入 APK `assets/legal/`。Capacitor/React 是 MIT；Kotlin/AndroidX/Commons Compress/IO 为 Apache-2.0。npm 精确依赖见两个 package-lock.json。
 
 分发时应同时保留完整对应源码及构建材料；仅提供上游链接或提交号不等于完整对应源码。当前版本是用户私有仓库内的测试预览，不声明公开分发的合规审查已完成。
+
+preview.4 新增 YAML 解析依赖 `yaml@2.9.1`（ISC，作者 Eemeli Aro），锁定在 package-lock.json；其许可证随前端依赖打包到 APK legal/npm/yaml。RikkaHub、ChatterUI 与 typ0 仅作为行为和格式参考，未复制其实现。
