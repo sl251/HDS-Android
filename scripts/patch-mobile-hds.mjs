@@ -10,6 +10,32 @@ for (const name of ['endpoints.ts', 'types.ts', 'service.ts']) {
     source = source.replace("const channelKind = row.channelKind === 'wechat' ? 'wechat' : 'qq'", "const channelKind = row.channelKind === 'local' ? 'local' : row.channelKind === 'wechat' ? 'wechat' : 'qq'")
     source = source.replace("return row?.channelKind === 'wechat' ? 'wechat' : 'qq'", "return row?.channelKind === 'local' ? 'local' : row?.channelKind === 'wechat' ? 'wechat' : 'qq'")
   }
+  if (name === 'service.ts') {
+    if (!source.includes('async mobileRecordLocalOpening(')) source = source.replace('  async updateSetting(', `  /** Android local-card greeting, after the adapter has persisted its visible receipt. */
+  async mobileRecordLocalOpening(story: InterludeStory, session: Session, content: string) {
+    if (session.platform !== 'mobile-local' || story.platform !== 'mobile-local') throw new Error('Local opening cannot target a network channel.')
+    return this.serial(story.id, async () => {
+      if ((await this.dbGet('interlude_script_entry', { storyId: story.id, 'metadata.mobileCardOpening': true }, { limit: 1 })).length) return
+      const participant = await this.findParticipant(session, story)
+      if (!participant) throw new Error('Local participant is missing.')
+      const now = new Date()
+      await this.appendEntry(story.id, { kind: 'character-message', actor: 'character', content, occurredAt: now.toISOString(), metadata: { platform: 'mobile-local', mobileCardOpening: true, delivered: true } }, now, participant.id)
+    })
+  }
+
+  async updateSetting(`)
+    if (!source.includes('async mobileDrainBeforeStop(')) source = source.replace('  async stop() {', `  /** Android host drains connector snapshots before disposing the database. */
+  async mobileDrainBeforeStop() {
+    await this.setDesktopRuntimePhase('paused')
+    await this.stop()
+    await this.endpointRegistryInFlight
+    await this.endpointWriteQueue
+    await this.endpointStateWriteQueue
+    await this.databaseWriteQueue
+  }
+
+  async stop() {`)
+  }
   writeFileSync(path, source)
 }
 const path = `${directory}/narrator.ts`
