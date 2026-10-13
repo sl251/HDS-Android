@@ -2,9 +2,12 @@
 
 在 Android 手机上运行 [HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude) 的叙事、记忆和持续生活核心。模型通过你配置的 API 调用，故事与人设保存在手机里。
 
-**当前候选：0.1.0-preview.4 · ARM64 · Android 8+。** 无需另装 Termux。preview.3 已收到用户“成功运行”的反馈；preview.4 的自动检查与真机结果分开记录。QQ 登录、私聊、群聊和空间是下一阶段目标，目前尚未接入。
+**本分支候选：0.1.0-preview.5 · ARM64 · Android 8+。** 新增手机本地 QQ 实验接入，无需另装 Termux。二维码启动、消息协议与 Android 真机结果分别记录；QQ 空间尚未接入。
 
 ## 这一版能做什么
+
+- **QQ 信箱**：一键准备组件、扫码与快捷登录、连接状态、私聊/群聊文本、未读、手动发送。自动回复默认关闭，按角色设置白名单，群内只回应 @。详见 [QQ 使用与验证边界](docs/QQ-ROADMAP.md)。
+- **操作界面**：底部改为“对话 / 信箱 / 角色 / 设置”，剧情与记忆移入对话页内，保留纸墨风。
 
 - **模型中心**：供应商预设、自定义 Base URL、获取并搜索模型列表、手动填模型、测试当前连接。兼容 Chat Completions 与 Anthropic Messages。
 - **HDS 模型分工**：主叙事、记忆压缩、Alter 分析可分别指定连接；时间导演跟随记忆压缩。支持主叙事备用连接、优先级与轮询。
@@ -16,13 +19,14 @@
 
 ## 安装与使用
 
-从 [preview.4 候选版 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.4) 下载 APK。旧的同名 preview.4 已废弃并替换，请重新下载；当前 APK SHA-256 为 `30de39b1333d813f4c15d02e3a681ba52cfd717246fa3e5cdd92005b5cb9217d`。对应源码、校验表随 Release 提供，详见 [替换记录与构建验证](docs/evidence/preview4-replacement/README.md)。
+本分支的 preview.5 APK 由 [候选分支 Actions](https://github.com/sl251/HDS-Android/actions?query=branch%3Acodex%2Fqq-integration) 提供，下载成功构建的 `HDS-Android-preview-<提交号>` 附件。它不是正式发行版。已有的 [preview.4 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.4) 继续保留；旧同名 preview.4 的替换记录见 [构建验证](docs/evidence/preview4-replacement/README.md)。
 
 1. 覆盖安装同签名 APK，保留本机数据；不要先卸载。
 2. 在“角色”导入人设，检查预览并选中。typ0 文件直接选下载的 YAML，无需改扩展名。
 3. 在“设置”准备本机环境。模型中心填写地址、密钥，获取模型列表或手动输入模型名。
 4. 分配模型任务，测试当前连接，再保存全部设置。连接测试会产生少量 API 费用。
 5. 启动 HDS，在“对话”发送消息。“流式首条回复”可在模型中心开启。
+6. 要接 QQ，打开“信箱”下载组件、启动并扫码。看到消息通道在线后，再设置回复白名单。组件约 235 MiB，安装时至少留出 1.6 GiB；手机端登录待实测。
 
 修改运行中角色会先停止 HDS，重新启动后应用新设定，并保留历史。删除是从角色库移除，保留故事和原文件；重新导入原文件可恢复。模型设置的修改在下次启动生效。
 
@@ -46,4 +50,4 @@ cd android
 - [第三方来源与许可](docs/THIRD_PARTY.md)
 - [早期实施记录](HDS-Mobile-Plan/00-START-HERE.md) · [原始基线结果](docs/evidence/T01/baseline.md)
 
-HDS 固定在 rc51，保留其 AGPL-3.0 许可证与来源。APK 包含 Ubuntu/Node/PRoot 等各自许可的组件；目前未包含 Linux QQ 或 SnowLuma。后台存活、16 KiB 页面设备与 QQ 功能仍需真实设备验证。
+HDS 固定在 rc51，保留其 AGPL-3.0 许可证与来源。APK 包含 Ubuntu/Node/PRoot 等各自许可的组件；QQ / NapCat 在用户点击后从官方来源校验下载，APK 不内置它们；不包含 SnowLuma。后台存活、16 KiB 页面设备与真实 QQ 登录投递仍需手机验证。

@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 
 // Official upstream artifacts, never a user-provided executable or install script.
 export const QQ_COMPONENTS = {
-  version: 'napcat-4.18.38-qq-53644',
+  version: 'napcat-4.18.38-qq-53644-xvfb1',
   qq: { url: 'https://qqdl.gtimg.cn/qqfile/QQNT/9.9.36/beta/9ee04bef/linuxqq_3.2.34-53644_arm64.deb', sha256: '181b895cb573548e396e54bb0548cca92ffdc1b1a4b018fa4551bb062385fdca', maxBytes: 230 * 1024 * 1024 },
   napcat: { url: 'https://github.com/NapNeko/NapCatQQ/releases/download/v4.18.38/NapCat.Shell.zip', sha256: '735f2e633247df3ffd6e8ee8b84d7039c315b2655f5807e5f0029f93d2c30016', maxBytes: 40 * 1024 * 1024 },
 }
@@ -76,6 +76,13 @@ export async function installComponents(directory: string, signal: AbortSignal, 
     await command('/usr/bin/unzip', ['-q', join(staging, 'napcat.zip'), '-d', join(staging, 'napcat')], signal)
     for (const name of ['qq.deb', 'data.tar.xz', 'napcat.zip']) await rm(join(staging, name))
     if (!existsSync(join(staging, 'napcat/napcat.mjs')) || !existsSync(join(staging, 'opt/QQ/resources/app/wrapper.node'))) throw new Error('组件内容不完整')
+    // Same bootstrap mechanism as the upstream NapCat Linux installer. NapCat
+    // remains unchanged; QQ's application entry loads the local NapCat module.
+    const packageFile = join(staging, 'opt/QQ/resources/app/package.json')
+    const qqPackage = JSON.parse(await (await import('node:fs/promises')).readFile(packageFile, 'utf8'))
+    qqPackage.main = './hds-load.cjs'
+    await writeFile(packageFile, JSON.stringify(qqPackage, null, 2))
+    await writeFile(join(staging, 'opt/QQ/resources/app/hds-load.cjs'), "void import(require('node:url').pathToFileURL(process.env.NAPCAT_MAIN_PATH).href)\n")
     await writeFile(join(staging, '.complete'), QQ_COMPONENTS.version)
     signal.throwIfAborted()
     await rm(componentsPath(directory), { recursive: true, force: true })

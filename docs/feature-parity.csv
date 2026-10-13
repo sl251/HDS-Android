@@ -1,7 +1,7 @@
 "kind","feature","description","upstream_location","mobile_status","evidence"
 "config","storyDefaults","【必填 1】故事档案：主角、世界、默认关系、地点、时区与叙事风格。","src/index.ts:527","NOT_IMPLEMENTED",""
 "config","model","【必填 2】模型中心：先添加连接并勾选用途；主叙事参数与高级模块保持在同一处。","src/index.ts:528","NOT_IMPLEMENTED",""
-"config","onebot","【必填 3】QQ 接入：机器人账号、私聊白名单、群聊与语音。","src/index.ts:529","NOT_IMPLEMENTED",""
+"config","onebot","【必填 3】QQ 接入：机器人账号、私聊白名单、群聊与语音。","src/index.ts:529","EXPERIMENTAL","runtime/qq.ts; tests/qq.test.ts; docs/QQ-ROADMAP.md; Android account login pending"
 "config","sharedStory","【结构 4】共享主剧本：多人参与、跨账号行为与管理员权限。","src/index.ts:530","NOT_IMPLEMENTED",""
 "config","runtime","【节奏 5】运行时：消息合并、打字、失败重试与自动生活推进。","src/index.ts:531","NOT_IMPLEMENTED",""
 "config","urge","【节奏 6】Urge 弹性推进：剧本驱动的自动调度（可选，替代固定间隔）。","src/index.ts:532","NOT_IMPLEMENTED",""

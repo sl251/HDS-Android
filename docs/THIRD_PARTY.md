@@ -21,3 +21,7 @@
 分发时应同时保留完整对应源码及构建材料；仅提供上游链接或提交号不等于完整对应源码。当前版本是用户私有仓库内的测试预览，不声明公开分发的合规审查已完成。
 
 preview.4 新增 YAML 解析依赖 `yaml@2.9.1`（ISC，作者 Eemeli Aro），锁定在 package-lock.json；其许可证随前端依赖打包到 APK legal/npm/yaml。RikkaHub、ChatterUI 与 typ0 仅作为行为和格式参考，未复制其实现。
+
+preview.5 新增 `koishi-plugin-adapter-onebot@6.9.5`（MIT）与 `qrcode@1.5.4`（MIT），许可证随 guest npm 包收录。Ubuntu ELF 链接依赖固定在 `runtime/qq-libs.lock.json`，各自 copyright 随 APK 收录。
+
+QQ 组件由用户点击后从官方来源下载，不随 APK 内置：Linux QQ 3.2.34-53644（腾讯专有软件）；NapCat.Shell v4.18.38（Copyright © 2024 Mlikiowa，[Limited Redistribution License](https://github.com/NapNeko/NapCatQQ/blob/bbd0d2aca3d470c20b33b1d4f95123335633bf26/LICENSE)，含非商业限制）。包保留原样，不修改、公开发布其修改版或混同为 AGPL/MIT。版本、官方 URL 与 SHA-256 见 `runtime/qq-components.ts`；本项目不授予这些组件额外使用权。

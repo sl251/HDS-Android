@@ -34,6 +34,7 @@ async function freePort(): Promise<number> {
 /** Runs in the same PRoot as HDS. No shell interpolation, remote command API, or UI tokens. */
 export class QQRuntime {
   private child?: ChildProcess
+  private display?: ChildProcess
   private fork?: ReturnType<Context['plugin']>
   private webToken = ''; private credential = ''; private credentialAt = 0; private wsToken = ''
   private webPort = 0; private wsPort = 0; private startedAt = 0
@@ -45,6 +46,7 @@ export class QQRuntime {
   private policy: QQPolicy = { enabled: false, users: [], groups: [] }
   private inbox: Inbox = { messages: [], read: {}, requests: {} }
   private sending = Promise.resolve()
+  private control = Promise.resolve()
   private generation = 0
   constructor(private app: Context, private directory: string, private profile: string, private config: any, private bindStory?: (account: string) => Promise<void>) {
     mkdirSync(directory, { recursive: true }); mkdirSync(join(directory, 'home'), { recursive: true }); mkdirSync(join(directory, 'config'), { recursive: true })
@@ -172,10 +174,22 @@ export class QQRuntime {
     const network = { network: { websocketServers: [{ name: 'hds-local', enable: true, host: '127.0.0.1', port: this.wsPort, token: this.wsToken, messagePostFormat: 'array', reportSelfMessage: false, enableForcePushEvent: true }] } }
     for (const filename of ['onebot11.json', ...readdirSync(configDir).filter(name => /^onebot11_\d+\.json$/.test(name))]) atomic(join(configDir, filename), network)
     const root = componentsPath(this.directory), qq = join(root, 'opt/QQ/resources/app')
-    // QQ's wrapper requires qq_magic_napi_register from the official QQ host.
-    // Electron's Node mode provides that ABI without starting a desktop/display.
-    const child = spawn(join(root, 'opt/QQ/qq'), [join(root, 'napcat/napcat.mjs')], { cwd: join(root, 'napcat'), env: { ...process.env,
-      ELECTRON_RUN_AS_NODE: '1',
+    // Use the upstream installer path: official QQ + NapCat application entry,
+    // with a private virtual display. No window is shown outside the container.
+    const displayNumber = 100 + randomBytes(2).readUInt16LE() % 10000
+    const display = spawn('/usr/bin/Xvfb', [`:${displayNumber}`, '-screen', '0', '640x480x24', '-nolisten', 'tcp', '-ac'], { stdio: ['ignore', 'ignore', 'pipe'] })
+    this.display = display
+    display.stderr?.on('data', data => this.diagnostic(String(data)))
+    let displayFailure = ''
+    display.once('error', error => { displayFailure = error.message })
+    display.once('exit', code => { if (!this.closing) displayFailure = `Xvfb 退出：${code}` })
+    const deadline = Date.now() + 10000
+    while (!existsSync(`/tmp/.X11-unix/X${displayNumber}`)) {
+      if (displayFailure || Date.now() > deadline) { display.kill(); this.display = undefined; this.phase = 'failed'; throw new Error(displayFailure || 'QQ 虚拟显示初始化超时') }
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    const environment = { ...process.env,
+      DISPLAY: `:${displayNumber}`, NAPCAT_MAIN_PATH: join(root, 'napcat/napcat.mjs'),
       HOME: join(this.directory, 'home'), XDG_CONFIG_HOME: join(this.directory, 'home/.config'), NAPCAT_WORKDIR: this.directory,
       NAPCAT_WRAPPER_PATH: join(qq, 'wrapper.node'), NAPCAT_QQ_PACKAGE_INFO_PATH: join(qq, 'package.json'),
       NAPCAT_DISABLE_PIPE: '1', NAPCAT_DISABLE_TIME_SYNC: '1', NAPCAT_DISABLE_BYPASS: '1',
@@ -183,13 +197,15 @@ export class QQRuntime {
       // process. Node needs the same library in the global loader namespace.
       LD_PRELOAD: '/usr/lib/aarch64-linux-gnu/libgnutls.so.30',
       LD_LIBRARY_PATH: [qq, join(qq, 'sharp-lib'), join(qq, 'lib'), join(root, 'opt/QQ'), '/usr/lib/aarch64-linux-gnu'].join(':'),
-    }, stdio: ['ignore', 'pipe', 'pipe'] })
+    }
+    delete environment.ELECTRON_RUN_AS_NODE
+    const child = spawn(join(root, 'opt/QQ/qq'), ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'], { cwd: join(root, 'opt/QQ'), env: environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
     this.child = child
     for (const stream of [child.stdout, child.stderr]) stream?.on('data', data => {
-      for (const line of data.toString().split(/\r?\n/)) if (/error|failed|not found|undefined symbol|cannot|失败/i.test(line) && !/qrcode|二维码|token|message content/i.test(line)) this.diagnostic(line)
+      for (const line of data.toString().split(/\r?\n/)) if (/error|fatal|sandbox|failed|not found|undefined symbol|cannot|失败/i.test(line) && !/qrcode|二维码|token|message content/i.test(line)) this.diagnostic(line)
     })
     child.once('error', error => { this.phase = 'failed'; this.error = `QQ 无法启动：${error.message}`; this.diagnostic(this.error) })
-    child.once('exit', code => { if (this.child !== child) return; this.child = undefined; this.loginOnline = false; this.qrImage = ''; if (!this.closing) { this.phase = 'failed'; this.error = `QQ 进程退出（${code}），请查看 QQ 日志`; void this.fork?.dispose(); this.fork = undefined } })
+    child.once('exit', (code, signal) => { if (this.child !== child) return; this.child = undefined; this.display?.kill(); this.display = undefined; this.loginOnline = false; this.qrImage = ''; if (!this.closing) { this.phase = 'failed'; this.error = `QQ 进程退出（${signal || code}），请查看 QQ 日志`; void this.fork?.dispose(); this.fork = undefined } })
     await this.poll()
   }
   async stop() {
@@ -200,15 +216,25 @@ export class QQRuntime {
     if (child) {
       await new Promise<void>(resolve => {
         if (child.exitCode !== null) { resolve(); return }
-        const kill = setTimeout(() => child.kill('SIGKILL'), 3000)
-        child.once('exit', () => { clearTimeout(kill); resolve() }); child.kill('SIGTERM')
+        const terminate = (signal: NodeJS.Signals) => { try { if (child.pid) process.kill(-child.pid, signal) } catch { child.kill(signal) } }
+        const kill = setTimeout(() => terminate('SIGKILL'), 3000)
+        child.once('exit', () => { clearTimeout(kill); terminate('SIGKILL'); resolve() }); terminate('SIGTERM')
       })
     }
+    this.display?.kill(); this.display = undefined
     this.child = undefined; this.phase = 'stopped'; this.progress = 'QQ 已停止，登录记录保留'; this.error = ''
   }
-  async close() { clearInterval(this.timer); await this.stop(); await this.sending }
+  async close() { clearInterval(this.timer); await this.control; await this.stop(); await this.sending }
   status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, progress: this.progress, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1 } }
   async dispatch(method: string, payload: any) {
+    if (['qq.install', 'qq.start', 'qq.stop', 'qq.refreshQr', 'qq.quickLogin', 'qq.policy'].includes(method)) {
+      const result = this.control.then(() => this.handle(method, payload))
+      this.control = result.then(() => {}, () => {})
+      return result
+    }
+    return this.handle(method, payload)
+  }
+  private async handle(method: string, payload: any) {
     if (method === 'qq.status') return this.status()
     if (method === 'qq.install') {
       if (this.child || this.installation) throw new Error('请先停止 QQ 或等待当前安装')
@@ -218,7 +244,7 @@ export class QQRuntime {
         .then(() => { this.phase = 'stopped' }).catch(error => { this.phase = 'failed'; this.error = this.cancellation?.signal.aborted ? '安装已取消或超时，可重新下载' : error.message }).finally(() => { clearTimeout(timeout); this.installation = undefined })
       return this.status()
     }
-    if (method === 'qq.start') { await this.start(); return this.status() }
+    if (method === 'qq.start') { try { await this.start() } catch (error) { this.display?.kill(); this.display = undefined; this.phase = 'failed'; this.error = error instanceof Error ? error.message : 'QQ 启动失败'; throw error }; return this.status() }
     if (method === 'qq.stop') { await this.stop(); return this.status() }
     if (method === 'qq.refreshQr') { if (!this.child) throw new Error('请先启动 QQ'); await this.api('QQLogin/RefreshQRcode'); this.qr = ''; await this.poll(); return this.status() }
     if (method === 'qq.accounts') return this.child ? await this.api('QQLogin/GetQuickLoginListNew') : []
