@@ -55,3 +55,11 @@ preview.5.2 已成功构建，并通过 ARM64 Linux QQ 获取未扫描二维码�
 [上游 Xserver 源码](https://github.com/mirror/xserver/blob/master/os/utils.c) 中，`LockServer` 使用 link 建立 PID 锁；`-nolock` 在 guest root 下跳过此步骤。HDS 已使用 PRoot `-0` 提供 guest root 身份，无需手机 Root。此次改用 `-nolock`，继续设置 `-auth` 和 `-nolisten tcp`，随机选择未发现现存 socket 或锁文件的显示编号；不删除其他显示进程的 socket/锁文件，也不关闭认证。
 
 新增 `scripts/xvfb-lock-smoke.ts`：在实际打包的 ARM64 Xvfb 子进程中用 CI 专用 LD_PRELOAD 夹具强制 link/linkat 返回 EACCES；要求原参数复现同样错误，再要求新参数能接受正确 cookie 并拒绝错误和空 cookie。故障注入库只在独立测试任务中编译，不打入 APK。之后继续检查实际 Linux QQ 出二维码。真机扫码、收发和后台存活仍由手机复测确认。
+
+## 2026-10-14：preview.5.4 登录后适配器初始化
+
+手机已越过 Xvfb 并读取账号信息，但出现 `invalid plugin, expect function or object with an "apply" method, received object`。原因是 APK 的 CommonJS bundle 通过 Node 互操作包装默认导入，将 OneBot 的模块对象作为插件传入。改用依赖明确导出的 `OneBotBot` 类。同一路径还发现 `retryTimes: Infinity` 不符合适配器的自然数配置，改为 60，并在注册前显式验证配置，避免框架仅记录内部失败而界面继续显示连接中。
+
+旧测试用 require(...).default 手工安装适配器，跳过了生产的登录后分支。新测试使用编译后的 host：本地 NapCat 登录状态夹具与受控子进程触发真实 poll，自动读取账号、绑定故事、加载适配器，再验证真实 OneBot WebSocket 收发、白名单和防重复。修改前稳定复现与手机一致的 invalid plugin；修改后通过。额外验证通道初始化失败时保留已确认的登录状态，后续轮询能恢复；已经登录时不再调用刷新二维码与快捷登录接口。
+
+UI 分开显示“QQ 已登录”与“QQ / HDS 通道在线”，已登录后隐藏重复登录操作。`QQ Is Logined` 是重复调用登录相关接口时可能出现的响应；并不说明 HDS 的消息通道在线。截图中的 `xkbcomp` 日志已注明非致命；其他 DBus、图形和 inotify 日志不足以推翻已取得账号信息的事实。`Login ErrType 1 ErrCode 5` 的确切语义未在本次验证中确认，不据此断言账号封禁或风控。

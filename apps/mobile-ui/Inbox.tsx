@@ -53,7 +53,7 @@ export function Inbox({ bridge, healthy, native, configure }: { bridge: NativeBr
     {!healthy ? <div className="qq-onboarding"><span className="letter-stamp">待启封</span><h2>先让故事开始运行</h2><p>在设置中准备环境、保存模型并启动 HDS，然后回来下载 QQ 组件、扫码登录。</p><ol><li>准备本机环境与角色</li><li>下载 QQ 组件并扫码</li><li>选择允许角色回复的人</li></ol><button className="primary" onClick={configure}>前往设置 →</button><p className="caption">手机本地运行 · 无需电脑常驻或终端配置</p></div> : <>
       <div className="qq-account"><span className={`qq-indicator ${status?.online ? 'online' : ''}`} /><div><strong>{status?.nickname || 'QQ 本地连接'}{status?.account && <small>{status.account}</small>}</strong><span>{phases[status?.phase || 'stopped'] || '等待状态'} · {status?.policy.enabled ? '白名单自动回复' : '自动回复关闭'}</span></div><button onClick={() => setShowLogin(!showLogin)} aria-expanded={showLogin}>{showLogin ? '收起' : '管理'}</button></div>
       {showLogin && <section className="qq-login">
-        <div className="section-title"><h2>{status?.online ? '已经连接' : status?.installed ? '扫码，让角色上线' : '准备 QQ 组件'}</h2><span className="tag">实验接入</span></div>
+        <div className="section-title"><h2>{status?.online ? '已经连接' : status?.loggedIn ? 'QQ 已登录' : status?.installed ? '扫码，让角色上线' : '准备 QQ 组件'}</h2><span className="tag">实验接入</span></div>
         <p>{status?.progress || '从腾讯与 NapCat 官方来源下载，完成校验后在手机内运行。下载约 235 MiB，安装时需 1.6 GiB 可用空间。'}</p>
         {status?.error && <p className="qq-error" role="alert">{status.error}</p>}
         {status?.qr && !status.online && <div className="qq-qr"><img src={status.qr} width="256" height="256" alt="QQ 登录二维码，请使用官方 QQ 扫描" /><p>用官方 QQ 扫描并确认登录。<br />同机可尝试保存后从相册识别；不支持时请用另一台设备展示二维码。</p><button className="secondary" disabled={busy} onClick={() => act(async () => { const result = await bridge.saveQQQr({ base64: status.qr.split(',')[1] }); setNotice(result.cancelled ? '已取消保存' : '二维码已保存，请及时扫码；二维码过期后重新获取。') })}>保存二维码</button></div>}
@@ -65,11 +65,11 @@ export function Inbox({ bridge, healthy, native, configure }: { bridge: NativeBr
         <div className="actions">
           {!status?.installed && <button className="primary" disabled={busy || status?.phase === 'installing'} onClick={() => act(async () => setStatus(await rpc('qq.install', { githubProxy })))}>下载并准备组件</button>}
           {status?.installed && !status.running && <button className="primary" disabled={busy || status.phase === 'installing'} onClick={() => act(async () => setStatus(await rpc('qq.start')))}>启动 QQ · 获取二维码</button>}
-          {status?.running && !status.online && <button className="secondary" disabled={busy} onClick={() => act(async () => setStatus(await rpc('qq.refreshQr')))}>刷新二维码</button>}
+          {status?.running && !status.loggedIn && <button className="secondary" disabled={busy} onClick={() => act(async () => setStatus(await rpc('qq.refreshQr')))}>刷新二维码</button>}
           {(status?.running || status?.phase === 'installing') && <button className="secondary" disabled={busy} onClick={() => act(async () => setStatus(await rpc('qq.stop')))}>{status.phase === 'installing' ? '取消下载' : '停止 QQ'}</button>}
-          {status?.running && !status.online && <button className="secondary" disabled={busy} onClick={() => act(async () => setAccounts(await rpc('qq.accounts')))}>已登录过的账号</button>}
+          {status?.running && !status.loggedIn && <button className="secondary" disabled={busy} onClick={() => act(async () => setAccounts(await rpc('qq.accounts')))}>已登录过的账号</button>}
         </div>
-        {accounts.filter(account => account.isQuickLogin).map(account => <button className="secondary wide" disabled={busy} key={account.uin} onClick={() => act(() => rpc('qq.quickLogin', { uin: account.uin }))}>登录 {account.nickName || account.uin} · {account.uin}</button>)}
+        {!status?.loggedIn && accounts.filter(account => account.isQuickLogin).map(account => <button className="secondary wide" disabled={busy} key={account.uin} onClick={() => act(() => rpc('qq.quickLogin', { uin: account.uin }))}>登录 {account.nickName || account.uin} · {account.uin}</button>)}
         {!!status?.logs.length && <details><summary>QQ 运行日志</summary><pre>{status.logs.join('\n')}</pre></details>}
         <p className="caption">登录态独立保存在本机，切换角色不清除。停止 HDS 会同时停止 QQ。建议先用测试账号验证，QQ 风控可能要求额外确认。</p>
       </section>}

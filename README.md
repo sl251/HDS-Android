@@ -2,9 +2,11 @@
 
 在 Android 手机上运行 [HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude) 的叙事、记忆和持续生活核心。模型通过你配置的 API 调用，故事与人设保存在手机里。
 
-**本分支候选：0.1.0-preview.5.3 · ARM64 · Android 8+。** 新增手机本地 QQ 实验接入，无需另装 Termux。二维码启动、消息协议与 Android 真机结果分别记录；QQ 空间尚未接入。
+**本分支候选：0.1.0-preview.5.4 · ARM64 · Android 8+。** 新增手机本地 QQ 实验接入，无需另装 Termux。二维码启动、消息协议与 Android 真机结果分别记录；QQ 空间尚未接入。
 
 ## 这一版能做什么
+
+- **preview.5.4 登录后消息通道修复**：修复 OneBot 默认导入被打包为模块对象的 `invalid plugin` 错误，以及无效的无限重试次数。回归测试改为走实际登录轮询，区分 QQ 已登录与消息通道在线，避免已登录后继续请求二维码或快捷登录。
 
 - **preview.5.3 Xvfb 启动修复**：针对 Android 上 `Linking lock file ... Permission denied`，使用 Xvfb 的 `-nolock` 跳过硬链接 PID 锁，保留 Xauthority 认证与禁用 TCP 监听。新增实际 Xvfb 故障注入检查。覆盖安装后须更新本机环境。
 
@@ -25,7 +27,7 @@
 
 ## 安装与使用
 
-本分支的 preview.5.3 APK 由 [候选分支 Actions](https://github.com/sl251/HDS-Android/actions?query=branch%3Acodex%2Fqq-integration) 提供，下载成功构建的 `HDS-Android-preview-<提交号>` 附件。它不是正式发行版。已有的 [preview.4 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.4) 继续保留；旧同名 preview.4 的替换记录见 [构建验证](docs/evidence/preview4-replacement/README.md)。
+本分支的 preview.5.4 APK 由 [候选分支 Actions](https://github.com/sl251/HDS-Android/actions?query=branch%3Acodex%2Fqq-integration) 提供，下载成功构建的 `HDS-Android-preview-<提交号>` 附件。它不是正式发行版。已有的 [preview.4 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.4) 继续保留；旧同名 preview.4 的替换记录见 [构建验证](docs/evidence/preview4-replacement/README.md)。
 
 1. 覆盖安装同签名 APK，保留本机数据；不要先卸载。
 2. 在“角色”导入人设，检查预览并选中。typ0 文件直接选下载的 YAML，无需改扩展名。

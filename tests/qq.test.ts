@@ -6,10 +6,10 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { parseJsonCard } from '../packages/card-format'
 const { startHost } = createRequire(import.meta.url)('../runtime/generated/host.cjs') as typeof import('../runtime/host')
-const OneBot = createRequire(import.meta.url)('koishi-plugin-adapter-onebot').default
 const { qqPolicy, plainMessage } = createRequire(import.meta.url)('../runtime/generated/qq.cjs') as typeof import('../runtime/qq')
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const waitFor = async (check: () => boolean | Promise<boolean>) => { const deadline = Date.now() + 20000; while (!await check()) { if (Date.now() > deadline) throw new Error('Fixture timeout'); await delay(100) } }
@@ -23,11 +23,14 @@ test('QQ policy fails closed and renders message elements as inert text', () => 
 
 test('real OneBot adapter and HDS enforce whitelist, persist inbox and send literal text once', { timeout: 90000 }, async () => {
   const calls: any[] = [], delivered: any[] = []
+  let loggedIn = false, loginActions = 0
   const http = createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk
     res.setHeader('Content-Type', 'application/json')
     if (req.url === '/api/auth/login') { assert.equal(JSON.parse(raw).hash, createHash('sha256').update('fixture-secret.napcat').digest('hex')); res.end(JSON.stringify({ code: 0, data: { Credential: 'fixture-credential' } })); return }
-    if (req.url === '/api/QQLogin/CheckLoginStatus') { assert.equal(req.headers.authorization, 'Bearer fixture-credential'); res.end(JSON.stringify({ code: 0, data: { isLogin: false, coreReady: false } })); return }
+    if (req.url === '/api/QQLogin/CheckLoginStatus') { assert.equal(req.headers.authorization, 'Bearer fixture-credential'); res.end(JSON.stringify({ code: 0, data: { isLogin: loggedIn, coreReady: loggedIn } })); return }
+    if (req.url === '/api/QQLogin/GetQQLoginInfo') { res.end(JSON.stringify({ code: 0, data: { uin: '55555', nick: '星禾' } })); return }
+    if (req.url === '/api/QQLogin/RefreshQRcode' || req.url === '/api/QQLogin/SetQuickLogin') { loginActions++; res.end(JSON.stringify({ code: -1, message: 'QQ Is Logined' })); return }
     calls.push(JSON.parse(raw))
     res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ script: '星禾放下书，拿起手机回复邻居。', interaction: { seen: true, reply: { mode: 'immediate', content: 'QQ_FIXTURE_REPLY，明天见。' } } }) } }] }))
   })
@@ -56,10 +59,29 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     // only external QQ endpoints are replaced by loopback fixtures.
     Object.assign(qq, { webPort: httpPort, webToken: 'fixture-secret' })
     assert.equal((await qq.api('QQLogin/CheckLoginStatus')).isLogin, false)
-    Object.assign(qq, { account: '55555', nickname: '星禾', loginOnline: true })
-    await qq.bindStory('55555')
-    qq.fork = host.app.plugin(OneBot, { selfId: '55555', protocol: 'ws', endpoint: `ws://127.0.0.1:${(ws.address() as any).port}`, token: 'fixture-ws-token', responseTimeout: 3000 })
+    // Only the external QQ process/API are fixtures. The compiled production
+    // login poll must load its own adapter, bind the story and open OneBot.
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
+    Object.assign(qq, { child, phase: 'confirming', wsPort: (ws.address() as any).port, wsToken: 'fixture-ws-token' })
+    loggedIn = true
+    const bindStory = qq.bindStory
+    qq.bindStory = async () => { throw new Error('fixture channel initialization failure') }
+    await qq.poll()
+    assert.equal(qq.status().loggedIn, true, 'Channel failure must not erase confirmed QQ login')
+    assert.equal(qq.status().online, false)
+    assert.match(qq.status().error, /消息通道初始化失败/)
+    assert.match(qq.status().progress, /QQ 已登录/)
+    qq.bindStory = bindStory
+    await qq.poll()
+    assert.equal(qq.status().error, '', 'Production post-login adapter loading must succeed')
     await waitFor(() => qq.status().online)
+    await qq.poll()
+    assert.equal(qq.status().phase, 'online')
+    assert.equal(qq.status().loggedIn, true)
+    await host.dispatch('qq.refreshQr', {})
+    const quick = await host.dispatch('qq.quickLogin', { uin: '55555' }) as any
+    assert.equal(quick.alreadyLoggedIn, true)
+    assert.equal(loginActions, 0, 'Already logged-in accounts must not receive new QR/login requests')
     const incoming = (id: number, user: number, text: string) => socket.send(JSON.stringify({ post_type: 'message', message_type: 'private', sub_type: 'friend', self_id: 55555, user_id: user, message_id: id, time: Math.floor(Date.now() / 1000), message: [{ type: 'text', data: { text } }], raw_message: text, font: 0, sender: { user_id: user, nickname: '邻居' } }))
     incoming(1001, 12345, '尚未授权的消息')
     await waitFor(async () => (await host.dispatch('qq.conversations', {}) as any[]).length > 0)

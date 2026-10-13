@@ -1,5 +1,5 @@
 import { Context, h, type Session } from 'koishi'
-import OneBot from 'koishi-plugin-adapter-onebot'
+import { OneBotBot } from 'koishi-plugin-adapter-onebot'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -93,7 +93,7 @@ export class QQRuntime {
     })
     this.timer = setInterval(() => void this.poll(), 2000)
   }
-  private bot() { return this.app.bots.find(bot => bot.platform === 'onebot' && bot.selfId === this.account) as InstanceType<typeof OneBot> | undefined }
+  private bot() { return this.app.bots.find(bot => bot.platform === 'onebot' && bot.selfId === this.account) as OneBotBot | undefined }
   private applyPolicy() {
     Object.assign(this.config.onebot, { enabled: true, ignoreSelfMessages: true,
       botAccounts: this.policy.enabled && this.account ? [{ qq: this.account, enabled: true }] : [],
@@ -132,23 +132,30 @@ export class QQRuntime {
     if (!this.child || this.polling || this.closing) return
     this.polling = true
     const generation = this.generation
+    let stage: 'login' | 'channel' = 'login'
     try {
       const status = await this.api('QQLogin/CheckLoginStatus')
       if (this.closing || !this.child || generation !== this.generation) return
       this.loginOnline = status.isLogin === true && status.coreReady === true
       if (this.loginOnline) {
+        stage = 'channel'
+        this.qr = ''; this.qrImage = ''; this.progress = 'QQ 已登录，正在连接消息通道'
         const info = await this.api('QQLogin/GetQQLoginInfo')
         if (this.closing || generation !== this.generation) return
         const account = String(info.uin || '')
         if (!/^[1-9]\d{4,14}$/.test(account)) throw new Error('QQ 返回无效账号')
         if (this.account !== account || !this.fork) {
-          if (this.fork) await this.fork.dispose()
+          if (this.fork) { await this.fork.dispose(); this.fork = undefined }
           this.account = account; this.nickname = String(info.nick || account).slice(0, 100)
           this.inbox = existsSync(this.inboxFile()) ? JSON.parse(readFileSync(this.inboxFile(), 'utf8')) : { messages: [], read: {}, requests: {} }
           this.applyPolicy()
           await this.bindStory?.(account)
           if (this.closing || generation !== this.generation) return
-          this.fork = this.app.plugin(OneBot, { selfId: account, protocol: 'ws', endpoint: `ws://127.0.0.1:${this.wsPort}`, token: this.wsToken, retryTimes: Infinity, retryInterval: 3000, retryLazy: 3000, responseTimeout: 15000 })
+          // A named export avoids CJS/ESM default wrapping in the APK bundle.
+          // Validate before plugin registration: Cordis records schema errors
+          // on a failed scope instead of always throwing them to this caller.
+          const options = OneBotBot.Config({ selfId: account, protocol: 'ws', endpoint: `ws://127.0.0.1:${this.wsPort}`, token: this.wsToken, retryTimes: 60, retryInterval: 3000, retryLazy: 3000, responseTimeout: 15000 })
+          this.fork = this.app.plugin(OneBotBot, options)
           for (const group of this.policy.groups) await this.app.database.upsert('channel', [{ platform: 'onebot', id: group, assignee: account }])
         }
         this.qr = ''; this.qrImage = ''; this.phase = this.bot()?.status === 1 ? 'online' : 'connecting'; this.error = ''
@@ -162,9 +169,11 @@ export class QQRuntime {
       }
     } catch (error) {
       if (this.closing || generation !== this.generation) return
-      this.loginOnline = false
-      if (this.phase === 'starting' && Date.now() - this.startedAt < 120000) return
-      this.phase = 'failed'; this.error = `QQ 状态未就绪：${error instanceof Error ? error.message : '连接中断'}`
+      if (stage === 'login') this.loginOnline = false
+      if (stage === 'login' && this.phase === 'starting' && Date.now() - this.startedAt < 120000) return
+      this.phase = 'failed'
+      this.progress = stage === 'channel' ? 'QQ 已登录，消息通道未连接，将自动重试' : '暂时无法确认 QQ 状态，将自动重试'
+      this.error = `${stage === 'channel' ? 'QQ 消息通道初始化失败' : 'QQ 状态未就绪'}：${error instanceof Error ? error.message : '连接中断'}`
       this.qrImage = ''
     } finally { this.polling = false }
   }
@@ -240,7 +249,7 @@ export class QQRuntime {
     this.child = undefined; this.phase = 'stopped'; this.progress = 'QQ 已停止，登录记录保留'; this.error = ''
   }
   async close() { clearInterval(this.timer); await this.control; await this.stop(); await this.sending }
-  status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, progress: this.progress, download: this.download, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1 } }
+  status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, loggedIn: this.loginOnline, progress: this.progress, download: this.download, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1 } }
   async dispatch(method: string, payload: any) {
     if (['qq.install', 'qq.start', 'qq.stop', 'qq.refreshQr', 'qq.quickLogin', 'qq.policy'].includes(method)) {
       const result = this.control.then(() => this.handle(method, payload))
@@ -264,10 +273,16 @@ export class QQRuntime {
     }
     if (method === 'qq.start') { try { await this.start() } catch (error) { this.display?.kill(); this.display = undefined; this.phase = 'failed'; this.error = error instanceof Error ? error.message : 'QQ 启动失败'; throw error }; return this.status() }
     if (method === 'qq.stop') { await this.stop(); return this.status() }
-    if (method === 'qq.refreshQr') { if (!this.child) throw new Error('请先启动 QQ'); await this.api('QQLogin/RefreshQRcode'); this.qr = ''; await this.poll(); return this.status() }
+    if (method === 'qq.refreshQr') {
+      if (!this.child) throw new Error('请先启动 QQ')
+      if ((await this.api('QQLogin/CheckLoginStatus')).isLogin !== true) { await this.api('QQLogin/RefreshQRcode'); this.qr = '' }
+      await this.poll(); return this.status()
+    }
     if (method === 'qq.accounts') return this.child ? await this.api('QQLogin/GetQuickLoginListNew') : []
     if (method === 'qq.quickLogin') {
       if (!/^[1-9]\d{4,14}$/.test(payload.uin || '')) throw new Error('无效 QQ 账号')
+      if (!this.child) throw new Error('请先启动 QQ')
+      if ((await this.api('QQLogin/CheckLoginStatus')).isLogin === true) { await this.poll(); return { accepted: false, alreadyLoggedIn: true } }
       await this.api('QQLogin/SetQuickLogin', { uin: payload.uin }); return { accepted: true }
     }
     if (method === 'qq.policy') { this.policy = qqPolicy(payload); atomic(join(this.profile, 'qq-policy.json'), this.policy); this.applyPolicy(); for (const group of this.policy.groups) if (this.account) await this.app.database.upsert('channel', [{ platform: 'onebot', id: group, assignee: this.account }]); return this.policy }
