@@ -25,6 +25,30 @@ class HdsRuntimePlugin : Plugin() {
     @PluginMethod fun settings(call: PluginCall) { run(call) { runtime().store.publicSettings() } }
     @PluginMethod fun saveSettings(call: PluginCall) { run(call) { runtime().store.saveSettings(call.data); JSONObject() } }
     @PluginMethod fun install(call: PluginCall) { run(call) { runtime().installAsync(); JSONObject() } }
+    @PluginMethod fun cancelInstall(call: PluginCall) { run(call) { runtime().cancelInstall(); JSONObject() } }
+    @PluginMethod fun diagnostics(call: PluginCall) { run(call) { runtime().diagnosticReport(call.getBoolean("probe", false) == true) } }
+    @PluginMethod fun copyDiagnostics(call: PluginCall) { run(call) {
+        val text = runtime().diagnosticReport(true).toString(2)
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("HDS 安装诊断", text))
+        JSONObject()
+    } }
+    @PluginMethod fun saveDiagnostics(call: PluginCall) {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE)
+        intent.putExtra(Intent.EXTRA_TITLE, "HDS-install-diagnostic.json")
+        startActivityForResult(call, intent, "diagnosticDestination")
+    }
+    @ActivityCallback private fun diagnosticDestination(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        val uri = result.data!!.data!!
+        run(call) {
+            val bytes = runtime().diagnosticReport(true).toString(2).toByteArray(Charsets.UTF_8)
+            context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes); it.flush() }
+                ?: throw IllegalArgumentException("无法写入所选文档")
+            JSONObject().put("cancelled", false)
+        }
+    }
     @PluginMethod fun start(call: PluginCall) { run(call) {
         // Validate configuration before creating a foreground notification.
         require(runtime().status().getBoolean("installed")) { "请先准备本机环境" }

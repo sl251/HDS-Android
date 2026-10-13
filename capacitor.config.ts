@@ -3,7 +3,7 @@ const config: CapacitorConfig = {
   appId: 'io.hdsinterlude.android',
   appName: 'HDS',
   webDir: 'dist',
-  android: { allowMixedContent: false },
+  android: { allowMixedContent: false, adjustMarginsForEdgeToEdge: 'disable' },
   server: { androidScheme: 'https' },
 }
 export default config
