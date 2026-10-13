@@ -6,14 +6,15 @@ import type { Message, ModelSettings, NativeBridge, RuntimeStatus, SavedCard } f
 import './style.css'
 import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
 import { CardEditor } from './CardEditor'
+import { Inbox } from './Inbox'
 import { parsePersona, importBytes } from '../../packages/persona-format'
 
 const bridge = registerPlugin<NativeBridge>('HdsRuntime')
-type Page = 'chat' | 'cards' | 'story' | 'settings'
-const labels: Record<Page, string> = { chat: '对话', cards: '角色', story: '动态', settings: '设置' }
+type Page = 'chat' | 'inbox' | 'cards' | 'story' | 'settings'
+const labels: Record<Page, string> = { chat: '对话', inbox: '信箱', cards: '角色', story: '动态', settings: '设置' }
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
 function Icon({ name }: { name: Page | 'arrow' | 'plus' }) {
-  const paths = { chat: 'M5 4h14v12H9l-4 4V4Z', cards: 'M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM5 20v-2a7 7 0 0 1 14 0v2', story: 'M5 5h14M5 12h10M5 19h14', settings: 'M4 7h16M4 17h16M9 4v6M15 14v6', arrow: 'M5 12h14M13 6l6 6-6 6', plus: 'M12 5v14M5 12h14' }
+  const paths = { inbox: 'M3 5h18v14H3V5Zm0 0 9 8 9-8', chat: 'M5 4h14v12H9l-4 4V4Z', cards: 'M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM5 20v-2a7 7 0 0 1 14 0v2', story: 'M5 5h14M5 12h10M5 19h14', settings: 'M4 7h16M4 17h16M9 4v6M15 14v6', arrow: 'M5 12h14M13 6l6 6-6 6', plus: 'M12 5v14M5 12h14' }
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>
 }
 function App() {
@@ -112,6 +113,8 @@ function App() {
     <header><div className="wordmark">HDS<span>INTERLUDE</span></div><button className={`status ${runtime?.state === 'healthy' ? 'online' : ''}`} onClick={() => setPage('settings')}><i />{runtimeLabel}</button></header>
     <main>
       {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
+      {(page === 'chat' || page === 'story') && <div className="tabs story-nav"><button className={page === 'chat' ? 'active' : ''} onClick={() => setPage('chat')}>对话</button><button className={page === 'story' ? 'active' : ''} onClick={() => setPage('story')}>剧情与记忆</button></div>}
+      {page === 'inbox' && <Inbox bridge={bridge} healthy={runtime?.state === 'healthy'} native={native} configure={() => setPage('settings')} />}
       {page === 'chat' && <>
         <div className="page-heading"><div><div className="eyebrow">A LIFE IN PROGRESS</div><h1>{active?.card.name || '此刻之外'}<span>，</span></h1><p>{active ? '从一句话开始，让故事慢慢发生。' : '一个角色，一段继续发生的日常。'}</p></div><span className="chapter">01 / 对话</span></div>
         {!messages.length ? <div className="empty-chat"><div className="empty-art"><span /><span /><span /><b>未完待续</b></div><h2>{active ? '故事准备好了' : '先认识一个角色'}</h2><p>{active ? '在设置中准备本机环境、配置模型并启动 HDS。回复和剧情由原版核心生成。' : '导入 JSON 或 PNG 角色卡，也可以亲手写下她的人设。每个角色的故事独立保存。'}</p><button className="primary" onClick={() => setPage(active ? 'settings' : 'cards')}>{active ? '准备开始' : '前往角色库'}<Icon name="arrow" /></button></div> : <div className="messages">{messages.map(message => <article key={message.id} className={`message ${message.direction}`}><div className="message-label">{message.direction === 'user' ? settings.userName : active?.card.name}<time>{new Date(message.occurredAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div><div className="bubble">{message.content}</div>{message.status === 'card-opening' && <small>角色卡开场白 · 本地已展示</small>}</article>)}<div ref={scroll} /></div>}
@@ -141,7 +144,7 @@ function App() {
         <section><h2>设备与诊断</h2><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || '—'} / rc51</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre>{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></section>
       </>}
     </main>
-    <nav ref={navigation} aria-label="主导航">{(Object.keys(labels) as Page[]).map(key => <button key={key} className={key === page ? 'active' : ''} onClick={() => setPage(key)} aria-current={key === page ? 'page' : undefined}><Icon name={key} /><span>{labels[key]}</span></button>)}</nav>
+    <nav ref={navigation} aria-label="主导航">{(['chat', 'inbox', 'cards', 'settings'] as Page[]).map(key => <button key={key} className={key === page || (key === 'chat' && page === 'story') ? 'active' : ''} onClick={() => setPage(key)} aria-current={key === page ? 'page' : undefined}><Icon name={key} /><span>{labels[key]}</span></button>)}</nav>
     {editingCard && <CardEditor key={editingCard.id} saved={editingCard} busy={busy} close={() => setEditingCard(null)} save={async card => { setBusy(true); try { await bridge.updateCard({ id: editingCard.id, card }); setEditingCard(null); await refreshCards(); setNotice('人设已修改，剧情与记忆保留。重新启动 HDS 后生效。') } finally { setBusy(false) } }} />}
     {deleteTarget && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="删除角色确认"><h2>删除「{deleteTarget.card.name}」？</h2><p>将从角色库移除。已有剧情、记忆与原文件仍保留在本机，重新导入原文件可恢复。当前角色运行时会先停止 HDS。</p><div className="actions"><button className="secondary" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button><button className="primary" disabled={busy} onClick={() => void act(async () => { const id = deleteTarget.id; await bridge.deleteCard({ id }); setDeleteTarget(null); if (selected === id) { setMessages([]); setStory(null) } await refreshCards() }, '角色已从库中移除，历史保留。')}>确认删除</button></div></section></div>}
     {importChoices.length > 0 && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="选择 HDS 人设"><div className="section-title"><h2>文件包含多个人设</h2><button aria-label="取消导入" onClick={() => setImportChoices([])}>×</button></div><p className="caption">选择要导入的 HDS 实例。</p>{importChoices.map((choice, index) => <button key={index} className="secondary wide" onClick={() => { setPreview(choice); setImportChoices([]) }}>{index + 1}. {choice.card.name}</button>)}</section></div>}

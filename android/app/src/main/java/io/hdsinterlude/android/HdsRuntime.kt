@@ -220,6 +220,8 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     private fun startNow() {
         val profile = store.profile()
+        val qqData = File(store.base, "qq").apply { mkdirs() }
+        File(rootfs, "qq-data").mkdirs()
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val temporary = File(context.cacheDir, "hds-proot").apply { mkdirs() }
         File(rootfs, "tmp").mkdirs()
@@ -233,14 +235,14 @@ class HdsRuntime private constructor(private val context: Context) {
         // Preserve main's corrected host cwd and direct Node launch, with the new model settings.
         val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,
             "-b", "/dev", "-b", "/dev/pts", "-b", "/proc", "-b", "/sys",
-            "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data")
+            "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data", "-b", "${qqData.absolutePath}:/qq-data")
         args.addAll(ProotLaunch.guestArgs())
         val builder = ProcessBuilder(args).directory(context.filesDir).redirectErrorStream(true)
         ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath)
         log("启动 PRoot：宿主工作目录位于环境外，直接启动 Node，访客目录 /opt/hds")
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
-        val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data")
+        val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data").put("qqDir", "/qq-data")
         val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach { log(it) } } }, "hds-output").apply { start() }
         child.outputStream.write((configuration.toString() + "\n").toByteArray(Charsets.UTF_8)); child.outputStream.flush()
         val deadline = System.currentTimeMillis() + 90000
@@ -276,7 +278,7 @@ class HdsRuntime private constructor(private val context: Context) {
         process = null; token = ""; secrets = emptyList(); port = 0; state = "stopped"; progress = "HDS 已停止，剧情保留在本机"; error = ""
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {
-        require(method in listOf("health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume")) { "不允许的本机 API 方法" }
+        require(method in listOf("health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
         require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         val connection = URL("http://127.0.0.1:$port/rpc").openConnection() as HttpURLConnection
         try {

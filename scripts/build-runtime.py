@@ -138,7 +138,8 @@ def main():
         shutil.rmtree(GUEST)
     unpack(download(LOCK['ubuntu'], 'ubuntu-arm64.tar.gz'), GUEST)
     unpack(download(LOCK['node'], 'node-arm64.tar.xz'), GUEST / 'opt/node', strip=1)
-    for deb in LOCK['debs']:
+    qq_libs = json.loads((ROOT / 'runtime/qq-libs.lock.json').read_text())
+    for deb in LOCK['debs'] + qq_libs:
         archive = download(deb, deb['name'] + '.deb')
         members = subprocess.check_output(['ar', 't', str(archive)], text=True).splitlines()
         data = next(name for name in members if name.startswith('data.tar.'))
@@ -214,7 +215,7 @@ def main():
     archive = ASSETS / 'rootfs.bundle'  # .gz suffix is stripped by AAPT; contents remain gzip.
     audit = pack_guest(GUEST, archive)
     expanded = audit['expandedBytes']
-    manifest = {'version': LOCK['version'], 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK}
+    manifest = {'version': LOCK['version'], 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK, 'qqLibraries': qq_libs}
     (ASSETS / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     (WORK / 'runtime-manifest.json').write_text(json.dumps(manifest, indent=2))
     print(f'Built runtime: {archive.stat().st_size // 1024 // 1024} MiB compressed / {expanded // 1024 // 1024} MiB expanded', flush=True)

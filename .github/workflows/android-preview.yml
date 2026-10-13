@@ -10,6 +10,26 @@ concurrency:
   group: android-preview-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  qq-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.11.1'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:host
+      - run: python3 scripts/build-runtime.py
+      - name: Verify QQ in actual packaged ARM64 userspace, without an account login
+        run: |
+          npx esbuild scripts/qq-linux-smoke.ts --bundle --platform=node --format=cjs --packages=external --outfile=runtime/generated/rootfs/opt/hds/qq-smoke.cjs
+          sudo mkdir -p runtime/generated/rootfs/{dev,proc,sys,qq-data}
+          sudo mount --bind /dev runtime/generated/rootfs/dev
+          sudo mount -t proc proc runtime/generated/rootfs/proc
+          sudo mount --bind /sys runtime/generated/rootfs/sys
+          sudo chroot runtime/generated/rootfs /usr/bin/env HOME=/root PATH=/opt/node/bin:/usr/bin:/bin OPENSSL_CONF=/etc/ssl/openssl.cnf /opt/node/bin/node /opt/hds/qq-smoke.cjs
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -73,12 +93,12 @@ jobs:
           ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease :app:assembleDebugAndroidTest
       - name: Package verification and release materials
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.4-arm64.apk
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.5-arm64.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs artifacts/*.apk > artifacts/apk-signature.txt
           cp runtime/generated/runtime-manifest.json artifacts/
           cp docs/TEST-ON-PHONE.md artifacts/
           cp fixtures/cards/*.json fixtures/cards/*.yml artifacts/
-          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.4-source.tar.gz
+          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.5-source.tar.gz
           cd artifacts
           sha256sum *.apk *.tar.gz > SHA256SUMS.txt
       - name: Upload preview and build evidence

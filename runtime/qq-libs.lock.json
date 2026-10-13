@@ -1,0 +1,86 @@
+[
+  {
+    "name": "libatomic1",
+    "version": "14-20240412-0ubuntu1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libatomic1_14-20240412-0ubuntu1_arm64.deb",
+    "sha256": "017fa4bd88e8ff1cbaf75a26765b8c1255a5cd91d6ce838273bcb64190f15e37"
+  },
+  {
+    "name": "libbsd0",
+    "version": "0.12.1-1build1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libb/libbsd/libbsd0_0.12.1-1build1_arm64.deb",
+    "sha256": "6200ae28cdd976f9bf98571e4f7d49f9c632cfbc7eba241a3fed0f21ec8fe3ca"
+  },
+  {
+    "name": "libgcrypt20",
+    "version": "1.10.3-2build1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libg/libgcrypt20/libgcrypt20_1.10.3-2build1_arm64.deb",
+    "sha256": "ef72eafe2393bdc23d37750a2c8ee025b0d61f8158397bd8bca21b5319b5e2c6"
+  },
+  {
+    "name": "libgpg-error0",
+    "version": "1.47-3build2",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libg/libgpg-error/libgpg-error0_1.47-3build2_arm64.deb",
+    "sha256": "0dd8e2b5abba5ebbdc33cbb403367cebc29db9ea0a68970689f433fcc2255c0a"
+  },
+  {
+    "name": "libmd0",
+    "version": "1.1.0-2build1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libm/libmd/libmd0_1.1.0-2build1_arm64.deb",
+    "sha256": "9d957330c83693dfd870a56794317395b9519b385a69933828ff8e8e14829aa0"
+  },
+  {
+    "name": "libx11-6",
+    "version": "2:1.8.7-1build1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libx11/libx11-6_1.8.7-1build1_arm64.deb",
+    "sha256": "16d10ae5d27f1a0feb054001ff2b213b51acd29894f86ff088c31eebeba65fe3"
+  },
+  {
+    "name": "libx11-data",
+    "version": "2:1.8.7-1build1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libx11/libx11-data_1.8.7-1build1_all.deb",
+    "sha256": "9ae01f7747e7f479394c697c55acf11d3baf139e8e54b7c4adfb55ef9c50de08"
+  },
+  {
+    "name": "libx11-xcb1",
+    "version": "2:1.8.7-1build1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libx11/libx11-xcb1_1.8.7-1build1_arm64.deb",
+    "sha256": "3e900fac4bb54a117dd80f2a01ac9a2ab9519b4af1ec3607e1b6258e4b23f9ea"
+  },
+  {
+    "name": "libxau6",
+    "version": "1:1.0.9-1build6",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxau/libxau6_1.0.9-1build6_arm64.deb",
+    "sha256": "348d0732ff9571f95d6ff18373a93e827bfe00474d792ef5e9071e6dd618605c"
+  },
+  {
+    "name": "libxcb1",
+    "version": "1.15-1ubuntu2",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxcb/libxcb1_1.15-1ubuntu2_arm64.deb",
+    "sha256": "5483e5d19bbfa28e961d951645944e7763e943262ac17e216b2870d83597f319"
+  },
+  {
+    "name": "libxdmcp6",
+    "version": "1:1.1.3-0ubuntu6",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxdmcp/libxdmcp6_1.1.3-0ubuntu6_arm64.deb",
+    "sha256": "6b96dbbae4e515ac8f32d6dacfcb6afd1266118400a85ae7cb3f887895017f53"
+  },
+  {
+    "name": "libxext6",
+    "version": "2:1.3.4-1build2",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxext/libxext6_1.3.4-1build2_arm64.deb",
+    "sha256": "1140abacd8d23cb83cc63fb9aebb15a201e2dddbf5ca79fd999c0cbd181d0088"
+  },
+  {
+    "name": "unzip",
+    "version": "6.0-28ubuntu4",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/u/unzip/unzip_6.0-28ubuntu4_arm64.deb",
+    "sha256": "d86487038933474265b128366cea64e61e0b99471aa7499ea0173411831736aa"
+  },
+  {
+    "name": "xz-utils",
+    "version": "5.6.1+really5.4.5-1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/x/xz-utils/xz-utils_5.6.1+really5.4.5-1_arm64.deb",
+    "sha256": "9d06fa1422724c3a4764491826e4cb9a6196e36389519aac32fa3622ba223dae"
+  }
+]
