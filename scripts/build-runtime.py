@@ -191,6 +191,7 @@ def main():
     for name in ['package.json', 'package-lock.json']: shutil.copyfile(ROOT / 'runtime/profile' / name, profile / name)
     subprocess.run(['npm', 'ci', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], cwd=profile, check=True)
     shutil.copyfile(WORK / 'host.cjs', profile / 'host.cjs')
+    shutil.copyfile(ROOT / 'runtime/guest-probe.cjs', profile / 'guest-probe.cjs')
     shutil.copyfile(ROOT / 'upstream/hds-interlude/LICENSE', profile / 'HDS-LICENSE')
     LEGAL.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ROOT / 'docs/THIRD_PARTY.md', LEGAL / 'THIRD_PARTY.md')

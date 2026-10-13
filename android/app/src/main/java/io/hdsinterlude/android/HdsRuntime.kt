@@ -49,6 +49,7 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var recoveryError = ""
     @Volatile private var cleanupPending = false
     @Volatile private var layoutDiagnostic = JSONObject()
+    @Volatile private var launchDiagnostic = JSONObject()
     fun recordInsets(value: JSONObject) { layoutDiagnostic = value }
     init {
         try {
@@ -104,7 +105,7 @@ class HdsRuntime private constructor(private val context: Context) {
         val report = JSONObject().put("schema", 1).put("device", device()).put("appVersion", appVersion())
             .put("environmentState", environmentState()).put("bundled", manifestSummary(bundled))
             .put("installed", manifestSummary(installedManifest())).put("installation", lastDiagnostic)
-            .put("cleanupPending", cleanupPending).put("recoveryError", recoveryError).put("avc", "unavailable").put("layout", layoutDiagnostic)
+            .put("cleanupPending", cleanupPending).put("recoveryError", recoveryError).put("avc", "unavailable").put("layout", layoutDiagnostic).put("launch", launchDiagnostic)
         if (probe) report.put("fileCapabilities", probeFiles())
         // Deliberately excludes runtime output, settings, cards, credentials and chat.
         return report
@@ -230,16 +231,31 @@ class HdsRuntime private constructor(private val context: Context) {
         File(rootfs, "etc/resolv.conf").writeText((if (dns.isEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns).joinToString("\n") { "nameserver $it" } + "\n")
         port = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
-        val providers = store.runtimeProviders()
-        secrets = (0 until providers.length()).map { providers.getJSONObject(it).optString("apiKey") }
-        // Preserve main's corrected host cwd and direct Node launch, with the new model settings.
-        val args = mutableListOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,
+        val args = listOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,
             "-b", "/dev", "-b", "/dev/pts", "-b", "/proc", "-b", "/sys",
             "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data", "-b", "${qqData.absolutePath}:/qq-data")
-        args.addAll(ProotLaunch.guestArgs())
-        val builder = ProcessBuilder(args).directory(context.filesDir).redirectErrorStream(true)
-        ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath)
-        log("启动 PRoot：宿主工作目录位于环境外，直接启动 Node，访客目录 /opt/hds")
+        val attempts = JSONArray()
+        launchDiagnostic = JSONObject().put("attempts", attempts)
+        val disableSeccomp = ProotLaunch.selectProfile { disabled ->
+            checkCancellation()
+            val label = if (disabled) "完整追踪" else "seccomp 加速追踪"
+            progress = "检查本机 Node / 文件读写（$label）"
+            log("PRoot 启动探测：$label")
+            val result = probeGuest(args, nativeDir, temporary, disabled)
+            attempts.put(JSONObject().put("disableSeccomp", disabled).put("exitCode", result.exitCode ?: JSONObject.NULL)
+                .put("timedOut", result.timedOut).put("passed", result.passed).put("output", result.output))
+            log("PRoot 探测${if (result.passed) "通过" else "失败"}：$label，退出码 ${result.exitCode}，超时 ${result.timedOut}")
+            result.output.lineSequence().filter { it.isNotBlank() }.forEach { log(it) }
+            result
+        }
+        checkCancellation()
+        launchDiagnostic.put("selectedDisableSeccomp", disableSeccomp)
+        val providers = store.runtimeProviders()
+        secrets = (0 until providers.length()).map { providers.getJSONObject(it).optString("apiKey") }
+        val builder = ProcessBuilder(args + ProotLaunch.guestArgs()).directory(context.filesDir).redirectErrorStream(true)
+        ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath, disableSeccomp)
+        log("启动 PRoot：采用已通过探测的${if (disableSeccomp) "完整追踪" else "seccomp 加速追踪"}，直接启动 Node，访客目录 /opt/hds")
+        progress = "本机 Node 检查已通过，正在验证 HDS / SQLite"
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
         val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data").put("qqDir", "/qq-data")
@@ -265,6 +281,42 @@ class HdsRuntime private constructor(private val context: Context) {
             val code = child.waitFor()
             if (process === child && state != "stopping") { process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); context.stopService(android.content.Intent(context, HdsService::class.java)) }
         }, "hds-exit").start()
+    }
+    private fun probeGuest(args: List<String>, nativeDir: String, temporary: File, disableSeccomp: Boolean): ProotLaunch.ProbeResult {
+        val builder = ProcessBuilder(args + ProotLaunch.guestArgs(true)).directory(context.filesDir).redirectErrorStream(true)
+        ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath, disableSeccomp)
+        builder.environment()["HDS_MOBILE_MAIN"] = "0"
+        val child = try { builder.start() } catch (failure: Exception) {
+            return ProotLaunch.ProbeResult(null, false, "HDS_GUEST_PROBE_FAILED stage=spawn code=${failure.javaClass.simpleName}")
+        }
+        val tail = StringBuilder()
+        val reader = Thread({
+            try {
+                child.inputStream.reader().use { input ->
+                    val buffer = CharArray(1024)
+                    while (true) {
+                        val count = input.read(buffer); if (count < 0) break
+                        synchronized(tail) { tail.append(buffer, 0, count); if (tail.length > 4096) tail.delete(0, tail.length - 4096) }
+                    }
+                }
+            } catch (_: java.io.IOException) { }
+        }, "hds-probe").apply { isDaemon = true; start() }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25)
+        var timedOut = false
+        try {
+            child.outputStream.close()
+            while (!child.waitFor(250, TimeUnit.MILLISECONDS)) {
+                checkCancellation()
+                if (System.nanoTime() >= deadline) { timedOut = true; break }
+            }
+        } finally {
+            if (child.isAlive) { child.destroy(); if (!child.waitFor(1, TimeUnit.SECONDS)) child.destroyForcibly() }
+            require(child.waitFor(2, TimeUnit.SECONDS)) { "本机探测进程无法停止，已取消继续启动" }
+            reader.join(1000)
+            child.inputStream.close()
+        }
+        val output = synchronized(tail) { tail.toString().replace(store.base.absolutePath, "[app-data]").replace(nativeDir, "[native]") }
+        return ProotLaunch.ProbeResult(child.exitValue(), timedOut, output)
     }
     fun stopAsync() { cancelRequested = true; executor.execute { stopNow() } }
     fun stopBlocking() { cancelRequested = true; executor.submit { stopNow() }.get(45, TimeUnit.SECONDS) }

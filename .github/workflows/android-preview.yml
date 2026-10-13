@@ -22,6 +22,11 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build:host
       - run: python3 scripts/build-runtime.py
+      - name: Verify packaged Node cwd, file I/O and child execution under PRoot
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y proot
+          python3 scripts/probe-linux-proot.py
       - name: Verify QQ in actual packaged ARM64 userspace, without an account login
         run: |
           npx esbuild scripts/qq-linux-smoke.ts --bundle --platform=node --format=cjs --packages=external --outfile=runtime/generated/rootfs/opt/hds/qq-smoke.cjs
@@ -93,12 +98,12 @@ jobs:
           ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease :app:assembleDebugAndroidTest
       - name: Package verification and release materials
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.5-arm64.apk
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.5.1-arm64.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs artifacts/*.apk > artifacts/apk-signature.txt
           cp runtime/generated/runtime-manifest.json artifacts/
           cp docs/TEST-ON-PHONE.md artifacts/
           cp fixtures/cards/*.json fixtures/cards/*.yml artifacts/
-          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.5-source.tar.gz
+          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.5.1-source.tar.gz
           cd artifacts
           sha256sum *.apk *.tar.gz > SHA256SUMS.txt
       - name: Upload preview and build evidence

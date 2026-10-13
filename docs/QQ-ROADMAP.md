@@ -24,6 +24,8 @@
 
 ## 检查与边界
 
+preview.5 在 OriginOS 6 上的 HDS 启动收到 `uv_cwd / ENOSYS` 反馈；preview.5.1 增加真实 guest 启动前探测和两种 PRoot 追踪模式选择。不会覆盖 `process.cwd()` 返回假路径。参考 [运行器来源项目的启动模式选择](https://github.com/dphmoblie/deepseek-harness-android/blob/main/android/app/src/main/java/io/deepseekharness/mobile/runtime/RuntimeLaunchResolver.kt)，仅沿用“实际探测后选择”的思路。CI 新增 Linux ARM64 PRoot 运行 Node 探测；它仍不能代替 OriginOS 的系统策略验证。
+
 `tests/qq.test.ts` 使用真实 Koishi、HDS、SQLite、OneBot WebSocket 适配器和本地模型夹具，检查管理 API 鉴权、私聊白名单、@ 群触发与发送回执、共享故事、入站去重、手动文本防 CQ 注入与防重、停止后的投递门控。
 
 `scripts/qq-linux-smoke.ts` 在原生 ARM64 Linux 机器的实际打包 Ubuntu 用户空间中下载固定组件并尝试取得真实未扫描二维码。不登录账号、不发送 QQ 消息、不发布二维码或 token。以对应候选提交的 Actions 结果为准。
