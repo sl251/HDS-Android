@@ -4,9 +4,9 @@
   "private": true,
   "dependencies": {
     "@cordisjs/plugin-http": "0.6.3",
-    "@koishijs/plugin-adapter-onebot": "6.0.2",
     "@minatojs/driver-sqlite": "4.7.0",
     "koishi": "4.18.11",
+    "koishi-plugin-adapter-onebot": "6.9.5",
     "qface": "1.4.1",
     "qrcode": "1.5.4",
     "undici": "7.30.0"

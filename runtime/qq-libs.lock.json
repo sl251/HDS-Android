@@ -82,5 +82,47 @@
     "version": "5.6.1+really5.4.5-1",
     "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/x/xz-utils/xz-utils_5.6.1+really5.4.5-1_arm64.deb",
     "sha256": "9d06fa1422724c3a4764491826e4cb9a6196e36389519aac32fa3622ba223dae"
+  },
+  {
+    "name": "libcom-err2",
+    "version": "1.47.0-2.4~exp1ubuntu4",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/e/e2fsprogs/libcom-err2_1.47.0-2.4~exp1ubuntu4_arm64.deb",
+    "sha256": "369be6a7c9e8d85de7eb81697bad038016805cf510ea5d7cb03b0c6e91d7eda5"
+  },
+  {
+    "name": "libgssapi-krb5-2",
+    "version": "1.20.1-6ubuntu2",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/k/krb5/libgssapi-krb5-2_1.20.1-6ubuntu2_arm64.deb",
+    "sha256": "27d6f3321a5b126ff1cfa76399506bb11e53ac38b5d263c3acdae2452356932d"
+  },
+  {
+    "name": "libk5crypto3",
+    "version": "1.20.1-6ubuntu2",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/k/krb5/libk5crypto3_1.20.1-6ubuntu2_arm64.deb",
+    "sha256": "6b372dcd362202fba55fe40dabc9e6216fb96757b3f908a0056049fd1d3e6706"
+  },
+  {
+    "name": "libkeyutils1",
+    "version": "1.6.3-3build1",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/k/keyutils/libkeyutils1_1.6.3-3build1_arm64.deb",
+    "sha256": "d141e94ed3b32ea6540f2e927a83b3d42cd4378256a1aad60cda583ffdbd78af"
+  },
+  {
+    "name": "libkrb5-3",
+    "version": "1.20.1-6ubuntu2",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/k/krb5/libkrb5-3_1.20.1-6ubuntu2_arm64.deb",
+    "sha256": "45f2427ee2de6006348e6acfc6f104a4624fbe8577275ce7ab6a9a510842cdc3"
+  },
+  {
+    "name": "libkrb5support0",
+    "version": "1.20.1-6ubuntu2",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/k/krb5/libkrb5support0_1.20.1-6ubuntu2_arm64.deb",
+    "sha256": "f24500abe0707ad5f16371e9f511d48923d8378f240afe9caa77a91b4854a95a"
+  },
+  {
+    "name": "libssl3t64",
+    "version": "3.0.13-0ubuntu3",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3_arm64.deb",
+    "sha256": "d2207f12435060893997880a34d7ed91d14e163862d5d1394d51918d0723d7e0"
   }
 ]

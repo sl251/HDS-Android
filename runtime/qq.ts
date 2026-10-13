@@ -1,5 +1,5 @@
 import { Context, h, type Session } from 'koishi'
-import OneBot from '@koishijs/plugin-adapter-onebot'
+import OneBot from 'koishi-plugin-adapter-onebot'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

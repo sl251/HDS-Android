@@ -139,7 +139,7 @@ export async function startHost(input: HostConfig) {
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(input.port, '127.0.0.1', () => resolve()) })
   let shutdown: Promise<void> | undefined
   const stop = () => shutdown ??= (async () => { await new Promise<void>(resolve => server.close(() => resolve())); await qq?.close(); await queue; bot.dispose(); await app.interlude.mobileDrainBeforeStop(); await app.stop() })()
-  return { app, bot, server, stop, dispatch }
+  return { app, bot, server, stop, dispatch, qq }
 }
 
 if (process.env.HDS_MOBILE_MAIN === '1') {
