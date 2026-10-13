@@ -31,10 +31,15 @@ jobs:
           npm test 2>&1 | tee artifacts/host-tests.log
           npm run build
           npx cap sync android
+      - name: Ensure Android SDK components
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
+      - name: Compile Android bridge before runtime packaging
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --no-daemon compileReleaseKotlin
       - name: Build checksum-verified ARM64 runtime
         run: python3 scripts/build-runtime.py
-      - name: Ensure Android SDK components
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Restore private signing key
         env:
           HDS_SIGNING_STORE_B64: ${{ secrets.HDS_SIGNING_STORE_B64 }}
