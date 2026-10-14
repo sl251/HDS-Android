@@ -8,6 +8,8 @@ import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
 import { CardEditor } from './CardEditor'
 import { Inbox } from './Inbox'
 import { parsePersona, importBytes } from '../../packages/persona-format'
+import { ThemeConfig, loadTheme, applyTheme, PRESET_BACKGROUNDS } from './theme'
+import { AppearanceSettings } from './AppearanceSettings'
 
 const bridge = registerPlugin<NativeBridge>('HdsRuntime')
 type Page = 'chat' | 'inbox' | 'cards' | 'story' | 'settings'
@@ -18,6 +20,8 @@ function Icon({ name }: { name: Page | 'arrow' | 'plus' }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>
 }
 function App() {
+  const [theme, setTheme] = useState<ThemeConfig>(() => loadTheme())
+  useEffect(() => { applyTheme(theme) }, [theme])
   const [page, setPage] = useState<Page>('chat')
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
   const [cards, setCards] = useState<SavedCard[]>([])
@@ -201,6 +205,19 @@ function App() {
   const runtimeLabel = !native ? '界面预览' : healthy ? '随时在线 · 故事继续' : runtime?.state === 'installing' ? '正在准备核心组件' : runtime?.state === 'starting' ? '正在醒来…' : runtime?.state === 'stopping' ? '正在保存故事…' : runtime?.state === 'failed' ? '唤醒未完成 · 可重试' : '正在休息中'
   const wakePanel = <div className={`wake-panel ${transitioning ? 'waking' : ''}`} role="status"><div><b>{active?.card.name || '故事'} · {runtimeLabel}</b><p>{runtime?.state === 'installing' ? '首次准备约 1 分钟，请稍候…' : runtime?.state === 'starting' ? '正在翻开属于你们的这一页。' : '之前的经历留在这里，下一句话由你开始。'}</p></div>{transitioning ? <progress aria-label={runtimeLabel} /> : <button className="primary wake-button" disabled={!native || busy || !settingsReady} onClick={wake}>{!active ? '选择主角' : !modelReady ? '连接故事模型' : runtime?.state === 'failed' ? '再次唤醒' : '点击唤醒'}<Icon name="arrow" /></button>}{runtime?.state === 'installing' && <button className="text-button" onClick={() => act(() => bridge.cancelInstall())}>取消准备</button>}{runtime?.error && <p className="error">{runtime.error}</p>}</div>
   return <div className="app">
+    {(theme.bgPreset !== 'none' || theme.customBgBase64) && (
+      <div className="hds-bg-container" aria-hidden="true">
+        <div
+          className="hds-custom-bg"
+          style={{
+            backgroundImage: theme.customBgBase64
+              ? `url(${theme.customBgBase64})`
+              : (PRESET_BACKGROUNDS[theme.bgPreset as keyof typeof PRESET_BACKGROUNDS] || undefined)
+          }}
+        />
+        <div className="hds-custom-overlay" />
+      </div>
+    )}
     <header><div className="wordmark">HDS<span>INTERLUDE</span></div><button className={`status ${runtime?.state === 'healthy' ? 'online' : ''}`} disabled={busy || transitioning || (native && !settingsReady)} onClick={() => healthy ? setPage('chat') : native ? void wake() : setPage('settings')}><i />{runtimeLabel}</button></header>
     <main onBlurCapture={() => { void persistSettings().catch(() => {}) }}>
       {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
@@ -232,6 +249,7 @@ function App() {
         <button className="space-link" onClick={() => setPage('cards')}><div><span className="eyebrow">PEOPLE & STORIES</span><h2>故事里的人</h2><p>{cards.length} 位角色 · {active?.card.name || '等待第一位主角'}</p></div><Icon name="arrow" /></button>
         <section><div className="section-title"><h2>故事的节奏</h2><span className="tag">{runtimeLabel}</span></div>{healthy ? <div className="actions"><button className="secondary" disabled={busy || sending} onClick={() => act(async () => { await bridge.stop(); setRuntime(await bridge.status()) }, '故事暂时歇息，经历都已留存。')}>让故事休息一下</button></div> : wakePanel}</section>
         <div className="save-status" role="status"><span>{native ? saveState : '界面预览 · 设置不会保存'}</span>{saveError && <><p className="error">{saveError}</p><button className="text-button" disabled={busy} onClick={() => void persistSettings().catch(() => {})}>重试保存</button></>}</div>
+        <AppearanceSettings theme={theme} setTheme={setTheme} />
         <ModelCenter settings={settings} setSettings={setSettings} native={native} busy={busy} bridge={bridge} act={act} notify={setNotice} />
         <section><h2>我与这个故事</h2><label>你的称呼<input value={settings.userName} onChange={event => setSettings({ ...settings, userName: event.target.value })} maxLength={128} /></label><label>你的故事人设<textarea rows={3} value={settings.userProfile} onChange={event => setSettings({ ...settings, userProfile: event.target.value })} maxLength={12000} placeholder="你在这个世界中的身份、与角色的关系…" /></label><label className="toggle"><input type="checkbox" checked={settings.autoAdvance} onChange={event => setSettings({ ...settings, autoAdvance: event.target.checked })} /><div><b>持续生活与主动联系</b><p>默认关闭。开启后 HDS 可在通知服务存活时自动调用模型，产生 API 费用。</p></div></label><p className="caption">离开输入框时自动保存。这里的人设用于新故事，已有故事会保留原来的设定。</p></section>
         <section><details><summary>高级 · 核心维护与诊断</summary><p className="caption">遇到运行问题时，可重新准备核心组件。角色与故事会保留。</p><button className="secondary" disabled={!native || busy || transitioning || healthy} onClick={() => act(async () => { await bridge.install(); setRuntime(await bridge.status()) })}>重新准备核心组件</button><h3>设备与诊断</h3><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || '—'} / rc51</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre>{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></details></section>
