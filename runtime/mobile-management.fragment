@@ -1,0 +1,13 @@
+  /** Mobile fact edits invalidate work prepared with the old fact set. */
+  async mobileManageFact(story: InterludeStory, action: 'add' | 'forget', scope: NarrativeFact['scope'], content: string, id: number) {
+    this.invalidateBufferedNarratives(story.id)
+    this.invalidateStoryTasks(story.id)
+    return this.serial(story.id, async () => {
+      const current = await this.getStory(story.id)
+      const result = action === 'add' ? await this.addAdminFact(current, scope, content) : await this.forgetAdminFact(current.id, id)
+      if (!result) throw new Error(action === 'add' ? '内容为空或主体不明确，请写出具体人物' : '未找到有效事实')
+      await this.dbSet('interlude_story', { id: current.id }, { state: encodeStoryState({ ...decodeStoryState(current.state), continuitySnapshot: undefined, continuityDirty: true }), updatedAt: new Date() })
+      return true
+    })
+  }
+

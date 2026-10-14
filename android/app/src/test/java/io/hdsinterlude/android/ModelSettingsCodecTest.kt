@@ -6,6 +6,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ModelSettingsCodecTest {
+    @Test fun dedicatedVisionChoiceSurvivesSettingsPersistence() {
+        val options = codec.options(JSONObject().put("visionEnabled", true).put("visionProviderId", "separate-eyes"))
+        assertTrue(options.getBoolean("visionEnabled"))
+        assertEquals("separate-eyes", options.getString("visionProviderId"))
+        assertEquals("", codec.options(JSONObject()).getString("visionProviderId"))
+    }
     private val codec = ModelSettingsCodec(JSONArray("""[{"id":"custom","mode":"openai-compatible","label":"自定义","protocol":"chat-completions","endpoint":""},{"id":"official","mode":"openai-official","label":"官方","protocol":"chat-completions","endpoint":"https://api.example/v1/chat/completions"}]"""))
     private fun row() = JSONObject("""{"id":"test","preset":"custom","endpoint":"https://example.com/v1","model":"model-a","enabled":true,"useForMain":true,"useForCompaction":true,"useForAlter":true}""")
     @Test fun accidentalEmptyConnectionDoesNotBlockExistingModel() {

@@ -12,3 +12,5 @@ HDS 原始版本为 1.0.1-rc51，固定提交 9a77fadb88c6e57914ebac8ca75cf54a27
 自动测试使用固定模型响应验证真实引擎，不等同于付费模型服务实测或 Android 真机验收。原始 HDS 基线的已知失败见 docs/evidence/T01/baseline.md；没有为获得通过而改写原始断言。
 
 preview.4 的模型分工直接使用原 HDS provider flags / failover / SSE 路由。typ0 人设使用原生 storyDefaults 和 updateSetting，Tavern 继续使用上下文钩子；不整体升级 rc51。
+
+Preview7：复用原版 sidecar/native 识图路由，原生桥接新增图片压缩、外观文件与故事存档事务。见闻管理复用原版事实、待办、overlay 和 compact API；`mobileManageFact` 在修改前失效旧叙事工作并刷新连续性缓存。详见 `docs/PREVIEW7.md`。
