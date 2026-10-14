@@ -139,6 +139,13 @@ try {
   await page.getByText('收到你的消息了。', { exact: true }).waitFor()
   assert.equal(await page.locator('nav').isVisible(), true)
   assert.equal(await page.locator('.message-image').count(), 0)
+  const replyLayout = await page.getByText('收到你的消息了。', { exact: true }).evaluate(bubble => {
+    const container = bubble.closest('article'), style = getComputedStyle(container)
+    return { display: style.display, border: style.borderTopWidth, background: style.backgroundColor, bubbleBorder: getComputedStyle(bubble).borderTopWidth }
+  })
+  assert.deepEqual(replyLayout, { display: 'block', border: '0px', background: 'rgba(0, 0, 0, 0)', bubbleBorder: '1px' }, 'Character replies must have one bubble, without the character-library card wrapper')
+  await page.screenshot({ path: 'artifacts/preview7-1-chat.png' })
+
   await page.evaluate(() => { window.__storyFixture.attempts = [] })
   await page.getByRole('textbox', { name: '消息内容' }).fill('')
   await page.getByRole('button', { name: '添加图片', exact: true }).click()

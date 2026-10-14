@@ -10,8 +10,8 @@ android {
         applicationId "io.hdsinterlude.android"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "0.1.0-preview.7"
+        versionCode 15
+        versionName "0.1.0-preview.7.1"
         ndk { abiFilters 'arm64-v8a' }
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

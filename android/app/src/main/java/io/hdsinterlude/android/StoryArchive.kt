@@ -33,7 +33,7 @@ class StoryArchive(private val base: File) {
             require(!Files.isSymbolicLink(file.toPath())) { "存档包含符号链接，无法导出" }
             if (file.isFile) files["profile/" + file.relativeTo(profile).invariantSeparatorsPath] = file
         }
-        val manifest = JSONObject().put("format", 1).put("cardId", id).put("hds", "1.0.1-rc51").put("app", "0.1.0-preview.7").put("createdAt", java.time.Instant.now().toString())
+        val manifest = JSONObject().put("format", 1).put("cardId", id).put("hds", "1.0.1-rc51").put("app", "0.1.0-preview.7.1").put("createdAt", java.time.Instant.now().toString())
         val checksums = JSONObject(); for ((name, file) in files) { require(file.isFile); checksums.put(name, hash(file)) }; manifest.put("sha256", checksums)
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry("manifest.json")); zip.write(manifest.toString().toByteArray()); zip.closeEntry()
