@@ -10,6 +10,7 @@ import * as HDS from '../upstream/hds-interlude/src/index'
 import { cardPrompt, type Card } from '../packages/card-format'
 import { mobileModelConfig } from './model-config'
 import type { ModelOptions, ModelProvider } from '../packages/contracts'
+import { messageImages } from '../packages/contracts'
 import { personaDefaults, personaEditPatch } from './persona'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
@@ -26,7 +27,7 @@ export async function startHost(input: HostConfig) {
   app.baseDir = input.dataDir
   app.plugin(HTTP)
   app.plugin(SQLiteDriver, { path: join(input.dataDir, 'hds.sqlite') })
-  app.model.extend('mobile_message', { id: 'string(64)', direction: 'string(16)', content: 'text', occurredAt: 'timestamp', status: 'string(32)', images: 'json' }, { primary: 'id' })
+  app.model.extend('mobile_message', { id: 'string(64)', direction: 'string(16)', content: 'text', occurredAt: 'timestamp', status: 'string(32)', images: { type: 'json', initial: [] } }, { primary: 'id' })
   app.model.extend('mobile_request', { id: 'string(64)', content: 'text', status: 'string(32)', occurredAt: 'timestamp' }, { primary: 'id' })
   class LocalBot extends Bot {
     private disposed = false
@@ -38,7 +39,7 @@ export async function startHost(input: HostConfig) {
       if (!['private:local-user', 'local-user'].includes(channelId)) throw new Error('Local transport target is not authorized')
       const id = randomUUID()
       const text = h.parse(String(content)).map(element => element.type === 'text' ? element.attrs.content : element.toString()).join('')
-      await app.database.create('mobile_message' as never, { id, direction: 'character', content: text, occurredAt: new Date(), status: 'delivered' } as never)
+      await app.database.create('mobile_message' as never, { id, direction: 'character', content: text, images: [], occurredAt: new Date(), status: 'delivered' } as never)
       return [id]
     }
     async createDirectChannel(userId: string) { return { id: `private:${userId}`, type: 1 } }
@@ -96,7 +97,7 @@ export async function startHost(input: HostConfig) {
   if (input.card.firstMessage) {
     const key = 'card-opening-v1'
     const old = await app.database.get('mobile_message' as never, { id: key } as never)
-    if (!old.length) await app.database.create('mobile_message' as never, { id: key, direction: 'character', content: input.card.firstMessage.replaceAll('{{char}}', input.card.name).replaceAll('{{user}}', input.userName || '我'), occurredAt: new Date(), status: 'card-opening' } as never)
+    if (!old.length) await app.database.create('mobile_message' as never, { id: key, direction: 'character', content: input.card.firstMessage.replaceAll('{{char}}', input.card.name).replaceAll('{{user}}', input.userName || '我'), images: [], occurredAt: new Date(), status: 'card-opening' } as never)
     await app.interlude.mobileRecordLocalOpening(story, current, input.card.firstMessage.replaceAll('{{char}}', input.card.name).replaceAll('{{user}}', input.userName || '我'))
   }
   let queue = Promise.resolve()
@@ -150,7 +151,7 @@ export async function startHost(input: HostConfig) {
       return job
     }
     if (method === 'health') return { hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
-    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc' } } as never)).reverse()
+    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc' } } as never)).reverse().map(row => ({ ...row, images: messageImages((row as { images?: unknown }).images) }))
     if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 30), memories: await app.interlude.memories(story.id, 20), promptTrace } }
     if (method === 'story.pause' || method === 'story.resume') {
       const paused = method.endsWith('pause')

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { Appearance, NativeBridge } from '../../packages/contracts'
+import { appearanceAssets } from './appearance-assets'
 
 export const defaultAppearance: Appearance = { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 92, backgroundBlur: 0, theme: 'system' }
 export function useAppearance(bridge: NativeBridge, native: boolean, notify: (text: string) => void) {
@@ -8,7 +9,7 @@ export function useAppearance(bridge: NativeBridge, native: boolean, notify: (te
   const [status, setStatus] = useState('外观即时生效')
   const current = useRef(value); current.current = value
   const queue = useRef(Promise.resolve())
-  useEffect(() => { let cancelled = false; if (native) void bridge.appearance().then(result => { if (!cancelled) { setValue({ ...defaultAppearance, ...result }); setReady(true) } }).catch(error => notify(String(error))); return () => { cancelled = true } }, [native])
+  useEffect(() => { let cancelled = false; if (native) void bridge.appearance().then(result => { if (!cancelled) { setValue({ ...defaultAppearance, ...appearanceAssets(result) }); setReady(true) } }).catch(error => notify(String(error))); return () => { cancelled = true } }, [native])
   useEffect(() => {
     const root = document.documentElement
     root.dataset.theme = value.theme
@@ -28,7 +29,7 @@ export function useAppearance(bridge: NativeBridge, native: boolean, notify: (te
     setStatus('外观正在保存…')
     queue.current = queue.current.catch(() => {}).then(async () => {
       // Assets stay in native files; never copy their data URLs into settings JSON.
-      const { backgroundData, fontData, ...options } = next
+      const { backgroundData, fontData, backgroundPath, fontPath, backgroundRevision, fontRevision, ...options } = next
       await bridge.saveAppearance({ ...options, ...removals })
       setStatus('外观已保存')
     }).catch(error => { setStatus('外观尚未保存'); notify(String(error)) })
@@ -36,7 +37,15 @@ export function useAppearance(bridge: NativeBridge, native: boolean, notify: (te
   const pick = async (kind: 'background' | 'font') => {
     await queue.current
     const result = await bridge.pickAppearanceAsset({ kind })
-    if (!result.cancelled) { setValue({ ...current.current, ...(kind === 'font' ? { font: 'custom' as const, fontData: result.fontData, fontName: result.fontName } : { backgroundData: result.backgroundData }) }); setStatus('外观已保存') }
+    if (result.cancelled) return
+    // Read the persisted asset back instead of treating a picker callback as proof.
+    const persisted = await bridge.appearance()
+    const saved = appearanceAssets(persisted)
+    const asset = kind === 'background' ? saved.backgroundData : saved.fontData
+    if (typeof asset !== 'string' || !asset || !(kind === 'background' ? persisted.backgroundPath || asset.startsWith('data:image/') : persisted.fontPath || asset.startsWith('data:font/'))) throw new Error('所选资源未能保存，请重新选择')
+    setValue({ ...current.current, ...(kind === 'font' ? { font: 'custom' as const, fontData: saved.fontData, fontPath: saved.fontPath, fontRevision: saved.fontRevision, fontName: saved.fontName } : { backgroundData: saved.backgroundData, backgroundPath: saved.backgroundPath, backgroundRevision: saved.backgroundRevision }) })
+    setStatus('外观已保存')
+    notify(kind === 'background' ? '背景图片已保存并应用，可以调整透明度。' : '字体已保存并应用。')
   }
   return { value, save, pick, ready, status }
 }
@@ -52,7 +61,8 @@ export function AppearanceSettings({ appearance, native, busy, act }: Props) {
         <label>阅读字号 · {value.fontSize}px<input type="range" min="12" max="24" value={value.fontSize} onChange={event => update({ fontSize: Number(event.target.value) })} /></label>
         <p className="appearance-sample">幕间的生活，藏在每一次相逢里。Aa 0123</p>
       </details>
-      <details><summary>背景与透明度</summary><div className="actions"><button className="secondary" disabled={!native} onClick={() => act(() => pick('background'))}>选择背景图片</button>{value.backgroundData && <button className="text-button" onClick={() => save({ ...value, backgroundData: undefined }, { removeBackground: true })}>移除背景</button>}</div>
+      <details><summary>背景与透明度</summary><div className="actions"><button className="secondary" disabled={!native} onClick={() => act(() => pick('background'))}>选择背景图片</button>{value.backgroundData && <button className="text-button" onClick={() => save({ ...value, backgroundData: undefined, backgroundPath: undefined, backgroundRevision: undefined }, { removeBackground: true })}>移除背景</button>}</div>
+        {value.backgroundData && <img className="background-preview" src={value.backgroundData} alt="已保存的背景图片" />}
         <label>背景图片不透明度 · {value.backgroundOpacity}%<input type="range" min="0" max="100" value={value.backgroundOpacity} onChange={event => update({ backgroundOpacity: Number(event.target.value) })} /></label>
         <label>面板不透明度 · {value.panelOpacity}%<input type="range" min="0" max="100" value={value.panelOpacity} onChange={event => update({ panelOpacity: Number(event.target.value) })} /></label>
         <label>背景模糊 · {value.backgroundBlur}px<input type="range" min="0" max="20" value={value.backgroundBlur} onChange={event => update({ backgroundBlur: Number(event.target.value) })} /></label>

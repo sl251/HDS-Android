@@ -17,8 +17,9 @@ class AppearanceStore(private val context: Context) {
     private fun defaults() = JSONObject().put("font", "default").put("fontSize", 14).put("backgroundOpacity", 35).put("panelOpacity", 92).put("backgroundBlur", 0).put("theme", "system")
     fun read(): JSONObject {
         val result = if (settings.exists()) JSONObject(AtomicFile(settings).openRead().bufferedReader().use { it.readText() }) else defaults()
-        File(root, "background.jpg").takeIf { it.exists() }?.let { result.put("backgroundData", "data:image/jpeg;base64," + Base64.encodeToString(it.readBytes(), Base64.NO_WRAP)) }
-        File(root, "font.bin").takeIf { it.exists() }?.let { result.put("fontData", "data:font/ttf;base64," + Base64.encodeToString(it.readBytes(), Base64.NO_WRAP)) }
+        // Let Capacitor's local file server stream assets; avoid multi-megabyte bridge JSON.
+        File(root, "background.jpg").takeIf { it.isFile }?.let { result.put("backgroundPath", it.absolutePath).put("backgroundRevision", it.lastModified()) }
+        File(root, "font.bin").takeIf { it.isFile }?.let { result.put("fontPath", it.absolutePath).put("fontRevision", it.lastModified()) }
         return result
     }
     private fun atomic(file: File, bytes: ByteArray) {

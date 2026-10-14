@@ -15,7 +15,12 @@ export type ModelOptions = {
 export type ModelSettings = { providers: ModelProvider[]; modelOptions: ModelOptions; userName: string; userProfile: string; autoAdvance: boolean }
 export type ImageAttachment = { id: string; dataUri: string }
 export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string; images?: string[] }
-export type Appearance = { font: 'default' | 'sans' | 'serif' | 'custom'; fontSize: number; backgroundOpacity: number; panelOpacity: number; backgroundBlur: number; backgroundData?: string; fontData?: string; fontName?: string; theme: 'system' | 'light' | 'dark' }
+/** SQLite JSON columns from older records may contain {} instead of an array. */
+export function messageImages(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((id): id is string => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)))].slice(0, 3)
+}
+export type Appearance = { font: 'default' | 'sans' | 'serif' | 'custom'; fontSize: number; backgroundOpacity: number; panelOpacity: number; backgroundBlur: number; backgroundData?: string; fontData?: string; fontName?: string; backgroundPath?: string; backgroundRevision?: number; fontPath?: string; fontRevision?: number; theme: 'system' | 'light' | 'dark' }
 export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
 export type DownloadProgress = { component: string; receivedBytes: number; totalBytes?: number; bytesPerSecond: number }
 export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[] }

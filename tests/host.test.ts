@@ -34,11 +34,18 @@ test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and 
     const body = JSON.stringify(requests[0])
     assert.match(body, /MARKER_PROFILE/); assert.match(body, /EXAMPLE_MARKER/); assert.match(body, /LORE_MARKER/); assert.doesNotMatch(body, /NOT_A_FACT/)
     while (Date.now() < deadline) { const history = await host.dispatch('messages.history', {}) as { direction: string }[]; if (history.some(row => row.direction === 'character')) break; await new Promise(resolve => setTimeout(resolve, 200)) }
-    const history = await host.dispatch('messages.history', {}) as { direction: string }[]
+    const history = await host.dispatch('messages.history', {}) as { id: string; direction: string; images: string[] }[]
     assert.equal(history.filter(row => row.direction === 'user').length, 1)
     assert.ok(history.some(row => row.direction === 'character'), 'A model fixture is only useful if HDS confirms visible local delivery')
+    assert.ok(history.every(row => Array.isArray(row.images)), 'Text delivery must expose an empty attachment array')
+    const characterId = history.find(row => row.direction === 'character')!.id
+    // This is the actual SQLite default stored by preview.6.2 for text replies.
+    await host.app.database.set('mobile_message' as never, { id: characterId } as never, { images: {} } as never)
+    const legacyHistory = await host.dispatch('messages.history', {}) as { id: string; images: string[] }[]
+    assert.deepEqual(legacyHistory.find(row => row.id === characterId)!.images, [])
     await host.stop(); host = undefined
     host = await startHost(config)
+    assert.deepEqual((await host.dispatch('messages.history', {}) as { id: string; images: string[] }[]).find(row => row.id === characterId)!.images, [], 'Old object-shaped columns remain safe after restart')
     const repeated = await host.dispatch('messages.sendLocal', message) as { duplicate: boolean }; assert.equal(repeated.duplicate, true)
     assert.equal((await host.dispatch('messages.history', {}) as { direction: string }[]).filter(row => row.direction === 'user').length, 1)
     await host.dispatch('maintenance.start', { requestId: 'memory-job-add-001', kind: 'fact-add', scope: 'character', content: '小林的职业是修理师。' })
