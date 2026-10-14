@@ -38,7 +38,7 @@ try {
           if (options.method === 'messages.history') return { data: f.messages || [] }
           if (options.method === 'images.upload') return { data: { id: 'fixture-image' } }
           if (options.method === 'images.get') return { data: { dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' } }
-          if (options.method === 'messages.sendLocal') { f.sent = options.payload; f.messages = [{ id: options.payload.requestId, content: options.payload.content, images: options.payload.images, direction: 'user', occurredAt: new Date().toISOString(), status: 'accepted' }]; return { data: { accepted: true } } }
+          if (options.method === 'messages.sendLocal') { (f.attempts ||= []).push(structuredClone(options.payload)); if (f.failSend) throw new Error('测试：图片发送失败'); f.sent = options.payload; f.messages = [{ id: options.payload.requestId, content: options.payload.content, images: options.payload.images, direction: 'user', occurredAt: new Date().toISOString(), status: 'accepted' }]; return { data: { accepted: true } } }
           if (options.method === 'maintenance.start') { f.job = options.payload; return { data: { status: 'running' } } }
           if (options.method === 'maintenance.status') return { data: { status: 'done', result: true } }
           if (options.method === 'memory.factSources') return { data: [{ content: '小林说他喜欢修理收音机。', occurredAt: new Date().toISOString() }] }
@@ -106,15 +106,28 @@ try {
   await page.getByLabel('阅读字号 · 14px').fill('18')
   await page.waitForFunction(() => window.__storyFixture.appearance?.fontSize === 18)
   assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-scale').trim()), String(18 / 14))
+  await page.getByText('背景与透明度', { exact: true }).click()
+  await page.getByRole('button', { name: '选择背景图片', exact: true }).click()
+  await page.waitForFunction(() => Boolean(document.querySelector('.custom-background')))
+  await page.getByLabel('背景图片不透明度 · 35%').fill('50')
+  await page.waitForFunction(() => window.__storyFixture.appearance?.backgroundOpacity === 50)
+  assert.equal(await page.locator('.custom-background').evaluate(element => getComputedStyle(element).opacity), '0.5')
   await page.screenshot({ path: 'artifacts/story-space.png', fullPage: true })
   await page.getByRole('button', { name: '故事', exact: true }).click()
   await page.getByRole('textbox', { name: '消息内容' }).fill('')
   await page.getByRole('button', { name: '添加图片', exact: true }).click()
   await page.getByAltText('待发送图片').waitFor()
+  await page.evaluate(() => { window.__storyFixture.failSend = true })
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.getByText('测试：图片发送失败；草稿已保留，可以重试。', { exact: true }).waitFor()
+  await page.getByAltText('待发送图片').waitFor()
+  await page.evaluate(() => { window.__storyFixture.failSend = false })
   await page.getByRole('button', { name: '发送消息', exact: true }).click()
   await page.waitForFunction(() => window.__storyFixture.sent?.images?.length === 1)
   assert.equal(await page.evaluate(() => window.__storyFixture.sent.content), '')
   assert.deepEqual(await page.evaluate(() => window.__storyFixture.sent.images), ['fixture-image'])
+  const attempts = await page.evaluate(() => window.__storyFixture.attempts)
+  assert.equal(attempts[0].requestId, attempts[1].requestId)
   await page.getByRole('button', { name: '查看消息图片', exact: true }).click()
   await page.getByRole('dialog', { name: '消息图片预览' }).waitFor()
   await page.getByRole('button', { name: '关闭图片预览' }).click()

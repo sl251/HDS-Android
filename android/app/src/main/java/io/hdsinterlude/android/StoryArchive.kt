@@ -21,6 +21,11 @@ class StoryArchive(private val base: File) {
     }
     private fun current(id: String): File { require(id.matches(Regex("[a-f0-9]{64}"))) { "角色编号无效" }; return File(base, "profiles/$id") }
     private fun card(id: String) = File(base, "cards/$id.json")
+    private fun writeCard(id: String, bytes: ByteArray) {
+        val temporary = File(base, "cards/$id.restore.tmp")
+        temporary.outputStream().use { stream -> stream.write(bytes); stream.fd.sync() }
+        Files.move(temporary.toPath(), card(id).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+    }
     fun export(id: String, output: OutputStream) {
         val profile = current(id); require(File(profile, "hds.sqlite").isFile) { "当前角色尚无故事存档" }
         val files = linkedMapOf("card.json" to card(id), "card.source" to File(base, "cards/$id.source"))
@@ -96,8 +101,7 @@ class StoryArchive(private val base: File) {
             require(profile.renameTo(File(backup, "profile"))) { "无法备份原故事" }
             if (stage != null) {
                 require(File(stage, "profile").renameTo(profile)) { "无法安装恢复的故事" }
-                val cardTemp = File(base, "cards/$id.restore.tmp"); cardTemp.writeBytes(File(stage, "card.json").readBytes())
-                Files.move(cardTemp.toPath(), card(id).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                writeCard(id, File(stage, "card.json").readBytes())
             } else {
                 profile.mkdirs(); File(backup, "profile/qq-policy.json").takeIf { it.isFile }?.copyTo(File(profile, "qq-policy.json"))
             }
@@ -114,8 +118,10 @@ class StoryArchive(private val base: File) {
         if (backup.isDirectory) {
             if (profile.exists()) { val rejected = File(base, "story-staging/rejected-${UUID.randomUUID()}"); rejected.parentFile.mkdirs(); require(profile.renameTo(rejected)) { "无法隔离未完成故事" } }
             require(backup.renameTo(profile)) { "无法恢复旧故事，请保留应用数据并重试" }
-            card(id).writeText(record.getString("oldCard"))
         }
+        // Repeating recovery after the profile was already moved back still restores
+        // the card atomically; a process kill cannot leave half-written card JSON.
+        writeCard(id, record.getString("oldCard").toByteArray())
         require(journal.delete()) { "无法清理恢复清单" }
     }
 }

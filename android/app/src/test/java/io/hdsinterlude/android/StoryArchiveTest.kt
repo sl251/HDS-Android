@@ -49,6 +49,20 @@ class StoryArchiveTest {
             assertFalse(File(profile, "hds.sqlite").exists()); assertTrue(File(root, "story-backups/$id/$backup/profile/hds.sqlite").exists()); assertEquals("other story", File(other, "keep").readText())
         } finally { root.deleteRecursively() }
     }
+    @Test fun interruptedCardRecoveryIsRepeatableAndLocalBackupCanBeRestored() {
+        val root = Files.createTempDirectory("hds-card-recovery").toFile()
+        try {
+            val profile = setup(root); val archive = StoryArchive(root); val backup = archive.replace(id)
+            val rejected = File(root, "partial-new-profile"); assertTrue(profile.renameTo(rejected))
+            assertTrue(File(root, "story-backups/$id/$backup/profile").renameTo(profile))
+            File(root, "cards/$id.json").writeText("incomplete")
+            archive.recover()
+            assertEquals("测试角色", JSONObject(File(root, "cards/$id.json").readText()).getJSONObject("card").getString("name"))
+            archive.replace(id); archive.commit()
+            val stage = archive.stagePrevious(id); archive.replace(id, stage); archive.commit()
+            assertTrue(File(profile, "hds.sqlite").exists())
+        } finally { root.deleteRecursively() }
+    }
     @Test fun traversalAndDuplicateEntriesAreRejected() {
         val root = Files.createTempDirectory("hds-bad-archive").toFile()
         try {

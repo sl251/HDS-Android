@@ -28,4 +28,4 @@
 
 设置分层与本地字体参考 [RikkaHub 的界面偏好](https://github.com/rikkahub/rikkahub/blob/master/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingPreferencesUIPage.kt) 和 [供应商列表](https://github.com/rikkahub/rikkahub/blob/master/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingProviderPage.kt)；背景与主题组织参考 [SillyTavern](https://github.com/SillyTavern/SillyTavern)。本版保留 HDS 风格与现有组件，实现未直接复制这些项目的代码。
 
-验证记录将在 APK 构建完成后更新。自动化测试与 CI 不等于 Android 真机验收。
+本地验证：25 项宿主测试通过（24 项完整测试加真实图片链路回归），TypeScript/Vite 构建通过；浏览器回归覆盖折叠、外观与背景保存、纯图片预览/发送/失败重试、事实来源/补充/停用、存档确认、自动保存与 320/390/740 px 布局。Android 单元测试增加存档校验、越界拒绝、重开、其他角色保护、中断恢复、角色卡恢复幂等性与本机备份恢复。签名 APK 及 Android/ARM64 的最终验证由本分支 Actions 完成。自动化测试与 CI 不等于 Android 真机验收。
