@@ -51,6 +51,7 @@ function App() {
   const [settingsReady, setSettingsReady] = useState(false)
   const composer = useRef<HTMLTextAreaElement>(null)
   const focusAfterWake = useRef(false)
+  const launchedSettings = useRef('')
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const savedSettings = useRef('')
@@ -147,7 +148,7 @@ function App() {
   }, [settings, native, settingsReady])
   useEffect(() => {
     if (runtime?.state === 'healthy' && focusAfterWake.current) {
-      setRestartNeeded(false)
+      setRestartNeeded(!!launchedSettings.current && JSON.stringify(settingsRef.current) !== launchedSettings.current)
       if (page === 'chat') { composer.current?.focus(); focusAfterWake.current = false }
     }
     if (runtime?.state === 'failed') focusAfterWake.current = false
@@ -157,14 +158,14 @@ function App() {
     if (!settingsRef.current.providers.some(row => row.enabled && row.useForMain && row.endpoint && row.model)) { setPage('settings'); setNotice('为故事选择一个模型，就可以开始了。'); return }
     await persistSettings()
     focusAfterWake.current = true
-    try { await bridge.start(); setRuntime(await bridge.status()) }
+    try { launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status()) }
     catch (error) { focusAfterWake.current = false; throw error }
   })
   const restart = () => act(async () => {
     await persistSettings()
     await bridge.stop(); setRuntime(await bridge.status())
     focusAfterWake.current = true
-    await bridge.start(); setRuntime(await bridge.status())
+    launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status())
   })
   const switchCard = (id: string) => act(async () => {
     if (id === selected) { setSwitcher(false); return }
@@ -174,7 +175,7 @@ function App() {
     profileRevision.current++
     pending.current = null; setDraft(''); setAttachments([]); setMessages([]); setStory(null)
     await refreshCards(); setRuntime(await bridge.status()); setSwitcher(false)
-    if (resume) { await persistSettings(); focusAfterWake.current = true; await bridge.start(); setRuntime(await bridge.status()) }
+    if (resume) { await persistSettings(); focusAfterWake.current = true; launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status()) }
   })
   useEffect(() => {
     document.documentElement.classList.toggle('native-insets', native)
