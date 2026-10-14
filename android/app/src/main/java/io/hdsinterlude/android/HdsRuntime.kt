@@ -144,12 +144,23 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     private fun checkCancellation() { if (cancelRequested) throw java.util.concurrent.CancellationException("安装已取消") }
     @Synchronized fun cancelInstall() { require(state == "installing") { "没有正在进行的安装" }; cancelRequested = true }
-    @Synchronized fun installAsync() {
+    @Synchronized fun installAsync(startAfterInstall: Boolean = false) {
         require(state !in listOf("installing", "starting", "healthy", "stopping") && process?.isAlive != true) { "运行任务忙，请等待或停止后再安装" }
         cancelRequested = false; attemptId = java.util.UUID.randomUUID().toString(); bytesWritten = 0
         state = "installing"; error = ""; progress = "验证 APK 内置环境"
         executor.execute {
-            try { installNow(); state = "stopped"; progress = "环境文件已准备，可以启动 HDS 验证健康状态" }
+            try {
+                installNow()
+                if (startAfterInstall) {
+                    checkCancellation()
+                    state = "starting"; progress = "正在唤醒故事"
+                    try { startNow() } catch (failure: Throwable) {
+                        process?.destroy(); process = null
+                        fail("故事暂时未能醒来", failure)
+                        HdsService.stop(context)
+                    }
+                } else { state = "stopped"; progress = "核心组件已准备好" }
+            }
             catch (failure: Throwable) {
                 val entryFailure = failure as? RootfsExtractor.Failure
                 val err = errno(failure)
@@ -161,6 +172,7 @@ class HdsRuntime private constructor(private val context: Context) {
                 try { writeAtomic(diagnosticFile, lastDiagnostic) } catch (_: Exception) { log("安装诊断无法保存") }
                 if (cancelled) { state = "stopped"; error = ""; progress = "安装已取消，可重新准备；原环境与剧情保留" }
                 else fail("环境安装失败（$stage / ${entryFailure?.entry ?: operation}）", failure)
+                if (startAfterInstall) HdsService.stop(context)
             }
         }
     }
@@ -212,12 +224,12 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     @Synchronized fun startAsync() {
         require(state !in listOf("installing", "starting", "healthy", "stopping")) { "HDS 已运行或正在操作" }
-        require(installed()) { "请先准备本机环境" }
         store.selectedCard()
         val prefs = store.publicSettings()
         require(prefs.optString("endpoint").isNotBlank() && prefs.optString("model").isNotBlank()) { "请先保存模型设置" }
+        if (!installed()) { startupFailure = ""; installAsync(startAfterInstall = true); return }
         cancelRequested = false; startupFailure = ""; state = "starting"; error = ""; progress = "启动手机内的 HDS 核心"
-        executor.execute { try { startNow() } catch (failure: Throwable) { process?.destroy(); process = null; fail("HDS 启动失败", failure); context.stopService(android.content.Intent(context, HdsService::class.java)) } }
+        executor.execute { try { startNow() } catch (failure: Throwable) { process?.destroy(); process = null; fail("HDS 启动失败", failure); HdsService.stop(context) } }
     }
     private fun startNow() {
         val profile = store.profile()
@@ -279,7 +291,7 @@ class HdsRuntime private constructor(private val context: Context) {
         }
         Thread({
             val code = child.waitFor()
-            if (process === child && state != "stopping") { process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); context.stopService(android.content.Intent(context, HdsService::class.java)) }
+            if (process === child && state != "stopping") { process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); HdsService.stop(context) }
         }, "hds-exit").start()
     }
     private fun probeGuest(args: List<String>, nativeDir: String, temporary: File, disableSeccomp: Boolean): ProotLaunch.ProbeResult {

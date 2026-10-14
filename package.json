@@ -1,6 +1,6 @@
 {
   "name": "hds-android",
-  "version": "0.1.0-preview.5.4",
+  "version": "0.1.0-preview.6.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,8 @@
     "build": "npm run typecheck && vite build",
     "build:host": "node scripts/build-mobile-host.mjs",
     "test": "npm run build:host && node --import tsx --test tests/*.test.ts",
-    "android:sync": "npm run build && cap sync android"
+    "android:sync": "npm run build && cap sync android",
+    "test:ui": "node tests/story-ui.mjs"
   },
   "dependencies": {
     "@capacitor/android": "7.4.3",
@@ -32,6 +33,7 @@
     "@types/react-dom": "18.3.5",
     "@vitejs/plugin-react": "4.3.4",
     "esbuild": "0.28.2",
+    "playwright-core": "1.51.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vite": "6.0.7"

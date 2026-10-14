@@ -51,12 +51,11 @@ class HdsRuntimePlugin : Plugin() {
     }
     @PluginMethod fun start(call: PluginCall) { run(call) {
         // Validate configuration before creating a foreground notification.
-        require(runtime().status().getBoolean("installed")) { "请先准备本机环境" }
         runtime().store.selectedCard()
         val settings = runtime().store.publicSettings()
         require(settings.optString("endpoint").isNotEmpty() && settings.optString("model").isNotEmpty()) { "请先保存模型配置" }
         ContextCompat.startForegroundService(context, Intent(context, HdsService::class.java))
-        try { runtime().startAsync() } catch (failure: Throwable) { context.stopService(Intent(context, HdsService::class.java)); throw failure }
+        try { runtime().startAsync() } catch (failure: Throwable) { HdsService.stop(context); throw failure }
         JSONObject()
     } }
     @PluginMethod fun saveQQQr(call: PluginCall) {
@@ -76,7 +75,7 @@ class HdsRuntimePlugin : Plugin() {
             JSONObject().put("cancelled", false)
         }
     }
-    @PluginMethod fun stop(call: PluginCall) { run(call) { runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java)); JSONObject() } }
+    @PluginMethod fun stop(call: PluginCall) { run(call) { runtime().stopBlocking(); HdsService.stop(context); JSONObject() } }
     @PluginMethod fun cards(call: PluginCall) { run(call) { JSONObject().put("cards", runtime().store.listCards()) } }
     @PluginMethod fun saveCard(call: PluginCall) { run(call) {
         val text = call.getString("base64") ?: throw IllegalArgumentException("缺少原始卡文件")
@@ -86,20 +85,20 @@ class HdsRuntimePlugin : Plugin() {
     } }
     @PluginMethod fun selectCard(call: PluginCall) { run(call) {
         val id = call.getString("id") ?: throw IllegalArgumentException("缺少角色 ID")
-        runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java)); runtime().store.select(id); JSONObject()
+        runtime().stopBlocking(); HdsService.stop(context); runtime().store.select(id); JSONObject()
     } }
     @PluginMethod fun updateCard(call: PluginCall) { run(call) {
         val id = call.getString("id") ?: throw IllegalArgumentException("缺少角色 ID")
         val card = call.getObject("card") ?: throw IllegalArgumentException("缺少人设内容")
         if (runtime().store.publicSettings().optString("activeCard") == id) {
-            runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java))
+            runtime().stopBlocking(); HdsService.stop(context)
         }
         runtime().store.updateCard(id, card)
     } }
     @PluginMethod fun deleteCard(call: PluginCall) { run(call) {
         val id = call.getString("id") ?: throw IllegalArgumentException("缺少角色 ID")
         if (runtime().store.publicSettings().optString("activeCard") == id) {
-            runtime().stopBlocking(); context.stopService(Intent(context, HdsService::class.java))
+            runtime().stopBlocking(); HdsService.stop(context)
         }
         runtime().store.deleteCard(id); JSONObject()
     } }
