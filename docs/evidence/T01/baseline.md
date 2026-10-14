@@ -6,7 +6,7 @@
 
 - 五个计划来源均已在本地检出 `sources.lock.json` 中的固定提交；参考源码位于忽略目录 `.references/`。
 - HDS `9a77fadb88c6e57914ebac8ca75cf54a27354d01`，版本 `1.0.1-rc51`；未改动其源码、测试或文档。基线工作副本包含全部 340 个受版本控制的文件。
-- 使用 TypeScript AST 盘点全部 23 个顶层配置分区和 46 个 `ctx.command` 注册入口，输出 `docs/feature-parity.csv`。这不是移动端支持声明，也不代表已盘点每个嵌套配置字段。
+- 使用 TypeScript AST 盘点全部 23 个顶层配置分区和 46 个 `ctx.command` 注册入口，输出 `docs/feature-parity.csv`。这不是移动端支持声明，也不代表已盘点每个嵌套配置字段；表中 `mobile_status` 默认值只是盘点基线，口径见 [feature-parity.md](../feature-parity.md)。
 - 上游没有依赖锁文件；本次使用其原始 package.json 生成 `tools/hds-baseline/package-lock.json`。安装关闭生命周期脚本，无浏览器下载或真实模型/QQ 调用。
 - 原始 `npm run typecheck` 对应命令：FAIL（exit 2）。`src/service.ts:17` 中 WeatherConfig、WeatherSnapshot 未使用；`src/service.ts:10171` 中 compactUnlocked 未使用。
 - 原始 `npm test` 对应命令：FAIL（exit 1）。837 个测试，831 通过、2 失败、4 跳过，0 取消。失败：configuration.test.ts:68 仍断言 rc50；release-consistency.test.ts:21 发现日志设计文档仍写 rc50。这两项在未修改上游工作副本中复现。

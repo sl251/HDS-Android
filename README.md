@@ -254,13 +254,14 @@ cd android
 - 🤖 [模型中心设计与人设格式兼容说明](docs/MODEL-CENTER-AND-PERSONAS.md)
 - 💬 [手机本地 QQ 架构与路线图](docs/QQ-ROADMAP.md)
 - 🧩 [HDS 移动端补丁边界说明](docs/MOBILE-PATCHES.md)
+- 📊 [功能盘点表口径说明](docs/feature-parity.md)（`docs/feature-parity.csv` 是上游 AST 机械盘点基线，不等于移动端支持声明）
 - 📜 [第三方组件与开源许可证清单](docs/THIRD_PARTY.md)
 
 ---
 
 ## ⚖️ 开源协议与声明
 
-- 本项目基于 **AGPL-3.0** 许可证开源，上游核心基于 [HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude) (AGPL-3.0)。
+- **本仓库采用 [GNU AGPL-3.0](LICENSE) 许可**，与上游核心 [HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude)（AGPL-3.0）保持一致。版权与附加组件说明见 [NOTICE.md](NOTICE.md)。
 - 本项目包含 Ubuntu Base、Node.js、PRoot 等开源组件，遵循其各自开源许可证。
 - QQ 与 NapCat 相关组件仅在用户主动点击时从官方/上游可信源下载并校验，安装包内未捆绑商业软件专有文件。
 - 本项目仅供技术研究与个人学习使用，使用 QQ 联动功能时请自觉遵守腾讯 QQ 软件许可及服务协议。

@@ -2,7 +2,7 @@
 
 本仓库提交计划、基线脚本、Android 宿主和固定 HDS rc51 源码。参考仓库检出、node_modules、生成 bundle、运行时二进制与签名材料在忽略目录中。APK 构建时内置 Ubuntu ARM64、Node、HDS 和 PRoot/loader。未包含 SnowLuma 代码/原生组件或 Linux QQ。
 
-`tools/hds-baseline/package.json` 原样取自 HDS 固定提交，用于复现依赖。`feature-parity.csv` 的功能名称和说明来自相同 HDS 源码；保留其上游归属和 AGPL 声明。
+`tools/hds-baseline/package.json` 原样取自 HDS 固定提交，用于复现依赖。`feature-parity.csv` 的功能名称和说明来自相同 HDS 源码，由 TypeScript AST 机械盘点生成；其 `mobile_status` 默认值为盘点基线而非移动端支持声明，口径见 [feature-parity.md](feature-parity.md)。保留其上游归属和 AGPL 声明。
 
 | 来源 | 固定提交 | 声明/记录位置 |
 | --- | --- | --- |
