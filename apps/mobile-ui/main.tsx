@@ -71,6 +71,7 @@ function App() {
   }
   const refreshCards = async () => { const data = await bridge.cards(); setCards(data.cards); const prefs = await bridge.settings(); setSelected(prefs.activeCard) }
   const storyChanged = async () => {
+    localStorage.removeItem(`hds-maintenance-${selected}`)
     profileRevision.current++; pending.current = null; setDraft(''); setAttachments([]); setMessages([]); setStory(null)
     await refreshCards(); setRuntime(await bridge.status()); setRestartNeeded(false)
   }

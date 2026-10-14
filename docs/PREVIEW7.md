@@ -17,7 +17,7 @@
 | 原版机制 | Preview7 入口与范围 |
 | --- | --- |
 | `interlude.compact` | 见闻 → 长期记忆 → 立即整理记忆；复用 `compactStory`，会调用模型 |
-| `interlude.memory.fact` / `forget` | 补充事实、查看来源、停用事实；原始对话仍在，可能再次形成同一事实 |
+| `interlude.memory.add` / `forget` | 补充事实、查看来源、停用事实；原始对话仍在，可能再次形成同一事实 |
 | `interlude.memory.cancel` | 约定与待办 → 取消待办；复用 `cancelAdminIntent`，只处理当前故事仍等待的条目 |
 | `interlude.overlay.clear` | 清理角色性格、视角、关系、世界或全部演化；复用 `clearSettingOverlay`，不删除对话和记忆 |
 | `interlude.pause` / `resume` | 见闻暂停/恢复；保留历史 |
