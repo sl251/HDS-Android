@@ -28,6 +28,7 @@ export type NativeBridge = {
   pickImage(): Promise<{ cancelled: boolean; dataUri?: string }>;
   exportStory(): Promise<{ cancelled: boolean }>;
   restoreStory(options: { cardId: string }): Promise<{ cancelled: boolean }>;
+  restorePreviousStory(options: { cardId: string }): Promise<void>;
   resetStory(options: { cardId: string }): Promise<{ backup: string }>;
   status(): Promise<RuntimeStatus>;
   install(): Promise<void>;

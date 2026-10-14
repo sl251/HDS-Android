@@ -65,11 +65,23 @@ class AppearanceStore(private val context: Context) {
         val options = BitmapFactory.Options(); while (maxOf(bounds.outWidth, bounds.outHeight) / options.inSampleSize > edge * 2) options.inSampleSize *= 2
         val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: throw IllegalArgumentException("图片解码失败")
         val ratio = minOf(1.0, edge.toDouble() / maxOf(original.width, original.height))
-        val scaled = Bitmap.createScaledBitmap(original, maxOf(1, (original.width * ratio).toInt()), maxOf(1, (original.height * ratio).toInt()), true)
+        val resized = Bitmap.createScaledBitmap(original, maxOf(1, (original.width * ratio).toInt()), maxOf(1, (original.height * ratio).toInt()), true)
+        val orientation = try { android.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) } catch (_: Exception) { 1 }
+        val matrix = android.graphics.Matrix()
+        when (orientation) {
+            2 -> matrix.setScale(-1f, 1f)
+            3 -> matrix.setRotate(180f)
+            4 -> matrix.setScale(1f, -1f)
+            5 -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+            6 -> matrix.setRotate(90f)
+            7 -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
+            8 -> matrix.setRotate(-90f)
+        }
+        val scaled = if (orientation in 2..8) Bitmap.createBitmap(resized, 0, 0, resized.width, resized.height, matrix, true) else resized
         try {
             var quality = 88; var result: ByteArray
             do { val output = ByteArrayOutputStream(); require(scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)); result = output.toByteArray(); quality -= 10 } while (result.size > limit && quality >= 18)
             require(result.size <= limit) { "图片压缩后仍过大，请选择较小图片" }; return result
-        } finally { if (scaled !== original) scaled.recycle(); original.recycle() }
+        } finally { if (scaled !== resized) scaled.recycle(); if (resized !== original) resized.recycle(); original.recycle() }
     }
 }

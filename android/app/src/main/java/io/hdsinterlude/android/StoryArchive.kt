@@ -73,6 +73,18 @@ class StoryArchive(private val base: File) {
         temp.outputStream().use { stream -> stream.write(value.toString().toByteArray()); stream.fd.sync() }
         Files.move(temp.toPath(), journal.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
     }
+    fun stagePrevious(id: String): File {
+        current(id)
+        val previous = File(base, "story-backups/$id").listFiles()?.filter { it.isDirectory && it.name.matches(Regex("[a-f0-9-]{36}")) && File(it, "profile/hds.sqlite").isFile && File(it, "card.json").isFile }?.maxByOrNull { it.lastModified() }
+            ?: throw IllegalArgumentException("当前角色没有可恢复的本机备份")
+        val stage = File(base, "story-staging/${UUID.randomUUID()}").apply { mkdirs() }
+        try {
+            File(previous, "profile").walkTopDown().forEach { require(!Files.isSymbolicLink(it.toPath())) { "备份包含无效链接" } }
+            require(File(previous, "profile").copyRecursively(File(stage, "profile"))) { "复制备份失败" }
+            File(previous, "card.json").copyTo(File(stage, "card.json"))
+            return stage
+        } catch (error: Throwable) { stage.deleteRecursively(); throw error }
+    }
     fun replace(id: String, stage: File? = null): String {
         require(!journal.exists()) { "上一次存档操作尚未恢复" }
         val profile = current(id).apply { mkdirs() }

@@ -368,6 +368,7 @@ class HdsRuntime private constructor(private val context: Context) {
         return try { executor.submit<T> {
             require(store.publicSettings().optString("activeCard") == cardId) { "当前角色已改变，请重新操作" }
             val child = process
+            if (child != null && !child.isAlive) require(cleanStop) { "核心异常退出，尚未确认存档完整性；请重新唤醒并正常保存后操作" }
             if (child != null && child.isAlive) {
                 state = "stopping"; progress = "正在保存故事，请稍候"; cleanStop = false
                 child.outputStream.write("STOP\n".toByteArray()); child.outputStream.flush()

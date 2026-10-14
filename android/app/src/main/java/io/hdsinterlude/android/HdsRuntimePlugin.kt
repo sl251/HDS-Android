@@ -84,6 +84,17 @@ class HdsRuntimePlugin : Plugin() {
         val backup = runtime().maintainStory(id) { try { val backup = archive.replace(id); archive.commit(); backup } catch (error: Throwable) { archive.recover(); throw error } }
         JSONObject().put("backup", backup)
     } }
+    @PluginMethod fun restorePreviousStory(call: PluginCall) { run(call) {
+        val id = call.getString("cardId") ?: throw IllegalArgumentException("缺少角色编号")
+        val archive = StoryArchive(runtime().store.base)
+        runtime().maintainStory(id) {
+            val stage = archive.stagePrevious(id)
+            try { archive.replace(id, stage); java.io.File(runtime().store.profile(), "restore-held.json").writeText("{}"); archive.commit() }
+            catch (error: Throwable) { archive.recover(); throw error }
+            finally { stage.deleteRecursively() }
+        }
+        JSONObject()
+    } }
     @PluginMethod fun saveSettings(call: PluginCall) { run(call) { runtime().store.saveSettings(call.data); JSONObject() } }
     @PluginMethod fun install(call: PluginCall) { run(call) { runtime().installAsync(); JSONObject() } }
     @PluginMethod fun cancelInstall(call: PluginCall) { run(call) { runtime().cancelInstall(); JSONObject() } }
