@@ -37,6 +37,8 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var port = 0
     @Volatile private var cancelRequested = false
     @Volatile private var startupFailure = ""
+    @Volatile private var profileMaintenance = false
+    @Volatile private var cleanStop = false
 
     private val transaction = RuntimeTransaction(environment)
     private val diagnosticFile = File(environment, "install-diagnostic.json")
@@ -223,6 +225,7 @@ class HdsRuntime private constructor(private val context: Context) {
         log("环境文件校验与解包完成；Node / HDS 运行状态将在启动时验证")
     }
     @Synchronized fun startAsync() {
+        require(!profileMaintenance) { "故事正在备份或维护" }
         require(state !in listOf("installing", "starting", "healthy", "stopping")) { "HDS 已运行或正在操作" }
         store.selectedCard()
         val prefs = store.publicSettings()
@@ -232,6 +235,7 @@ class HdsRuntime private constructor(private val context: Context) {
         executor.execute { try { startNow() } catch (failure: Throwable) { process?.destroy(); process = null; fail("HDS 启动失败", failure); HdsService.stop(context) } }
     }
     private fun startNow() {
+        cleanStop = false
         val profile = store.profile()
         val qqData = File(store.base, "qq").apply { mkdirs() }
         File(rootfs, "qq-data").mkdirs()
@@ -271,7 +275,7 @@ class HdsRuntime private constructor(private val context: Context) {
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
         val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data").put("qqDir", "/qq-data")
-        val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach { log(it) } } }, "hds-output").apply { start() }
+        val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach { if (it == "HDS_MOBILE_CLEAN_STOP") cleanStop = true; log(it) } } }, "hds-output").apply { start() }
         child.outputStream.write((configuration.toString() + "\n").toByteArray(Charsets.UTF_8)); child.outputStream.flush()
         val deadline = System.currentTimeMillis() + 90000
         var lastFailure = ""
@@ -342,7 +346,8 @@ class HdsRuntime private constructor(private val context: Context) {
         process = null; token = ""; secrets = emptyList(); port = 0; state = "stopped"; progress = "HDS 已停止，剧情保留在本机"; error = ""
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {
-        require(method in listOf("health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
+        require(!profileMaintenance || method == "health") { "故事正在备份或维护" }
+        require(method in listOf("images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
         require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         val connection = URL("http://127.0.0.1:$port/rpc").openConnection() as HttpURLConnection
         try {
@@ -358,6 +363,24 @@ class HdsRuntime private constructor(private val context: Context) {
         } finally { connection.disconnect() }
     }
     fun testModel(input: JSONObject): JSONObject = JSONObject().put("data", ModelClient().test(store.modelRequest(input, true)))
+    fun <T> maintainStory(cardId: String, operation: () -> T): T {
+        synchronized(this) { require(!profileMaintenance); profileMaintenance = true }
+        return try { executor.submit<T> {
+            require(store.publicSettings().optString("activeCard") == cardId) { "当前角色已改变，请重新操作" }
+            val child = process
+            if (child != null && child.isAlive) {
+                state = "stopping"; progress = "正在保存故事，请稍候"; cleanStop = false
+                child.outputStream.write("STOP\n".toByteArray()); child.outputStream.flush()
+                require(child.waitFor(330, TimeUnit.SECONDS)) { "故事未能正常停止，操作已取消；请等待模型请求结束" }
+                // The output-reader drains the confirmation line before archive access.
+                repeat(20) { if (!cleanStop) Thread.sleep(50) }
+                require(cleanStop && child.exitValue() == 0) { "未确认数据库保存完成，操作已取消" }
+                process = null; token = ""; port = 0; secrets = emptyList()
+            }
+            state = "stopped"; progress = "故事已保存"; HdsService.stop(context)
+            operation()
+        }.get() } finally { profileMaintenance = false }
+    }
     fun listModels(input: JSONObject): JSONObject = JSONObject().put("data", ModelClient().list(store.modelRequest(input, false)))
     private fun readLimited(input: InputStream, limit: Int): ByteArray = input.use { stream ->
         val result = ByteArrayOutputStream(); val buffer = ByteArray(8192)

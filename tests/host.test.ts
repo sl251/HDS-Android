@@ -41,5 +41,14 @@ test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and 
     host = await startHost(config)
     const repeated = await host.dispatch('messages.sendLocal', message) as { duplicate: boolean }; assert.equal(repeated.duplicate, true)
     assert.equal((await host.dispatch('messages.history', {}) as { direction: string }[]).filter(row => row.direction === 'user').length, 1)
+    await host.dispatch('maintenance.start', { requestId: 'memory-job-add-001', kind: 'fact-add', scope: 'character', content: '小林的职业是修理师。' })
+    for (let attempt = 0; attempt < 100; attempt++) { const job = await host.dispatch('maintenance.status', { requestId: 'memory-job-add-001' }) as { status: string }; if (job.status !== 'running') break; await new Promise(resolve => setTimeout(resolve, 20)) }
+    const facts = await host.dispatch('memory.facts', {}) as { id: number; content: string }[]
+    const fact = facts.find(item => item.content === '小林的职业是修理师。'); assert.ok(fact)
+    await host.dispatch('maintenance.start', { requestId: 'memory-job-forget-001', kind: 'fact-forget', id: fact.id })
+    for (let attempt = 0; attempt < 100; attempt++) { const job = await host.dispatch('maintenance.status', { requestId: 'memory-job-forget-001' }) as { status: string }; if (job.status !== 'running') break; await new Promise(resolve => setTimeout(resolve, 20)) }
+    assert.equal((await host.dispatch('memory.facts', {}) as { id: number }[]).some(item => item.id === fact.id), false)
+    assert.equal((await host.app.database.get('interlude_fact', { id: fact.id }))[0].status, 'superseded')
+    await assert.rejects(host.dispatch('memory.factSources', { id: -1 }))
   } finally { if (host) await host.stop(); await new Promise<void>(resolve => model.close(() => resolve())) }
 })

@@ -112,6 +112,7 @@ class ModelSettingsCodec(private val presets: JSONArray) {
         choice("failoverStrategy", "priority", listOf("priority", "round-robin"))
         choice("mainPayloadOrder", "cache-first", listOf("cache-first", "legacy"))
         result.put("failoverEnabled", input.optBoolean("failoverEnabled", false))
+        result.put("visionEnabled", input.optBoolean("visionEnabled", false))
         number("mainTemperature", 0.8, 0.0, 2.0)
         number("mainMaxTokens", 4096.0, 256.0, 100000.0, true)
         number("mainTimeout", 60000.0, 5000.0, 300000.0, true)

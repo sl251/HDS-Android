@@ -12,9 +12,11 @@ try {
     const f = window.__storyFixture = { prefs, saves: [], calls: [], saveDelay: 0, failSave: false, status: { state: 'stopped', installed: false, environmentState: 'missing', running: false, progress: '', error: '', logs: [], device: { model: 'UI fixture', android: '15', sdk: 35, abi: 'arm64', pageSize: 4096, availableBytes: 1e10 }, version: 'test' } }
     window.androidBridge = {}
     window.Capacitor = {
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','exportStory','restoreStory','resetStory'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
+        if (method === 'appearance') return f.appearance || { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 92, backgroundBlur: 0, theme: 'system' }
+        if (method === 'saveAppearance') { f.appearance = structuredClone(options); return {} }
         if (method === 'settings') return structuredClone(f.prefs)
         if (method === 'cards') return { cards: ['first','second'].map((id, i) => ({ id, importedAt: new Date().toISOString(), card: { name: ['赵旻','林间'][i], format: 'v2', description: '生活中的故事', warnings: [] } })) }
         if (method === 'status') return structuredClone(f.status)
@@ -55,16 +57,20 @@ try {
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '消息内容')
   assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '等你醒来')
   await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByText('模型与识图', { exact: true }).click()
+  await page.getByText('任务分工', { exact: true }).click()
   await page.getByLabel('记忆压缩模型').selectOption('light')
   await page.getByText('已自动保存', { exact: true }).waitFor()
   assert.equal(await page.evaluate(() => window.__storyFixture.prefs.providers.find(x => x.id === 'light').useForCompaction), true)
   await page.getByRole('button', { name: '立即重启生效', exact: true }).waitFor()
+  await page.getByText('管理模型连接 · 2 条', { exact: true }).click()
   await page.getByRole('button', { name: '＋ 添加连接', exact: true }).click()
   await page.waitForTimeout(900)
   assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), '自定义连接')
   await page.getByRole('button', { name: '删除此连接', exact: true }).click()
   await page.getByText('已自动保存', { exact: true }).waitFor()
   await page.evaluate(() => { window.__storyFixture.saveDelay = 600 })
+  await page.getByText('故事与身份', { exact: true }).click()
   const name = page.getByLabel('你的称呼', { exact: true })
   await name.fill('第一笔'); await name.blur()
   await page.waitForTimeout(100)
@@ -84,6 +90,13 @@ try {
   assert.deepEqual(calls.slice(-2), ['stop','start'])
   await page.evaluate(() => { window.__storyFixture.status.state = 'healthy' })
   await page.waitForFunction(() => !document.querySelector('.restart-banner'))
+  await page.getByText('界面与阅读', { exact: true }).click()
+  await page.getByText('字体与字号', { exact: true }).click()
+  await page.getByLabel('界面字体', { exact: true }).selectOption('serif')
+  await page.waitForFunction(() => window.__storyFixture.appearance?.font === 'serif')
+  await page.getByLabel('阅读字号 · 14px').fill('18')
+  await page.waitForFunction(() => window.__storyFixture.appearance?.fontSize === 18)
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-scale').trim()), String(18 / 14))
   await page.screenshot({ path: 'artifacts/story-space.png', fullPage: true })
   await page.getByRole('button', { name: '故事', exact: true }).click()
   await page.getByRole('button', { name: '切换角色或故事', exact: true }).click()
