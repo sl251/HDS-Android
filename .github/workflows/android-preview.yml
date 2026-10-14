@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['android/**', 'apps/**', 'packages/**', 'runtime/**', 'scripts/build-mobile-host.mjs', 'scripts/build-runtime.py', 'tests/**', 'package*.json', 'capacitor.config.ts', 'vite.config.ts', 'tsconfig.json', 'index.html', '.github/workflows/android-preview.yml']
+    paths: ['android/**', 'apps/**', 'packages/**', 'runtime/**', 'third_party/**', 'scripts/build-mobile-host.mjs', 'scripts/build-runtime.py', 'tests/**', 'package*.json', 'capacitor.config.ts', 'vite.config.ts', 'tsconfig.json', 'index.html', '.github/workflows/android-preview.yml']
 permissions:
   contents: read
 concurrency:
@@ -29,10 +29,13 @@ jobs:
           git init "$RUNNER_TEMP/hds-proot-source"
           git -C "$RUNNER_TEMP/hds-proot-source" fetch --depth=1 https://github.com/termux/proot a7147b50d708567dbf884d21e0f0c8698bba0d10
           git -C "$RUNNER_TEMP/hds-proot-source" checkout --detach FETCH_HEAD
-          curl --fail --location --retry 3 https://raw.githubusercontent.com/AAswordman/Operit2/dc4c3a9405dc7ed3ef69b2ac9a6ace65374d77cf/tools/android-runtime/patches/termux-proot-operit-android.patch -o "$RUNNER_TEMP/hds-proot.patch"
-          patch -d "$RUNNER_TEMP/hds-proot-source" -p1 < "$RUNNER_TEMP/hds-proot.patch"
+          # These two build inputs are vendored in third_party/ instead of fetched
+          # from raw.githubusercontent.com: that host rate-limits per client IP
+          # (HTTP 429), which flaked this job on 2026-10-14. Copy the repo's own
+          # verified copies so CI no longer depends on the CDN.
+          patch -d "$RUNNER_TEMP/hds-proot-source" -p1 < third_party/proot-patches/termux-proot-operit-android.patch
           mkdir -p "$RUNNER_TEMP/hds-proot-source/src/linux"
-          curl --fail --location --retry 3 https://raw.githubusercontent.com/torvalds/linux/v5.10/drivers/staging/android/uapi/ashmem.h -o "$RUNNER_TEMP/hds-proot-source/src/linux/ashmem.h"
+          cp third_party/linux-uapi/ashmem.h "$RUNNER_TEMP/hds-proot-source/src/linux/ashmem.h"
           # This test and guest are ARM64-only; Ubuntu's compiler cannot build
           # the fork's optional 32-bit loader with its x86-specific -m32 flag.
           sed -i '/#define HAS_LOADER_32BIT true/d' "$RUNNER_TEMP/hds-proot-source/src/arch.h"
