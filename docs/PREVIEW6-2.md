@@ -1,6 +1,6 @@
 # Preview.6.2 测试版
 
-本版延续 preview.6 的本地 HDS / SQLite / QQ 架构。
+本版直接基于 preview.6（`8fc9b20`）实现，未合入 preview.6.1 的界面改版，延续本地 HDS / SQLite / QQ 架构。
 
 ## 已实现
 
@@ -28,4 +28,4 @@
 
 设置分层与本地字体参考 [RikkaHub 的界面偏好](https://github.com/rikkahub/rikkahub/blob/master/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingPreferencesUIPage.kt) 和 [供应商列表](https://github.com/rikkahub/rikkahub/blob/master/app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingProviderPage.kt)；背景与主题组织参考 [SillyTavern](https://github.com/SillyTavern/SillyTavern)。本版保留 HDS 风格与现有组件，实现未直接复制这些项目的代码。
 
-本地验证：25 项宿主测试通过（24 项完整测试加真实图片链路回归），TypeScript/Vite 构建通过；浏览器回归覆盖折叠、外观与背景保存、纯图片预览/发送/失败重试、事实来源/补充/停用、存档确认、自动保存与 320/390/740 px 布局。Android 单元测试增加存档校验、越界拒绝、重开、其他角色保护、中断恢复、角色卡恢复幂等性与本机备份恢复。签名 APK 及 Android/ARM64 的最终验证由本分支 Actions 完成。自动化测试与 CI 不等于 Android 真机验收。
+本地验证：25 项宿主测试通过（24 项完整测试加真实图片链路回归），TypeScript/Vite 构建通过；浏览器回归覆盖折叠、外观与背景保存、纯图片预览/发送/失败重试、事实来源/补充/停用、存档确认、自动保存与 320/390/740 px 布局。Android 单元测试增加存档校验、越界拒绝、重开、其他角色保护、中断恢复、角色卡恢复幂等性与本机备份恢复。最终 [Actions 构建](https://github.com/sl251/HDS-Android/actions/runs/38545431158) 已通过：25 项宿主测试、48 项 Android 单元测试、Kotlin 编译、Lint、签名 APK，以及 ARM64 / PRoot / QQ 检查。APK 对应代码提交 `35d5892b4341aac71cee0a7bbc3658f303d0eb5e`；二进制 Manifest 已核对版本 `0.1.0-preview.6.2`、versionCode 12，同原预览签名。APK SHA-256：`8eb9c34673d61cf6eebc387b31c3bad93a64755cbae4dd572ad5b2366ada360a`。本地还核对了运行包校验和、原生 ELF 和新增界面/宿主内容，确认未包含 6.1 的 iOS 改版。自动化测试与 CI 不等于 Android 真机验收。
