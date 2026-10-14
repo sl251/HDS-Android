@@ -72,7 +72,7 @@ function App() {
     profileRevision.current++; pending.current = null; setDraft(''); setAttachments([]); setMessages([]); setStory(null)
     await refreshCards(); setRuntime(await bridge.status()); setRestartNeeded(false)
   }
-  const refreshStory = async () => { const result = await bridge.rpc({ method: 'story.snapshot' }); setStory(result.data as typeof story) }
+  const refreshStory = async () => { const revision = profileRevision.current; const result = await bridge.rpc({ method: 'story.snapshot' }); if (revision === profileRevision.current) setStory(result.data as typeof story) }
   useEffect(() => {
     if (!native) { setNotice('浏览器预览模式：原生运行与存储不可用，不显示模拟成功结果。'); return }
     void Promise.all([bridge.settings(), bridge.cards()]).then(([prefs, library]) => { savedSettings.current = JSON.stringify(prefs); setSettings(prefs); setSettingsReady(true); setSelected(prefs.activeCard); setCards(library.cards) }).catch(error => setNotice(errorText(error)))
@@ -101,7 +101,7 @@ function App() {
     const refresh = async () => {
       if (loading) return
       loading = true
-      try { const result = await bridge.rpc({ method: 'story.snapshot' }); if (!cancelled) setStory(result.data as typeof story) }
+      try { const revision = profileRevision.current; const result = await bridge.rpc({ method: 'story.snapshot' }); if (!cancelled && revision === profileRevision.current) setStory(result.data as typeof story) }
       catch (error) { if (!cancelled) setNotice(errorText(error)) }
       finally { loading = false }
     }
