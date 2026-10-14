@@ -5,12 +5,13 @@ for (const name of ['endpoints.ts', 'types.ts', 'service.ts']) {
   let source = readFileSync(path, 'utf8')
   source = source.replaceAll("'qq' | 'wechat'", "'qq' | 'wechat' | 'local'").replaceAll("'qq' | 'wechat' | 'local' | 'local'", "'qq' | 'wechat' | 'local'")
   if (name === 'endpoints.ts') {
-    source = source.replace("channelKind: 'qq', platform: story.platform", "channelKind: story.platform === 'mobile-local' ? 'local' : 'qq', platform: story.platform")
+    source = source.replace("ownerKind: 'story-role', ownerId: story.id,\n    channelKind: 'qq', platform: story.platform", "ownerKind: 'story-role', ownerId: story.id,\n    channelKind: story.platform === 'mobile-local' ? 'local' : 'qq', platform: story.platform")
     source = source.replace("channelKind: 'qq', platform: participant.platform", "channelKind: participant.platform === 'mobile-local' ? 'local' : 'qq', platform: participant.platform")
     source = source.replace("const channelKind = row.channelKind === 'wechat' ? 'wechat' : 'qq'", "const channelKind = row.channelKind === 'local' ? 'local' : row.channelKind === 'wechat' ? 'wechat' : 'qq'")
     source = source.replace("return row?.channelKind === 'wechat' ? 'wechat' : 'qq'", "return row?.channelKind === 'local' ? 'local' : row?.channelKind === 'wechat' ? 'wechat' : 'qq'")
   }
   if (name === 'service.ts') {
+    if (!source.includes('async mobileManageFact(')) source = source.replace('  async updateSetting(', readFileSync('runtime/mobile-management.fragment', 'utf8') + '  async updateSetting(')
     if (!source.includes('async mobileRecordLocalOpening(')) source = source.replace('  async updateSetting(', `  /** Android local-card greeting, after the adapter has persisted its visible receipt. */
   async mobileRecordLocalOpening(story: InterludeStory, session: Session, content: string) {
     if (session.platform !== 'mobile-local' || story.platform !== 'mobile-local') throw new Error('Local opening cannot target a network channel.')

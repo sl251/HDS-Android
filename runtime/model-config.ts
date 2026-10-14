@@ -15,8 +15,11 @@ export function mobileModelConfig(input: Input): Partial<ModelConfig> & { provid
   }
   const options = input.modelOptions ?? {}
   if (options.mainStreamingMode === 'experimental' && options.mainResponseFormat === 'prompt-only') throw new Error('Streaming requires JSON mode')
+  const visionId = options.visionProviderId || ''
+  if (options.visionEnabled && visionId && !providers.some(row => row.id === visionId && row.enabled)) throw new Error('识图连接已移除或停用，请重新选择')
   return {
-    providers,
+    providers: providers.map(row => ({ ...row, useForVision: !!visionId && row.id === visionId })),
+    vision: { enabled: options.visionEnabled === true, mode: visionId ? 'sidecar' : 'native', detail: 'auto', maxImageDimension: 1024 },
     mainTemperature: options.mainTemperature ?? 0.8,
     mainMaxTokens: options.mainMaxTokens ?? 4096,
     mainTimeout: options.mainTimeout ?? 60000,

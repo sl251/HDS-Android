@@ -5,6 +5,14 @@
 
 ---
 
+## Preview7
+
+最新开发版本 **0.1.0-preview.7**，以 preview6 为基线。加入液态玻璃界面、可折叠的空间设置、图片发送、独立识图模型与完整的记忆/存档管理。
+
+[Preview7 使用说明](docs/PREVIEW7.md) · [预发布下载](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.7) · [构建与验证](https://github.com/sl251/HDS-Android/actions/workflows/android-preview.yml)
+
+使用路径：空间配置模型并导入角色 → 故事页直接唤醒 → 开始对话。首次运行自动准备组件；不需要分别解包和启动。设置失焦保存，外观即时生效，模型变更通过提示条一键重启。见闻中可整理记忆和纠正事实；空间中可备份、恢复或重新开始故事。下面的 preview5.4 说明保留为历史版本参考。
+
 ## 🌟 项目简介
 
 **HDS-Android** 是专为 Android 打造的 HDS-Interlude 移动端独立运行器。

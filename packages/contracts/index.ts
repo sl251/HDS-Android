@@ -10,16 +10,31 @@ export type ModelProvider = {
 export type ModelOptions = {
   mainStreamingMode: 'off' | 'experimental'; mainResponseFormat: 'json-object' | 'prompt-only';
   mainTemperature: number; mainMaxTokens: number; mainTimeout: number;
-  mainPayloadOrder: 'cache-first' | 'legacy'; failoverEnabled: boolean; failoverStrategy: 'priority' | 'round-robin';
+  mainPayloadOrder: 'cache-first' | 'legacy'; failoverEnabled: boolean; failoverStrategy: 'priority' | 'round-robin'; visionEnabled?: boolean; visionProviderId?: string;
 }
 export type ModelSettings = { providers: ModelProvider[]; modelOptions: ModelOptions; userName: string; userProfile: string; autoAdvance: boolean }
-export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string }
+export type ImageAttachment = { id: string; dataUri: string }
+export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string; images?: string[] }
+/** SQLite JSON columns from older records may contain {} instead of an array. */
+export function messageImages(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((id): id is string => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)))].slice(0, 3)
+}
+export type Appearance = { font: 'default' | 'sans' | 'serif' | 'custom'; fontSize: number; backgroundOpacity: number; panelOpacity: number; backgroundBlur: number; backgroundData?: string; fontData?: string; fontName?: string; backgroundPath?: string; backgroundRevision?: number; fontPath?: string; fontRevision?: number; theme: 'system' | 'light' | 'dark' }
 export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
 export type DownloadProgress = { component: string; receivedBytes: number; totalBytes?: number; bytesPerSecond: number }
 export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[] }
 export type QQConversation = { id: string; name: string; last: string; time: number; unread: number }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
 export type NativeBridge = {
+  appearance(): Promise<Appearance>;
+  saveAppearance(options: Appearance & { removeBackground?: boolean; removeFont?: boolean }): Promise<void>;
+  pickAppearanceAsset(options: { kind: 'background' | 'font' }): Promise<Appearance & { cancelled?: boolean }>;
+  pickImage(): Promise<{ cancelled: boolean; dataUri?: string }>;
+  exportStory(): Promise<{ cancelled: boolean }>;
+  restoreStory(options: { cardId: string }): Promise<{ cancelled: boolean }>;
+  restorePreviousStory(options: { cardId: string }): Promise<void>;
+  resetStory(options: { cardId: string }): Promise<{ backup: string }>;
   status(): Promise<RuntimeStatus>;
   install(): Promise<void>;
   cancelInstall(): Promise<void>;

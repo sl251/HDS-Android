@@ -23,6 +23,78 @@ class HdsRuntimePlugin : Plugin() {
     private fun run(call: PluginCall, operation: () -> JSONObject) { io.execute { try { resolve(call, operation()) } catch (failure: Throwable) { call.reject(failure.message ?: "原生操作失败", failure.javaClass.simpleName) } } }
     @PluginMethod fun status(call: PluginCall) { resolve(call, runtime().status()) }
     @PluginMethod fun settings(call: PluginCall) { run(call) { runtime().store.publicSettings() } }
+    @PluginMethod fun appearance(call: PluginCall) { run(call) { AppearanceStore(context).read() } }
+    @PluginMethod fun saveAppearance(call: PluginCall) { run(call) { AppearanceStore(context).save(call.data); JSONObject() } }
+    @PluginMethod fun pickAppearanceAsset(call: PluginCall) {
+        val kind = call.getString("kind")
+        if (kind !in listOf("background", "font")) { call.reject("无效界面资源"); return }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).setType(if (kind == "font") "*/*" else "image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        startActivityForResult(call, intent, "appearancePicked")
+    }
+    @ActivityCallback private fun appearancePicked(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        run(call) { AppearanceStore(context).import(call.getString("kind")!!, result.data!!.data!!) }
+    }
+    @PluginMethod fun pickImage(call: PluginCall) {
+        startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE), "imagePicked")
+    }
+    @ActivityCallback private fun imagePicked(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        run(call) { JSONObject().put("cancelled", false).put("dataUri", AppearanceStore(context).image(result.data!!.data!!)) }
+    }
+    @PluginMethod fun exportStory(call: PluginCall) {
+        startActivityForResult(call, Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, "HDS-story-${java.time.LocalDate.now()}.zip"), "storyDestination")
+    }
+    @ActivityCallback private fun storyDestination(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        run(call) {
+            val id = runtime().store.publicSettings().getString("activeCard")
+            runtime().maintainStory(id) {
+                context.contentResolver.openOutputStream(result.data!!.data!!, "wt")?.use { StoryArchive(runtime().store.base).export(id, it) } ?: throw IllegalArgumentException("无法写入存档")
+            }
+            JSONObject().put("cancelled", false)
+        }
+    }
+    @PluginMethod fun restoreStory(call: PluginCall) {
+        startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE), "storySource")
+    }
+    @ActivityCallback private fun storySource(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        run(call) {
+            val id = call.getString("cardId") ?: throw IllegalArgumentException("缺少角色编号")
+            val archive = StoryArchive(runtime().store.base)
+            val stage = context.contentResolver.openInputStream(result.data!!.data!!)?.use { archive.stage(id, it) } ?: throw IllegalArgumentException("无法读取存档")
+            try { runtime().maintainStory(id) {
+                try {
+                    archive.replace(id, stage)
+                    java.io.File(runtime().store.profile(), "restore-held.json").writeText("{}")
+                    archive.commit()
+                } catch (error: Throwable) { archive.recover(); throw error }
+            } } finally { stage.deleteRecursively() }
+            JSONObject().put("cancelled", false)
+        }
+    }
+    @PluginMethod fun resetStory(call: PluginCall) { run(call) {
+        val id = call.getString("cardId") ?: throw IllegalArgumentException("缺少角色编号")
+        val archive = StoryArchive(runtime().store.base)
+        val backup = runtime().maintainStory(id) { try { val backup = archive.replace(id); archive.commit(); backup } catch (error: Throwable) { archive.recover(); throw error } }
+        JSONObject().put("backup", backup)
+    } }
+    @PluginMethod fun restorePreviousStory(call: PluginCall) { run(call) {
+        val id = call.getString("cardId") ?: throw IllegalArgumentException("缺少角色编号")
+        val archive = StoryArchive(runtime().store.base)
+        runtime().maintainStory(id) {
+            val stage = archive.stagePrevious(id)
+            try { archive.replace(id, stage); java.io.File(runtime().store.profile(), "restore-held.json").writeText("{}"); archive.commit() }
+            catch (error: Throwable) { archive.recover(); throw error }
+            finally { stage.deleteRecursively() }
+        }
+        JSONObject()
+    } }
     @PluginMethod fun saveSettings(call: PluginCall) { run(call) { runtime().store.saveSettings(call.data); JSONObject() } }
     @PluginMethod fun install(call: PluginCall) { run(call) { runtime().installAsync(); JSONObject() } }
     @PluginMethod fun cancelInstall(call: PluginCall) { run(call) { runtime().cancelInstall(); JSONObject() } }
