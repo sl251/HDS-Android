@@ -12,11 +12,20 @@ import android.os.Handler
 import android.os.Looper
 
 class HdsService : Service() {
+    companion object {
+        @Volatile private var active: HdsService? = null
+        fun stop(context: android.content.Context) {
+            active?.intentionalStop = true
+            context.stopService(Intent(context, HdsService::class.java))
+        }
+    }
+    @Volatile private var intentionalStop = false
     private var wakeLock: PowerManager.WakeLock? = null
     private val handler = Handler(Looper.getMainLooper())
     private val renew = object : Runnable { override fun run() { wakeLock?.acquire(10 * 60 * 1000L); handler.postDelayed(this, 9 * 60 * 1000L) } }
     override fun onCreate() {
         super.onCreate()
+        active = this
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HDS:runtime").apply { setReferenceCounted(false) }
         renew.run()
         val manager = getSystemService(NotificationManager::class.java)
@@ -27,9 +36,9 @@ class HdsService : Service() {
         startForeground(42, notification)
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP") { HdsRuntime.get(this).stopAsync(); stopSelf() }
+        if (intent?.action == "STOP") { intentionalStop = true; HdsRuntime.get(this).stopAsync(); stopSelf() }
         return START_NOT_STICKY
     }
-    override fun onDestroy() { handler.removeCallbacks(renew); wakeLock?.let { if (it.isHeld) it.release() }; HdsRuntime.get(this).stopAsync(); super.onDestroy() }
+    override fun onDestroy() { handler.removeCallbacks(renew); wakeLock?.let { if (it.isHeld) it.release() }; if (active === this) active = null; if (!intentionalStop) HdsRuntime.get(this).stopAsync(); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 }
