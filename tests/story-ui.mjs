@@ -12,9 +12,12 @@ try {
     const f = window.__storyFixture = { prefs, saves: [], calls: [], saveDelay: 0, failSave: false, status: { state: 'stopped', installed: false, environmentState: 'missing', running: false, progress: '', error: '', logs: [], device: { model: 'UI fixture', android: '15', sdk: 35, abi: 'arm64', pageSize: 4096, availableBytes: 1e10 }, version: 'test' } }
     window.androidBridge = {}
     window.Capacitor = {
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','exportStory','restoreStory','resetStory'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','exportStory','restoreStory','resetStory','restorePreviousStory'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
+        if (method === 'pickImage') return { cancelled: false, dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' }
+        if (method === 'pickAppearanceAsset') { f.appearance = { ...f.appearance, backgroundData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' }; return f.appearance }
+        if (['exportStory','restoreStory','resetStory','restorePreviousStory'].includes(method)) { f.status.state = 'stopped'; f.status.running = false; return { cancelled: false, backup: 'fixture-backup' } }
         if (method === 'appearance') return f.appearance || { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 92, backgroundBlur: 0, theme: 'system' }
         if (method === 'saveAppearance') { f.appearance = structuredClone(options); return {} }
         if (method === 'settings') return structuredClone(f.prefs)
@@ -32,8 +35,14 @@ try {
         if (method === 'selectCard') { f.status.state = 'stopped'; f.status.running = false; f.prefs.activeCard = options.id; return {} }
         if (method === 'cancelInstall') { f.status.state = 'stopped'; f.status.running = false; return {} }
         if (method === 'rpc') {
-          if (options.method === 'messages.history') return { data: [] }
-          if (options.method === 'story.snapshot') return { data: { story: { status: 'active', state: { alterSystem: { emotionalOffset: { description: '今天的她比往常更放松。' } } } }, entries: [], memories: [], facts: [] } }
+          if (options.method === 'messages.history') return { data: f.messages || [] }
+          if (options.method === 'images.upload') return { data: { id: 'fixture-image' } }
+          if (options.method === 'images.get') return { data: { dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' } }
+          if (options.method === 'messages.sendLocal') { f.sent = options.payload; f.messages = [{ id: options.payload.requestId, content: options.payload.content, images: options.payload.images, direction: 'user', occurredAt: new Date().toISOString(), status: 'accepted' }]; return { data: { accepted: true } } }
+          if (options.method === 'maintenance.start') { f.job = options.payload; return { data: { status: 'running' } } }
+          if (options.method === 'maintenance.status') return { data: { status: 'done', result: true } }
+          if (options.method === 'memory.factSources') return { data: [{ content: '小林说他喜欢修理收音机。', occurredAt: new Date().toISOString() }] }
+          if (options.method === 'story.snapshot') return { data: { story: { status: 'active', state: { alterSystem: { emotionalOffset: { description: '今天的她比往常更放松。' } } } }, entries: [], memories: [], facts: [{ id: 7, scope: 'character', content: '小林喜欢修理收音机。', confidence: 1 }] } }
           return { data: {} }
         }
       }
@@ -99,6 +108,41 @@ try {
   assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-scale').trim()), String(18 / 14))
   await page.screenshot({ path: 'artifacts/story-space.png', fullPage: true })
   await page.getByRole('button', { name: '故事', exact: true }).click()
+  await page.getByRole('textbox', { name: '消息内容' }).fill('')
+  await page.getByRole('button', { name: '添加图片', exact: true }).click()
+  await page.getByAltText('待发送图片').waitFor()
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.waitForFunction(() => window.__storyFixture.sent?.images?.length === 1)
+  assert.equal(await page.evaluate(() => window.__storyFixture.sent.content), '')
+  assert.deepEqual(await page.evaluate(() => window.__storyFixture.sent.images), ['fixture-image'])
+  await page.getByRole('button', { name: '查看消息图片', exact: true }).click()
+  await page.getByRole('dialog', { name: '消息图片预览' }).waitFor()
+  await page.getByRole('button', { name: '关闭图片预览' }).click()
+  await page.getByRole('button', { name: '见闻', exact: true }).click()
+  await page.getByRole('button', { name: '长期记忆', exact: true }).click()
+  await page.getByRole('button', { name: '查看来源', exact: true }).click()
+  await page.getByText('小林说他喜欢修理收音机。', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '关闭来源' }).click()
+  await page.getByRole('button', { name: '补充事实', exact: true }).click()
+  await page.getByLabel('事实内容').fill('小林是一位修理师。')
+  await page.getByRole('button', { name: '保存事实', exact: true }).click()
+  await page.getByText('记忆维护已完成', { exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => window.__storyFixture.job.kind), 'fact-add')
+  await page.getByRole('button', { name: '停用事实', exact: true }).click()
+  await page.getByRole('dialog', { name: '停用事实确认' }).waitFor()
+  await page.getByRole('button', { name: '确认停用' }).click()
+  await page.waitForFunction(() => window.__storyFixture.job.kind === 'fact-forget')
+  await page.getByText('记忆维护已完成', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByText('存档与故事管理', { exact: true }).click()
+  await page.getByRole('button', { name: '导出完整存档', exact: true }).click()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.__storyFixture.calls.includes('exportStory')), false)
+  await page.getByRole('button', { name: '导出完整存档', exact: true }).click()
+  await page.getByRole('button', { name: '确认继续', exact: true }).click()
+  await page.waitForFunction(() => window.__storyFixture.calls.includes('exportStory'))
+  await page.evaluate(() => { window.__storyFixture.status.state = 'healthy'; window.__storyFixture.messages = [] })
+  await page.getByRole('button', { name: '故事', exact: true }).click()
   await page.getByRole('button', { name: '切换角色或故事', exact: true }).click()
   await page.getByRole('button', { name: '林间 继续故事 →', exact: true }).click()
   await page.waitForFunction(() => window.__storyFixture.prefs.activeCard === 'second')
@@ -114,5 +158,5 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: 'artifacts/story-space-dark.png', fullPage: true })
   assert.deepEqual(errors, [])
-  console.log('PASS: wake/progress/focus, navigation, task assignment, autosave race/error/retry, restart, character switch, responsive light/dark UI. Native calls are fixtures, not device verification.')
+  console.log('PASS: wake/progress/focus, settings accordions, appearance persistence, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
 } finally { await browser.close() }

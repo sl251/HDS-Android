@@ -54,7 +54,7 @@ export function AppearanceSettings({ appearance, native, busy, act }: Props) {
       </details>
       <details><summary>背景与透明度</summary><div className="actions"><button className="secondary" disabled={!native} onClick={() => act(() => pick('background'))}>选择背景图片</button>{value.backgroundData && <button className="text-button" onClick={() => save({ ...value, backgroundData: undefined }, { removeBackground: true })}>移除背景</button>}</div>
         <label>背景图片不透明度 · {value.backgroundOpacity}%<input type="range" min="0" max="100" value={value.backgroundOpacity} onChange={event => update({ backgroundOpacity: Number(event.target.value) })} /></label>
-        <label>面板不透明度 · {value.panelOpacity}%<input type="range" min="30" max="100" value={value.panelOpacity} onChange={event => update({ panelOpacity: Number(event.target.value) })} /></label>
+        <label>面板不透明度 · {value.panelOpacity}%<input type="range" min="0" max="100" value={value.panelOpacity} onChange={event => update({ panelOpacity: Number(event.target.value) })} /></label>
         <label>背景模糊 · {value.backgroundBlur}px<input type="range" min="0" max="20" value={value.backgroundBlur} onChange={event => update({ backgroundBlur: Number(event.target.value) })} /></label>
         <p className="caption">数值越低越透明。图片保存在手机本地；面板透明度影响消息、输入框与设置面板。</p>
       </details>

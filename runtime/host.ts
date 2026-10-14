@@ -172,7 +172,7 @@ export async function startHost(input: HostConfig) {
         if (old?.status === 'accepted') return { requestId: id, accepted: true, duplicate: true }
         if (!old) await app.database.create('mobile_request' as never, { id, content: signature, status: 'receiving', occurredAt: new Date() } as never)
         const accepted = await app.interlude.receive(session(id, content, images))
-        if (!accepted) throw new Error('HDS did not accept the message; check paused state')
+        if (!accepted) throw new Error('故事未接受消息；如果已暂停，请先在见闻恢复故事')
         const visible = await app.database.get('mobile_message' as never, { id } as never)
         if (!visible.length) await app.database.create('mobile_message' as never, { id, direction: 'user', content, images: imageIds, occurredAt: new Date(), status: 'accepted' } as never)
         await app.database.set('mobile_request' as never, { id } as never, { status: 'accepted' } as never)
@@ -213,7 +213,7 @@ if (process.env.HDS_MOBILE_MAIN === '1') {
       console.log('HDS runtime check: Node cwd OK; initializing Koishi / SQLite')
       const host = await startHost(JSON.parse(line))
       console.log('HDS_MOBILE_READY')
-      const shutdown = async () => { await host.stop(); console.log('HDS_MOBILE_CLEAN_STOP'); process.exit(0) }
+      const shutdown = async () => { await host.stop(); await new Promise<void>(resolve => process.stdout.write('HDS_MOBILE_CLEAN_STOP\n', () => resolve())); process.exit(0) }
       lines.on('line', command => { if (command === 'STOP') void shutdown() })
       process.on('SIGTERM', () => void shutdown())
       process.on('SIGINT', () => void shutdown())

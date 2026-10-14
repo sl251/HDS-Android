@@ -27,7 +27,7 @@ class AppearanceStore(private val context: Context) {
     }
     fun save(input: JSONObject) {
         val next = defaults()
-        for ((name, bounds) in listOf("fontSize" to 12..24, "backgroundOpacity" to 0..100, "panelOpacity" to 30..100, "backgroundBlur" to 0..20)) {
+        for ((name, bounds) in listOf("fontSize" to 12..24, "backgroundOpacity" to 0..100, "panelOpacity" to 0..100, "backgroundBlur" to 0..20)) {
             val value = input.optInt(name, next.getInt(name)); require(value in bounds) { "界面参数超出范围：$name" }; next.put(name, value)
         }
         val font = input.optString("font", "default"); require(font in listOf("default", "sans", "serif", "custom")) { "字体选项无效" }
