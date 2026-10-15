@@ -52,6 +52,8 @@
 | [04-TASKS.md](04-TASKS.md) | 按依赖执行 T01—T18，每项有输入、交付和完成门槛 |
 | [05-ACCEPTANCE.md](05-ACCEPTANCE.md) | 验收功能、数据一致性、兼容与恢复 |
 | [06-HANDOFF-PROMPTS.md](06-HANDOFF-PROMPTS.md) | 直接复制给下一个模型的总提示词及分阶段提示词 |
+| [07-BACKGROUND-KEEPALIVE.md](07-BACKGROUND-KEEPALIVE.md) | 后台保活与网络自愈技术规格书（T13） |
+| [08-PARITY-PREVIEW8.md](08-PARITY-PREVIEW8.md) | preview.8 生活感还原任务书（配置分区接入与移动端映射层） |
 | [TASK-BOARD.csv](TASK-BOARD.csv) | 导入表格或任务管理工具的任务清单 |
 | [sources.lock.json](sources.lock.json) | 本次调查固定的仓库提交与来源索引 |
 

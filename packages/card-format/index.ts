@@ -6,12 +6,17 @@ export type Card = {
   hds?: { storyDefaults: Record<string, string | string[]> };
   revision?: number;
 }
-const MAX_JSON = 5 * 1024 * 1024
+const MAX_JSON = 16 * 1024 * 1024
+const MAX_FILE = 32 * 1024 * 1024
+const MAX_FIELD = 1024 * 1024
 const decoder = new TextDecoder('utf-8', { fatal: true })
+const latin1 = new TextDecoder('latin1')
+// 旧版 TavernAI/Pygmalion 字段名 → 标准字段（仅无 spec 的裸 JSON 卡使用）
+const LEGACY_FIELDS: Record<string, string> = { name: 'char_name', description: 'char_persona', first_mes: 'char_greeting', scenario: 'world_scenario', mes_example: 'example_dialogue' }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value) }
 function validateDepth(value: unknown, depth = 0) {
   if (depth > 64) throw new Error('角色卡对象嵌套超过 64 层')
-  if (typeof value === 'string' && value.length > 262144) throw new Error('角色卡单字段超过 256 Ki 字符')
+  if (typeof value === 'string' && value.length > MAX_FIELD) throw new Error('角色卡单字段超过 1 Mi 字符')
   if (Array.isArray(value)) value.forEach(item => validateDepth(item, depth + 1))
   else if (record(value)) Object.values(value).forEach(item => validateDepth(item, depth + 1))
 }
@@ -22,21 +27,33 @@ export function parseJsonCard(text: string): Card {
   validateDepth(raw)
   let data = raw
   let format: Card['format'] = 'v1'
-  if ('spec' in raw) {
-    if (raw.spec !== 'chara_card_v2' && raw.spec !== 'chara_card_v3') throw new Error(`暂不支持角色卡版本：${String(raw.spec)}`)
+  const warnings: string[] = []
+  const spec = typeof raw.spec === 'string' ? raw.spec.trim().toLowerCase() : ''
+  if (spec) {
     if (!record(raw.data)) throw new Error('缺少角色卡 data 对象')
     data = raw.data
-    format = raw.spec === 'chara_card_v3' ? 'v3' : 'v2'
+    if (/^(?:chara|character)_card_v3$|^ccv3$|^v3(?:\.\d+)*$/.test(spec)) format = 'v3'
+    else if (/^(?:chara|character)_card_v2$|^ccv2$|^v2(?:\.\d+)*$/.test(spec)) format = 'v2'
+    else { format = 'v3'; warnings.push(`未识别的角色卡版本 spec=${String(raw.spec)}，已按 V3 结构尽力解析。`) }
+  } else if (record((raw as { data?: unknown }).data) && typeof (raw as { data: Record<string, unknown> }).data.name === 'string') {
+    data = (raw as { data: Record<string, unknown> }).data
+    format = 'v2'
+    warnings.push('角色卡没有 spec 字段，已按 V2 结构（data 对象）解析。')
+  } else if (typeof raw.name !== 'string' && typeof raw.char_name === 'string') {
+    warnings.push('检测到旧版 TavernAI 字段名（char_name 等），已按兼容映射导入。')
   }
   const textField = (key: string) => {
-    if (data[key] === undefined || data[key] === null) return ''
-    if (typeof data[key] !== 'string') throw new Error(`data.${key} 必须是文本`)
-    return data[key] as string
+    const source = data[key] === undefined && format === 'v1' ? LEGACY_FIELDS[key] : key
+    const value = source ? data[source] : undefined
+    if (value === undefined || value === null) return ''
+    if (typeof value !== 'string') throw new Error(`data.${key} 必须是文本`)
+    return value
   }
-  const name = textField('name').trim()
-  if (!name || name.length > 128) throw new Error('角色名称不能为空，最多 128 字符')
-  const warnings = ['场景映射为新故事的初始世界；创作者备注与示例不会作为真实历史。']
-  const book = record(data.character_book) ? data.character_book : record(data.lorebook_v3) ? data.lorebook_v3 : null
+  let name = textField('name').trim()
+  if (!name) throw new Error('角色名称不能为空（支持 name 或旧版 char_name）')
+  if (name.length > 128) { name = name.slice(0, 128); warnings.push('角色名称超过 128 字符，已截断。') }
+  warnings.push('场景映射为新故事的初始世界；创作者备注与示例不会作为真实历史。')
+  const book = record(data.character_book) ? data.character_book : record(data.lorebook_v3) ? data.lorebook_v3 : record(data.lorebook) ? data.lorebook : null
   if (book) warnings.push('世界书按关键词与常驻条目触发；正则和第三方扩展只保留，暂不执行。预算为保守估算。')
   if (format === 'v3') warnings.push('V3 资源链接只保留，本版不下载外链，不执行脚本或 CHARX 资源。')
   if (data.extensions) warnings.push('未知 extensions 原样保存，不执行扩展脚本。')
@@ -48,16 +65,29 @@ export function crc32(bytes: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0
 }
 export function fromBase64(text: string): Uint8Array {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(text)) throw new Error('角色卡 base64 数据损坏')
-  const binary = atob(text)
+  const normalized = text.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
+  const padded = normalized.length % 4 === 0 ? normalized : normalized + '='.repeat(4 - (normalized.length % 4))
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(padded)) throw new Error('角色卡 base64 数据损坏')
+  const binary = atob(padded)
   return Uint8Array.from(binary, char => char.charCodeAt(0))
 }
+/** PNG 元数据既可能是 base64，也可能是直接写入的 UTF-8 JSON（部分第三方工具）。 */
+export function decodeCardText(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed.startsWith('{')) return trimmed
+  return new TextDecoder().decode(fromBase64(trimmed))
+}
 export function parseCard(bytes: Uint8Array): Card {
-  if (bytes.length > 32 * 1024 * 1024) throw new Error('文件超过 32 MiB')
+  if (bytes.length > MAX_FILE) throw new Error('文件超过 32 MiB')
   const signature = [137, 80, 78, 71, 13, 10, 26, 10]
-  if (!signature.every((byte, index) => bytes[index] === byte)) return parseJsonCard(decoder.decode(bytes))
+  if (!signature.every((byte, index) => bytes[index] === byte)) {
+    if (bytes[0] === 0x50 && bytes[1] === 0x4b) throw new Error('这是 ZIP 压缩包（.charx 等），本版请导入 PNG 或 JSON 角色卡')
+    let text: string
+    try { text = decoder.decode(bytes).replace(/^\uFEFF/, '') } catch { throw new Error('文件既不是 PNG 也不是 UTF-8 文本；若是压缩包请解压后导入其中的 JSON') }
+    return parseJsonCard(text)
+  }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  const candidates = new Map<string, string>()
+  const candidates = new Map<string, string[]>()
   const warnings: string[] = []
   let offset = 8, ended = false, chunks = 0
   while (offset < bytes.length) {
@@ -67,13 +97,29 @@ export function parseCard(bytes: Uint8Array): Card {
     const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8))
     const body = bytes.subarray(offset + 8, offset + 8 + length)
     if (crc32(bytes.subarray(offset + 4, offset + 8 + length)) !== view.getUint32(offset + 8 + length)) throw new Error(`PNG ${type} 校验失败`)
-    if (type === 'tEXt') {
+    if (type === 'tEXt' || type === 'zTXt' || type === 'iTXt') {
+      let key = ''
+      let value: string | null = null
+      let compressed = false
       const separator = body.indexOf(0)
-      const key = decoder.decode(body.subarray(0, separator))
-      if (separator >= 0 && (key === 'chara' || key === 'ccv3')) {
+      if (separator >= 0) {
+        key = latin1.decode(body.subarray(0, separator))
+        if (type === 'tEXt') value = new TextDecoder().decode(body.subarray(separator + 1))
+        else if (type === 'zTXt') compressed = body[separator + 1] === 0
+        else {
+          compressed = body[separator + 1] === 1
+          const languageEnd = body.indexOf(0, separator + 3)
+          const translatedEnd = languageEnd < 0 ? -1 : body.indexOf(0, languageEnd + 1)
+          if (translatedEnd >= 0 && !compressed) value = new TextDecoder().decode(body.subarray(translatedEnd + 1))
+        }
+      }
+      if (key === 'chara' || key === 'ccv3') {
+        if (compressed) throw new Error('这张 PNG 使用压缩角色卡元数据（zTXt 或压缩 iTXt），请用 SillyTavern 重新导出为 PNG，或导入同名 JSON')
+        if (value === null) throw new Error(`PNG ${type} 卡元数据块损坏`)
         if (body.length > MAX_JSON * 1.4) throw new Error('PNG 卡元数据超过限制')
-        if (candidates.has(key)) throw new Error(`PNG 存在重复 ${key} 卡数据`)
-        candidates.set(key, decoder.decode(body.subarray(separator + 1)))
+        const list = candidates.get(key) ?? []
+        list.push(value)
+        candidates.set(key, list)
       }
     }
     if (type === 'IHDR') {
@@ -83,12 +129,33 @@ export function parseCard(bytes: Uint8Array): Card {
     if (type === 'IEND') { if (length !== 0 || offset !== bytes.length) throw new Error('PNG 结束块损坏'); ended = true; break }
   }
   if (!ended) throw new Error('PNG 缺少结束块')
-  const selected = candidates.get('ccv3') ?? candidates.get('chara')
-  if (!selected) throw new Error('这张 PNG 没有标准角色卡元数据；本版支持 JSON 与 tEXt PNG')
-  if (candidates.size > 1) warnings.push('PNG 同时含 V2/V3 元数据，采用 V3；V3 损坏会拒绝导入。')
-  const decoded = fromBase64(selected)
-  if (decoded.length > MAX_JSON) throw new Error('PNG 解码元数据超过 5 MiB')
-  const card = parseJsonCard(decoder.decode(decoded))
+  const all: { key: string; text: string }[] = []
+  for (const [key, list] of candidates) for (const text of list) all.push({ key, text })
+  if (all.length === 0) throw new Error('这张 PNG 没有角色卡元数据（读取 tEXt / iTXt 的 chara、ccv3 块）；请确认是酒馆导出的角色卡 PNG')
+  // 同一张卡常被多个工具先后写过多份元数据（出现同名块）：逐个解析，保留信息最完整的一个，而不是直接拒绝
+  const avatarOf = (card: Card): unknown => {
+    const root = card.raw as Record<string, unknown>
+    const inner = record(root.data) ? (root.data as Record<string, unknown>) : root
+    return inner.avatar
+  }
+  const richness = (card: Card, key: string) => {
+    const avatar = avatarOf(card)
+    return (key === 'ccv3' ? 1 : 0) + (avatar && avatar !== 'none' ? 1 : 0) + (Array.isArray(card.lorebook?.entries) ? card.lorebook.entries.length : 0) + card.description.length
+  }
+  let best: { card: Card; key: string } | null = null
+  for (const { key, text } of all) {
+    try {
+      const jsonText = decodeCardText(text)
+      if (new TextEncoder().encode(jsonText).length > MAX_JSON) throw new Error('PNG 内角色卡数据超过 16 MiB')
+      const candidate = parseJsonCard(jsonText)
+      if (!best || richness(candidate, key) > richness(best.card, best.key)) best = { card: candidate, key }
+    } catch (error) {
+      warnings.push(`PNG 内 ${key} 元数据块解析失败，已跳过：${(error as Error).message}`)
+    }
+  }
+  if (!best) throw new Error('PNG 内的角色卡元数据无法解析；请用 SillyTavern 重新导出，或导入同名 JSON')
+  if (all.length > 1) warnings.push(`PNG 含 ${all.length} 个卡数据块（常见于被多个工具先后写过的卡），已保留信息最完整的一个。`)
+  const card = best.card
   card.warnings.push(...warnings)
   return card
 }
