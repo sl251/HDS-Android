@@ -8,6 +8,8 @@ GNU AFFERO GENERAL PUBLIC LICENSE
 HDS-Android is licensed under the GNU Affero General Public License v3.0
 (AGPL-3.0), consistent with its upstream core HDS-Interlude.
 
+Based on HDS-Interlude (https://github.com/ISEKAI-MomoiCore/HDS-Interlude)
+Copyright (C) 2026 ISEKAI-MomoiCore contributors
 Copyright (C) 2026 sl251 and the HDS-Android contributors.
 
 Additional third-party components retain their own licenses; see
