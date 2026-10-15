@@ -13,7 +13,7 @@
 
 - 📱 **真正手机纯本地**：手机内置轻量化运行沙箱（PRoot + Node.js + SQLite WASM）。所有角色卡、对话剧情、长期记忆与心理状态档案，**完全保存在你的手机本地**，断网也能看，数据不经任何第三方中转。
 - 🔒 **硬件级隐私保护**：你的 AI 模型 API Key 经由 Android Keystore 硬件级加密保存；AI 仅作为提供思考的大脑，所有的记忆和陪伴历程全属于你。
-- 🏷️ **当前最新版本**：**`0.1.0-preview.8 · ARM64 · Android 8.0+`**。新增生活节奏配置、分享码同步与后台预算；自动化验证和真机未测范围见 [preview8 说明](docs/PREVIEW8.md)。👉 [**直达下载 preview.8 最新安装包**](#-极速上手教程)
+- 🏷️ **当前最新版本**：**`0.1.0-preview.8 · ARM64 · Android 8.0+`**。新增生活节奏配置、分享码同步与后台预算；已真机安装验证、角色卡导入正常，仍待完善的范围见 [preview8 说明](docs/PREVIEW8.md)。👉 [**直达下载 preview.8 最新安装包**](#-极速上手教程)
 
 ---
 
@@ -48,11 +48,13 @@ flowchart LR
 
 从下方官方通道下载最新的 **preview.8** 安装包：
 
-- 🏷️ **GitHub Release 快速下载**：前往 [v0.1.0-preview.8 Release 发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.8) 直接点击下载 `HDS-Android-0.1.0-preview.8-arm64.apk`。
+- 🏷️ **GitHub Release 快速下载**：前往 [v0.1.0-preview.8 Release 发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.8)（GitHub 标记为 Latest 的正式版本）直接点击下载 `HDS-Android-0.1.0-preview.8-arm64.apk`。
 - 📦 **GitHub Actions 官方构建产物**：前往 [preview.8 Actions 构建详情页 (Run #38722802409)](https://github.com/sl251/HDS-Android/actions/runs/38722802409)，在页面下方的 **Artifacts** 列表中点击下载并解压。
 - 🔐 **文件校验信息**：
   - 文件名：`HDS-Android-0.1.0-preview.8-arm64.apk`
-  - SHA-256 与文件大小：以 Release 的 `SHA256SUMS.txt` 和实际附件为准。
+  - SHA-256：`9aeb14798b93fd23dbb9bcd931bca6b007ef766d033d0e7fcf47fb9bcf80a55c`
+  - 文件大小：187,004,153 字节（约 178 MiB）
+  - 完整清单见 Release 附件 `SHA256SUMS.txt`，可用 `sha256sum -c SHA256SUMS.txt` 自行校验。
 
 > [!IMPORTANT]
 > **覆盖安装注意事项**：若手机里已安装旧版本，**请直接覆盖安装，千万不要先卸载**！  
@@ -194,10 +196,10 @@ flowchart LR
 
 ## 📋 版本更新历史
 
-- **`0.1.0-preview.8` (当前开发预览)**
+- **`0.1.0-preview.8` (当前最新版本)**
   - 新增生活节奏与表达设置、分享码差异同步、滚动 24 小时后台模型预算及状态通知。
   - 接入 QQ 群引用回复；补充任务书审查与实际支持状态。
-  - 完整保活自愈与真机长时验收仍待完成，详见 [PREVIEW8.md](docs/PREVIEW8.md)。
+  - 维护者真机覆盖安装与角色卡导入验证通过；完整保活自愈与长时（Doze / 厂商后台）验收仍待完成，详见 [PREVIEW8.md](docs/PREVIEW8.md)。
 - **`0.1.0-preview.7.1`**
   - 修复角色回复气泡的外层嵌套问题，去除了误引用的卡片外框与多余边距，恢复清爽优雅的单层回复气泡。
   - 继承 preview.7 的全部液态玻璃、图片输入与记忆管理特性。
@@ -251,6 +253,7 @@ cd android
 
 ## 📚 详细文档与参考
 
+- 🆕 [Preview 8 生活节奏、分享码与后台模型预算](docs/PREVIEW8.md)
 - 📱 [Preview 7 / 7.1 特性与机制说明](docs/PREVIEW7.md)
 - 📖 [Preview 6 故事体验与原位唤醒设计](docs/STORY-EXPERIENCE-PREVIEW6.md)
 - 🧪 [手机测试指南与测项清单](docs/TEST-ON-PHONE.md)
