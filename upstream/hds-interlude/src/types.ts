@@ -608,6 +608,7 @@ export interface NarrativeInteraction {
     content?: string
     actionId?: string
     sendAt?: string
+    purpose?: 'scheduled-contact'
     /** Opaque current-turn message reference; accepted only when the host advertises quote reply. */
     replyTo?: string
   }
@@ -710,7 +711,7 @@ export interface IndexedQuotedMessageContext extends QuotedMessageContext {
   messageIndex: number
 }
 
-export type FollowUpCommitmentKind = 'thinking' | 'checking' | 'decision' | 'emotional-settle'
+export type FollowUpCommitmentKind = 'thinking' | 'checking' | 'decision' | 'emotional-settle' | 'scheduled-contact'
 
 /** A user-facing promise to return with an answer; persisted as an existing intent row. */
 export interface FollowUpCommitmentDraft {
@@ -812,6 +813,7 @@ export interface NarrativeAudio {
 }
 
 export interface NarrativeRequest {
+  scheduledContactPolicy?: { delayedMinSeconds: number; delayedMaxMinutes: number; commitmentMinSeconds: number; commitmentMaxHours: number }
   urgeEnabled?: boolean
   contactThreads?: import('./script/knowledge-evidence').ContactEvidenceThread[]
   /** 主模型只读取经过预算控制的连续性包，不读取完整历史。 */

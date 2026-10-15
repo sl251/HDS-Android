@@ -10,7 +10,7 @@ import { mobileModelConfig } from '../runtime/model-config'
 import type { ModelProvider } from '../packages/contracts'
 const { startHost } = createRequire(import.meta.url)('../runtime/generated/host.cjs') as typeof import('../runtime/host')
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
-const provider = (id: string, endpoint: string, main: boolean): ModelProvider => ({ id, endpoint, model: id, preset: 'custom', label: id, protocol: 'chat-completions', enabled: true, credentialPresent: false, useForMain: main, useForCompaction: main, useForAlter: main })
+const provider = (id: string, endpoint: string, main: boolean): ModelProvider => ({ id, endpoint, model: id, preset: 'custom', label: id, protocol: 'chat-completions', enabled: true, imageInput: 'supported', credentialPresent: false, useForMain: main, useForCompaction: main, useForAlter: main })
 
 test('vision routing rejects missing or disabled dedicated models', () => {
   const input = { endpoint: '', model: '', providers: [provider('writer', 'https://example.com/v1', true)], modelOptions: { visionEnabled: true, visionProviderId: 'eyes' } }

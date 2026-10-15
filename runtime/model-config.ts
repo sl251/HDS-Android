@@ -6,6 +6,7 @@ export function mobileModelConfig(input: Input): Partial<ModelConfig> & { provid
   const rows = input.providers ?? [{ id: 'legacy-primary', label: '原有模型连接', endpoint: input.endpoint, model: input.model, apiKey: input.apiKey ?? '', enabled: true, useForMain: true, useForCompaction: true, useForAlter: true }]
   if (!rows.length || rows.length > 12) throw new Error('Expected 1–12 model connections')
   const providers = rows.map(row => {
+    if (!['unknown', 'supported', 'unsupported'].includes(row.imageInput ?? 'unknown')) throw new Error('图片能力声明无效')
     const url = new URL(row.endpoint)
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !row.model) throw new Error('Invalid model connection')
     return { temperature: 0.8, topP: 1, maxTokens: 4096, timeout: 60000, responseFormat: 'json-object', extraHeaders: '', extraBody: '', mode: 'openai-compatible', protocol: 'chat-completions', ...row } as ProviderConfig

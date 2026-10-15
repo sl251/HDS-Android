@@ -94,3 +94,38 @@ test('real Koishi model requests stop at budget, retain quota after restart, and
     assert.equal((await host.dispatch('config.status', {}) as any).budget.used, 1)
   } finally { await host?.stop(); await new Promise<void>(resolve => api.close(() => resolve())) }
 })
+
+test('Preview 8.1 patch applies baseline fixtures, is idempotent and rejects unknown anchors', async () => {
+  // Import is read-only; use isolated strings/temporary source files, never mutate vendored sources.
+  const { preview81Patches, applyPreview81, patchMobile } = await import('../scripts/patch-mobile-hds.mjs')
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const directory = mkdtempSync(join(tmpdir(), 'hds-patch81-'))
+  try {
+    for (const [name, patches] of Object.entries(preview81Patches) as [string, { before: string; after: string }[]][]) {
+      const actual = readFileSync(`upstream/hds-interlude/src/${name}`, 'utf8')
+      let baseline = actual
+      for (const patch of [...patches].reverse()) { assert.ok(baseline.includes(patch.after)); baseline = baseline.replace(patch.after, () => patch.before) }
+      const applied = applyPreview81(baseline, name)
+      assert.equal(applied, actual, name)
+      assert.equal(applyPreview81(applied, name), applied)
+      assert.throws(() => applyPreview81(baseline.replace(patches[0].before, 'unknown-source'), name), /unknown\/ambiguous anchor/)
+      writeFileSync(join(directory, name), baseline)
+    }
+    writeFileSync(join(directory, 'endpoints.ts'), readFileSync('upstream/hds-interlude/src/endpoints.ts', 'utf8'))
+    patchMobile(directory)
+    const first = readFileSync(join(directory, 'service.ts'), 'utf8')
+    patchMobile(directory)
+    assert.equal(readFileSync(join(directory, 'service.ts'), 'utf8'), first)
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+})
+test('Preview 8.1 thresholds keep defaults and independent explicit-contact settings', () => {
+  const fields = mobileSchema().sections.find(section => section.key === 'runtime')!.fields
+  assert.equal(fields.find(field => field.key === 'minimumFollowUpCommitmentSeconds')!.default, 300)
+  assert.equal(fields.find(field => field.key === 'sweepIntervalMinutes')!.default, 5)
+  for (const minimum of [10, 300, 43200]) {
+    const source = { sections: { runtime: { minimumFollowUpCommitmentSeconds: minimum, sweepIntervalMinutes: 1 } } }
+    assert.equal(mapMobileConfig(source, false).runtime.minimumFollowUpCommitmentSeconds, minimum)
+    assert.deepEqual(normalizeMobileConfig(source).sections.runtime, source.sections.runtime)
+  }
+  for (const minimum of [9, 43201, 10.5]) assert.throws(() => normalizeMobileConfig({ sections: { runtime: { minimumFollowUpCommitmentSeconds: minimum } } }))
+})

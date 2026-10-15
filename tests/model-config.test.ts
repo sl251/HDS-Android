@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mobileModelConfig } from '../runtime/model-config'
 import { resolveModelRouting } from '../upstream/hds-interlude/src/model-routing'
 import type { ModelConfig } from '../upstream/hds-interlude/src/narrator'
+import { visionProjection, visionRouteReason, imageEntryReason } from '../packages/contracts'
 import type { ModelProvider } from '../packages/contracts'
 import presets from '../android/app/src/main/assets/model-presets.json'
 
@@ -29,4 +30,22 @@ test('official preset addresses agree with the embedded upstream HDS resolver', 
     assert.equal(route.endpoint, preset.endpoint, preset.id)
     assert.equal(route.protocol, preset.protocol, preset.id)
   }
+})
+
+test('vision projection is canonical, secret-free and checks every candidate', () => {
+  const writer = row('writer', { useForMain: true, imageInput: 'supported' })
+  const base = { providers: [writer], modelOptions: { visionEnabled: true } }
+  assert.deepEqual(visionProjection(base), visionProjection({ modelOptions: { visionEnabled: true }, providers: [{ ...writer, endpoint: 'https://example.com/v1/', apiKey: 'TEST_SECRET' }] }))
+  assert.doesNotMatch(JSON.stringify(visionProjection(base)), /apiKey|credential/)
+  assert.equal(visionRouteReason(visionProjection(base)), undefined)
+  for (const imageInput of ['unknown', 'unsupported'] as const) {
+    assert.ok(visionRouteReason(visionProjection({ ...base, providers: [writer, row('fallback', { useForMain: true, imageInput })] })))
+  }
+  assert.equal(visionRouteReason(visionProjection({ providers: [row('text', { useForMain: true }), writer], modelOptions: { visionEnabled: true, visionProviderId: 'writer' } })), undefined)
+  assert.throws(() => mobileModelConfig({ endpoint: '', model: '', providers: [row('bad', { imageInput: 'invalid' as any })] }), /能力/)
+})
+test('image entry explains all unavailable states in priority order', () => {
+  const input = { native: true, healthy: true, busy: false, sending: false, count: 0, enabled: true }
+  assert.equal(imageEntryReason(input), undefined)
+  for (const patch of [{ native: false }, { healthy: false }, { busy: true }, { sending: true }, { count: 3 }, { enabled: false }]) assert.ok(imageEntryReason({ ...input, ...patch }))
 })

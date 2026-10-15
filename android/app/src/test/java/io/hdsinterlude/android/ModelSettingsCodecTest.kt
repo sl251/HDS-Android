@@ -6,6 +6,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ModelSettingsCodecTest {
+    @Test fun imageCapabilityIsExplicitAndPublic() {
+        assertEquals("unknown", codec.normalize(row()).getString("imageInput"))
+        for (capability in listOf("unknown", "supported", "unsupported")) {
+            val normalized = codec.normalize(row().put("imageInput", capability))
+            assertEquals(capability, codec.publicRows(JSONObject().put("providers", JSONArray().put(normalized))).getJSONObject(0).getString("imageInput"))
+        }
+        assertThrows(IllegalArgumentException::class.java) { codec.normalize(row().put("imageInput", "guess")) }
+    }
     @Test fun dedicatedVisionChoiceSurvivesSettingsPersistence() {
         val options = codec.options(JSONObject().put("visionEnabled", true).put("visionProviderId", "separate-eyes"))
         assertTrue(options.getBoolean("visionEnabled"))

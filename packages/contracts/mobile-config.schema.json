@@ -7,6 +7,24 @@
       "description": "【节奏 5】运行时：消息合并、打字、失败重试与自动生活推进。",
       "fields": [
         {
+          "key": "minimumFollowUpCommitmentSeconds",
+          "type": "number",
+          "default": 300,
+          "description": "承诺最短等待（秒）；最长12小时，过短请求可改用延迟消息。",
+          "min": 10,
+          "max": 43200,
+          "step": 1
+        },
+        {
+          "key": "sweepIntervalMinutes",
+          "type": "number",
+          "default": 5,
+          "description": "后台扫描周期；仅用于发现到期任务，不代表每轮都调用模型。",
+          "min": 1,
+          "max": 1440,
+          "step": 1
+        },
+        {
           "key": "autoAdvanceIntervalMinutes",
           "type": "number",
           "default": 40,

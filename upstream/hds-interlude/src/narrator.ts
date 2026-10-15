@@ -1692,10 +1692,10 @@ function automaticDeliveryInstruction(phase: NarrativeRequest['phase']) {
 
 function followUpCommitmentInstruction(phase: NarrativeRequest['phase']) {
   if (phase === 'user-message') {
-    return 'If a visible reply promises a later answer, check or decision after thinking (for example “I will think about it and tell you later”), include followUpCommitment: {"kind":"thinking|checking|decision|emotional-settle","summary":"what answer is owed","notBefore":"future ISO-8601","expiresAt":"future ISO-8601 optional","sourceEntryIds":[1]} - never an unbound future-answer promise. When a listed commitment is answered or withdrawn now, include followUpResolutions: [{"id":1,"outcome":"fulfilled|rescheduled|cancelled","notBefore":"future ISO-8601 only for rescheduled"}].'
+    return 'USER-REQUESTED FUTURE CONTACT: When the current user asks for future contact (七分钟后给我发消息 / 十秒后提醒喝水 / 今晚八点联系我) and she accepts, choose exactly ONE plan using interval.now, nowLocal and story timezone with a complete ISO-8601 timestamp. A: interaction.reply={"mode":"delayed","purpose":"scheduled-contact","content":"actual future message","sendAt":"ISO-8601"}; the delay must be within scheduledContactPolicy.delayedMinSeconds and delayedMaxMinutes (mobile defaults 10s–1440min). Do not write future sending as already completed in the current script. B: immediate confirmation whose exact words occur in the current script plus followUpCommitment={"kind":"scheduled-contact","summary":"specific contact owed","notBefore":"ISO-8601"}, between commitmentMinSeconds and commitmentMaxHours (12h). Registration occurs only after visible delivery. Below/above B bounds use A if valid. Ambiguous/past/out-of-range time needs a concise clarification now. Never replace an explicit time with a default twenty-minute delay. Never emit two plans for one request; no plan for quotations, hypotheticals, refusals or the user own future action. Do not end an accepted request with an unbound promise. If a visible reply promises a later answer, check or decision after thinking (for example “I will think about it and tell you later”), include followUpCommitment: {"kind":"thinking|checking|decision|emotional-settle|scheduled-contact","summary":"what answer is owed","notBefore":"future ISO-8601","expiresAt":"future ISO-8601 optional","sourceEntryIds":[1]} - never an unbound future-answer promise. When a listed commitment is answered or withdrawn now, include followUpResolutions: [{"id":1,"outcome":"fulfilled|rescheduled|cancelled","notBefore":"future ISO-8601 only for rescheduled"}].'
   }
   if (phase === 'intent-due') {
-    return 'For each dueIntents item of type follow-up-commitment, do not silently finish it. Return followUpResolutions for its id: fulfilled or cancelled requires a visible immediate outcome; rescheduled requires a visible honest status update and a future notBefore. If no visible outcome can be given, leave it unresolved rather than pretending it completed.'
+    return 'For a due scheduled-contact commitment, send the contact owed now as a visible immediate reply and resolve its id as fulfilled; never merely promise future contact again. For delayed-reply use its stored content/purpose as the pending message plan, reconcile with current facts without duplicate scheduling. For each dueIntents item of type follow-up-commitment, do not silently finish it. Return followUpResolutions for its id: fulfilled or cancelled requires a visible immediate outcome; rescheduled requires a visible honest status update and a future notBefore. If no visible outcome can be given, leave it unresolved rather than pretending it completed.'
   }
   return ''
 }
@@ -1811,7 +1811,7 @@ ${LITE_TRANSPORT_PRIVATE}`
     quotedMessageInstruction(hasQuotedMessage),
     stickerInstruction(stickerCatalog, chatCapabilities?.expressionThreshold ?? 0.7),
     schedulePreplanEnabled ? 'Schedule Preplan contains only the coming roughly twelve hours of planned structure. It is a plan, not proof that any block happened. Use it quietly to keep timing, location and availability plausible; never recite every block, force flexible activities, or mark a block completed merely because its clock time passed. Observed currentEvent and established recentScript override it.' : '',
-    outputRecovery ? 'OUTPUT RECOVERY: Start a fresh unpublished decision for this same event. Pair every visible reply reached in script prose with its matching structured reply field: whenever the script shows her actually sending words, reply.mode must be immediate with those words; mode=none is only for staying silent, and a silent turn never carries an actionId. For a user-message turn, stop the script exactly at interval.now: do not complete a later lesson, meal, commute, appointment, or other schedule transition.' : '',
+    outputRecovery ? 'OUTPUT RECOVERY: If accepting future contact, provide exactly one valid A/B scheduled-contact plan within scheduledContactPolicy, or ask a concise clarification; never leave an unbound confirmation. Start a fresh unpublished decision for this same event. Pair every visible reply reached in script prose with its matching structured reply field: whenever the script shows her actually sending words, reply.mode must be immediate with those words; mode=none is only for staying silent, and a silent turn never carries an actionId. For a user-message turn, stop the script exactly at interval.now: do not complete a later lesson, meal, commute, appointment, or other schedule transition.' : '',
 
     'The JSON object itself is the final structured output. Do not wrap it in Markdown fences.',
     'The interval object is the authoritative clock: use interval.nowLocal and interval.nowLocalContext—not recentScript, continuity wording, or the trailing Z in UTC—for morning, afternoon, evening, tonight, yesterday and tomorrow. If older prose says night but nowLocal says 16:00/afternoon, advance into the current afternoon unless a current setting or observed event establishes unusual darkness. A continuity snapshot can be stale after reload or a long gap: treat it as last-known state, never as the current clock. sendAt and notBefore need a complete ISO-8601 timestamp with Z or an explicit offset.',
@@ -1987,6 +1987,7 @@ export function toPromptPayload(request: NarrativeRequest, options?: { cacheFirs
     phase: request.phase,
     refreshContinuity: request.refreshContinuity === true,
     outputRecovery: request.outputRecovery === true,
+    scheduledContactPolicy: request.scheduledContactPolicy,
     interval: {
       from: request.from.toISOString(), now: request.now.toISOString(),
       storyTimezone: nowLocalContext.timezone,
@@ -2203,7 +2204,11 @@ export function toPromptPayload(request: NarrativeRequest, options?: { cacheFirs
   ;(payload as any)._channelCurrentChannel = request.channelData?.currentChannel
   ;(payload as any)._channelReplyEndpoint = request.channelData?.replyEndpoint
 
-  if (!options?.cacheFirst) return compileNarrativeContext({ ...payload, continuation }, request.sceneFrame, request.dialogueBurst)
+  if (!options?.cacheFirst) {
+    const compiled = compileNarrativeContext({ ...payload, continuation }, request.sceneFrame, request.dialogueBurst)
+    if (request.scheduledContactPolicy) compiled.authoringWindow.scheduledContactPolicy = request.scheduledContactPolicy
+    return compiled
+  }
   // Compact script tags collapse the kind/actor/participantId triple into one
   // label; participantId is kept only when the history actually spans several
   // relationship branches (shared mode with details sharing).
@@ -2253,6 +2258,7 @@ export function toPromptPayload(request: NarrativeRequest, options?: { cacheFirs
     phase: payload.phase,
     refreshContinuity: payload.refreshContinuity,
     outputRecovery: payload.outputRecovery,
+    scheduledContactPolicy: payload.scheduledContactPolicy,
     interval: payload.interval,
     continuation,
     timelinePlan: payload.timelinePlan,
@@ -2265,7 +2271,9 @@ export function toPromptPayload(request: NarrativeRequest, options?: { cacheFirs
     recentExchange: buildRecentExchange(request),
     ...(payload.liveTimeBoundary ? { liveTimeBoundary: payload.liveTimeBoundary } : {}),
   }
-  return compileNarrativeContext(cachePayload, request.sceneFrame, request.dialogueBurst)
+  const compiled = compileNarrativeContext(cachePayload, request.sceneFrame, request.dialogueBurst)
+  if (request.scheduledContactPolicy) compiled.authoringWindow.scheduledContactPolicy = request.scheduledContactPolicy
+  return compiled
 }
 
 /** Cache-first tail block: re-anchors the last few exchanges beside the decision

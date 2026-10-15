@@ -12,8 +12,18 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
+
+/** Only URI identities cross this boundary; decoding stays sequential on the plugin IO executor. */
+internal fun pickedImageUris(result: ActivityResult): List<android.net.Uri> {
+    if (result.resultCode != Activity.RESULT_OK) return emptyList()
+    val uris = linkedSetOf<android.net.Uri>()
+    result.data?.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris.add(it) } }
+    result.data?.data?.let { uris.add(it) }
+    return uris.toList()
+}
 
 @CapacitorPlugin(name = "HdsRuntime")
 class HdsRuntimePlugin : Plugin() {
@@ -37,12 +47,25 @@ class HdsRuntimePlugin : Plugin() {
         run(call) { AppearanceStore(context).import(call.getString("kind")!!, result.data!!.data!!) }
     }
     @PluginMethod fun pickImage(call: PluginCall) {
-        startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE), "imagePicked")
+        startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), "imagePicked")
     }
     @ActivityCallback private fun imagePicked(call: PluginCall?, result: ActivityResult) {
         if (call == null) return
-        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
-        run(call) { JSONObject().put("cancelled", false).put("dataUri", AppearanceStore(context).image(result.data!!.data!!)) }
+        if (result.resultCode != Activity.RESULT_OK) { resolve(call, JSONObject().put("cancelled", true)); return }
+        val uris = pickedImageUris(result)
+        if (uris.isEmpty()) { call.reject("图库未返回可读取的图片"); return }
+        val limit = (call.getInt("limit", 3) ?: 3).coerceIn(1, 3)
+        run(call) {
+            val images = JSONArray(); val errors = JSONArray()
+            uris.take(limit).forEachIndexed { index, uri ->
+                try { images.put(JSONObject().put("dataUri", AppearanceStore(context).image(uri))) }
+                catch (failure: Exception) {
+                    val message = failure.message?.takeIf { value -> listOf("文件过大", "图片尺寸", "无法读取所选文件", "无法解码图片", "图片解码失败", "图片压缩后仍过大").any { prefix -> value.startsWith(prefix) } } ?: "图片读取失败，请重新选择"
+                    errors.put(JSONObject().put("index", index).put("message", message.take(160)))
+                }
+            }
+            JSONObject().put("cancelled", false).put("images", images).put("errors", errors).put("truncated", uris.size > limit)
+        }
     }
     @PluginMethod fun exportStory(call: PluginCall) {
         startActivityForResult(call, Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, "HDS-story-${java.time.LocalDate.now()}.zip"), "storyDestination")

@@ -6,10 +6,14 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { HostConfig } from '../runtime/host'
 import { createRequire } from 'node:module'
+const { Logger } = createRequire(import.meta.url)('koishi') as typeof import('koishi')
 const { startHost } = createRequire(import.meta.url)('../runtime/generated/host.cjs') as typeof import('../runtime/host')
 import { parseJsonCard } from '../packages/card-format'
 
 test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and rejects unauthenticated RPC', { timeout: 90000 }, async () => {
+  const logs: string[] = []
+  const target = { record: (record: { name: string; content: string }) => { if (record.name === 'hds-interlude') logs.push(record.content) } }
+  Logger.targets.push(target)
   const requests: Record<string, unknown>[] = []
   const model = createServer(async (request, response) => {
     let body = ''; for await (const chunk of request) body += chunk
@@ -23,6 +27,10 @@ test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and 
   let host: Awaited<ReturnType<typeof startHost>> | undefined
   try {
     host = await startHost(config)
+    assert.equal(host.app.interlude.config.logging.level, 'info')
+    assert.equal(host.app.interlude.config.logging.verbosity, 'standard')
+    assert.equal(host.app.interlude.config.logging.logMessageContent, false)
+    assert.equal(host.app.interlude.config.logging.logScriptPreview, false)
     const rejected = await fetch(`http://127.0.0.1:${port}/rpc`, { method: 'POST', body: '{"method":"health"}' }); assert.equal(rejected.status, 401)
     assert.equal((await host.dispatch('health', {})).platform, 'mobile-local')
     const message = { requestId: 'fixture-request-0001', content: '收音机坏了' }
@@ -37,9 +45,11 @@ test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and 
     const history = await host.dispatch('messages.history', {}) as { direction: string }[]
     assert.equal(history.filter(row => row.direction === 'user').length, 1)
     assert.ok(history.some(row => row.direction === 'character'), 'A model fixture is only useful if HDS confirms visible local delivery')
+    assert.match(logs.join('\n'), /模型调用开始/)
+    assert.doesNotMatch(logs.join('\n'), /MARKER_PROFILE|EXAMPLE_MARKER|LORE_MARKER/)
     await host.stop(); host = undefined
     host = await startHost(config)
     const repeated = await host.dispatch('messages.sendLocal', message) as { duplicate: boolean }; assert.equal(repeated.duplicate, true)
     assert.equal((await host.dispatch('messages.history', {}) as { direction: string }[]).filter(row => row.direction === 'user').length, 1)
-  } finally { if (host) await host.stop(); await new Promise<void>(resolve => model.close(() => resolve())) }
+  } finally { Logger.targets.splice(Logger.targets.indexOf(target), 1); if (host) await host.stop(); await new Promise<void>(resolve => model.close(() => resolve())) }
 })

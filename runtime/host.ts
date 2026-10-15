@@ -10,7 +10,7 @@ import * as HDS from '../upstream/hds-interlude/src/index'
 import { cardPrompt, type Card } from '../packages/card-format'
 import { mobileModelConfig } from './model-config'
 import type { ModelOptions, ModelProvider } from '../packages/contracts'
-import { messageImages } from '../packages/contracts'
+import { messageImages, visionProjection, visionRouteReason, normalizeVisionProjection } from '../packages/contracts'
 import { personaDefaults, personaEditPatch } from './persona'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
@@ -59,11 +59,12 @@ export async function startHost(input: HostConfig) {
     ...mapMobileConfig(mobile, input.autoAdvance),
     storyDefaults: personaDefaults(input.card, input.userProfile),
     model: mobileModelConfig(input),
-    logging: { level: 'warn', colors: false, kaomoji: false, logMessageContent: false, logScriptPreview: false },
+    logging: { level: 'info', verbosity: 'standard', colors: false, kaomoji: false, logMessageContent: false, logScriptPreview: false },
     qzone: { enabled: false }, browser: { enabled: false },
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
   config.model.mobileBeforeRequest = budget.beforeRequest
+  const activeVision = visionProjection(input)
   const media = imageStore(input.dataDir)
   let promptTrace: string[] = []
   config.model.mobileCardPrompt = request => {
@@ -170,11 +171,17 @@ export async function startHost(input: HostConfig) {
       return job
     }
     if (method === 'preset.sync') return inspectPreset(app, String(payload.code ?? ''), normalizeMobileConfig(payload.current as MobileConfig ?? mobile), typeof payload.fingerprint === 'string' ? payload.fingerprint : undefined)
-    if (method === 'preset.syncStatus') return { restartRequired: JSON.stringify(normalizeMobileConfig(payload.current as MobileConfig ?? mobile)) !== JSON.stringify(mobile) }
+    if (method === 'preset.syncStatus') {
+      const lifeRestartRequired = payload.current !== undefined && JSON.stringify(normalizeMobileConfig(payload.current as MobileConfig)) !== JSON.stringify(mobile)
+      const desiredVision = payload.currentVision === undefined ? undefined : 'candidates' in (payload.currentVision as object)
+        ? normalizeVisionProjection(payload.currentVision as ReturnType<typeof visionProjection>) : visionProjection(payload.currentVision as Parameters<typeof visionProjection>[0])
+      const visionRestartRequired = desiredVision !== undefined && JSON.stringify(desiredVision) !== JSON.stringify(activeVision)
+      return { restartRequired: lifeRestartRequired || visionRestartRequired, visionRestartRequired, activeVision, reasons: [...(lifeRestartRequired ? ['mobile-config-changed'] : []), ...(visionRestartRequired ? ['vision-config-changed'] : [])] }
+    }
     if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (config as any)[section.key]?.[field.key]]))])), budget: budget.status() }
     if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
-    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc' } } as never)).reverse().map(row => ({ ...row, images: messageImages((row as { images?: unknown }).images) }))
-    if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
+    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, images: messageImages((row as { images?: unknown }).images) }))
+    if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, schedulingStatus: await app.interlude.adminSchedulingStatus(story.id), entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
     if (method === 'story.pause' || method === 'story.resume') {
       const paused = method.endsWith('pause')
       if (!paused && restoreHeld) { restoreHeld = false; unlinkSync(restoreMarker); await app.interlude.setDesktopRuntimePhase('running') }
@@ -187,6 +194,7 @@ export async function startHost(input: HostConfig) {
       if (!Array.isArray(imageIds) || imageIds.length > 3 || !imageIds.every(value => typeof value === 'string')) throw new Error('最多附加 3 张图片')
       const images = (imageIds as string[]).map(value => media.get(value))
       if (images.length && !config.model.vision?.enabled) throw new Error('请在模型设置中开启主模型识图，并选择支持图片的模型；重启后生效')
+      if (images.length) { const reason = visionRouteReason(activeVision); if (reason) throw new Error(reason) }
       if (!/^[a-zA-Z0-9-]{8,64}$/.test(id) || (!content && !images.length) || content.length > 12000) throw new Error('Invalid requestId or message')
       const signature = images.length ? JSON.stringify({ content, images: imageIds }) : content
       const run = async () => {

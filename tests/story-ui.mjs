@@ -9,7 +9,7 @@ try {
   const background = `data:image/jpeg;base64,${(await readFile('fixtures/images/vision-fixture.jpg')).toString('base64')}`
   await page.addInitScript(value => { window.__backgroundFixture = value }, background)
   await page.addInitScript(() => {
-    const row = (id, all) => ({ id, preset: 'custom', label: id === 'writer' ? '故事模型' : '轻量模型', endpoint: 'https://example.com/v1', model: id, protocol: 'chat-completions', enabled: true, credentialPresent: true, useForMain: all, useForCompaction: all, useForAlter: all })
+    const row = (id, all) => ({ id, preset: 'custom', label: id === 'writer' ? '故事模型' : '轻量模型', endpoint: 'https://example.com/v1', model: id, protocol: 'chat-completions', enabled: true, imageInput: 'supported', credentialPresent: true, useForMain: all, useForCompaction: all, useForAlter: all })
     const prefs = { providers: [row('writer', true), row('light', false)], modelOptions: { mainStreamingMode: 'off', mainResponseFormat: 'json-object', mainTemperature: .8, mainMaxTokens: 4096, mainTimeout: 60000, mainPayloadOrder: 'cache-first', failoverEnabled: false, failoverStrategy: 'priority', visionEnabled: true }, userName: '我', userProfile: '', autoAdvance: false, activeCard: 'first' }
     const f = window.__storyFixture = { appearance: JSON.parse(localStorage.getItem('test-native-appearance') || 'null'), prefs, saves: [], calls: [], saveDelay: 0, failSave: false, status: { state: 'stopped', installed: false, environmentState: 'missing', running: false, progress: '', error: '', logs: [], device: { model: 'UI fixture', android: '15', sdk: 35, abi: 'arm64', pageSize: 4096, availableBytes: 1e10 }, version: 'test' } }
     window.androidBridge = {}
@@ -39,16 +39,16 @@ try {
         if (method === 'cancelInstall') { f.status.state = 'stopped'; f.status.running = false; return {} }
         if (method === 'rpc') {
           if (options.method === 'config.status') return { data: { budget: { used: 5, limit: 120, exhausted: false } } }
-          if (options.method === 'preset.syncStatus') return { data: { restartRequired: true } }
+          if (options.method === 'preset.syncStatus') return { data: options.payload?.currentVision ? { visionRestartRequired: false, activeVision: { enabled: true, candidates: [{ enabled: true, imageInput: 'supported' }] } } : { restartRequired: true } }
           if (options.method === 'preset.sync') return { data: { config: { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }, title: '生活预设 fixture', code: 'ABCDEFGH', revision: 1, fingerprint: 'fixture', removed: ['model'], changes: [{ section: 'agency', field: 'enabled', after: true }] } }
           if (options.method === 'messages.history') return { data: f.messages || [] }
           if (options.method === 'images.upload') return { data: { id: 'a'.repeat(64) } }
           if (options.method === 'images.get') return { data: { dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' } }
-          if (options.method === 'messages.sendLocal') { (f.attempts ||= []).push(structuredClone(options.payload)); if (f.failSend) throw new Error('测试：图片发送失败'); f.sent = options.payload; f.messages = [{ id: options.payload.requestId, content: options.payload.content, images: options.payload.images, direction: 'user', occurredAt: new Date().toISOString(), status: 'accepted' }, { id: 'character-text-reply', content: '收到你的消息了。', images: {}, direction: 'character', occurredAt: new Date().toISOString(), status: 'delivered' }]; return { data: { accepted: true } } }
+          if (options.method === 'messages.sendLocal') { (f.attempts ||= []).push(structuredClone(options.payload)); if (f.failSend) throw new Error('测试：图片发送失败'); f.sent = options.payload; f.messages = [{ id: options.payload.requestId, content: options.payload.content, images: options.payload.images, direction: 'user', occurredAt: new Date().toISOString(), status: 'accepted' }, { id: 'character-text-reply', content: '收到你的消息了。', images: {}, direction: 'character', occurredAt: new Date().toISOString(), status: 'delivered' }]; if (f.loseSendResult) throw new Error('测试：结果丢失'); return { data: { accepted: true } } }
           if (options.method === 'maintenance.start') { f.job = options.payload; return { data: { status: 'running' } } }
           if (options.method === 'maintenance.status') return { data: { status: 'done', result: true } }
           if (options.method === 'memory.factSources') return { data: [{ content: '小林说他喜欢修理收音机。', occurredAt: new Date().toISOString() }] }
-          if (options.method === 'story.snapshot') return { data: { story: { status: 'active', state: { alterSystem: { emotionalOffset: { description: '今天的她比往常更放松。' } } } }, entries: [], memories: [], intents: [{ id: 9, summary: '明天一起去书店' }], overlay: { state: { character: '更喜欢安静的地方' } }, facts: [{ id: 7, scope: 'character', content: '小林喜欢修理收音机。', confidence: 1 }] } }
+          if (options.method === 'story.snapshot') { (f.snapshotCalls ||= []).push(Date.now()); if (f.snapshotDelay) await new Promise(resolve => setTimeout(resolve, f.snapshotDelay)); if (f.storyData) return { data: structuredClone(f.storyData) }; return { data: { story: { status: 'active', state: { alterSystem: { emotionalOffset: { description: '今天的她比往常更放松。' } } } }, entries: [], memories: [], intents: [{ id: 9, summary: '明天一起去书店' }], overlay: { state: { character: '更喜欢安静的地方' } }, facts: [{ id: 7, scope: 'character', content: '小林喜欢修理收音机。', confidence: 1 }] } } }
           return { data: {} }
         }
       }
@@ -271,6 +271,55 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: 'artifacts/preview8-life-settings.png', fullPage: true })
+  await page.getByRole('button', { name: '故事', exact: true }).click()
+  await page.evaluate(() => { window.__storyFixture.loseSendResult = true })
+  await page.getByRole('textbox', { name: '消息内容' }).fill('回执丢失后由历史确认')
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.getByText('回执丢失后由历史确认', { exact: true }).waitFor()
+  await page.waitForFunction(() => document.querySelector('textarea[aria-label="消息内容"]').value === '' && ![...document.querySelectorAll('button')].some(button => button.textContent === '重试发送'))
+  await page.evaluate(() => { window.__storyFixture.loseSendResult = false })
+  console.log('PASS Preview 8.1: an accepted history receipt resolves an unknown send without resend.')
+  // Preview 8.1: stable rows, rolling-window arrival, reading position and composer height.
+  await page.getByRole('button', { name: '故事', exact: true }).click()
+  await page.evaluate(() => {
+    window.__storyFixture.messages = Array.from({ length: 200 }, (_, id) => ({ id: `read-${id}`, direction: 'character', content: `阅读消息 ${id} ` + '日常片段。'.repeat(10), occurredAt: '2026-10-16T10:00:00Z', status: 'delivered', images: [] }))
+  })
+  await page.getByText(/^阅读消息 199 /).waitFor()
+  await page.evaluate(() => { document.querySelector('[data-read-anchor="message-read-50"]').scrollIntoView(); window.dispatchEvent(new WheelEvent('wheel')); window.__readingY = scrollY; window.__readingTop = document.querySelector('[data-read-anchor="message-read-50"]').getBoundingClientRect().top; window.__stableRow = document.querySelector('[data-read-anchor="message-read-50"]') })
+  await page.waitForTimeout(1200)
+  assert.equal(await page.evaluate(() => window.__stableRow === document.querySelector('[data-read-anchor="message-read-50"]')), true)
+  await page.evaluate(() => { const f = window.__storyFixture; f.messages = [...f.messages.slice(1), { ...f.messages[199], id: 'read-200', content: '新到达的消息' }] })
+  await page.getByRole('button', { name: /有 1 条新消息/ }).waitFor()
+  assert.ok(Math.abs(await page.evaluate(() => document.querySelector('[data-read-anchor="message-read-50"]').getBoundingClientRect().top - window.__readingTop)) < 3)
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: '故事', exact: true }).click()
+  assert.ok(Math.abs(await page.evaluate(() => document.querySelector('[data-read-anchor="message-read-50"]').getBoundingClientRect().top - window.__readingTop)) < 3)
+  await page.getByRole('button', { name: /有 1 条新消息/ }).click()
+  await page.getByText('新到达的消息', { exact: true }).waitFor()
+  const composer = page.getByRole('textbox', { name: '消息内容' })
+  await composer.fill('多行输入\n'.repeat(30))
+  assert.ok(await composer.evaluate(element => element.getBoundingClientRect().height) >= 140)
+  await composer.fill('')
+  assert.ok(await composer.evaluate(element => element.getBoundingClientRect().height) <= 50)
+  await page.evaluate(() => {
+    window.__storyFixture.storyData = { story: { status: 'active' }, entries: Array.from({ length: 80 }, (_, id) => ({ id, kind: 'script', occurredAt: '2026-10-16T10:00:00Z', content: `时间线片段 ${id} ` + '生活继续。'.repeat(20) })), facts: Array.from({ length: 80 }, (_, id) => ({ id, content: `事实 ${id} ` + '记忆细节。'.repeat(15) })), memories: [], intents: [] }
+    window.__storyFixture.snapshotDelay = 600
+    window.__storyFixture.snapshotCalls = []
+  })
+  await page.getByRole('button', { name: '见闻', exact: true }).click()
+  // Entering and two manual refreshes share the same in-flight read (dirty mutation causes one follow-up).
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await page.getByText(/^时间线片段 79 /).waitFor()
+  await page.evaluate(() => { document.querySelector('[data-read-anchor="entry-35"]').scrollIntoView(); window.dispatchEvent(new WheelEvent('wheel')); window.__entryTop = document.querySelector('[data-read-anchor="entry-35"]').getBoundingClientRect().top })
+  await page.getByRole('button', { name: '长期记忆', exact: true }).click()
+  await page.evaluate(() => { document.querySelector('[data-read-anchor="fact-25"]').scrollIntoView(); window.dispatchEvent(new WheelEvent('wheel')); window.__factTop = document.querySelector('[data-read-anchor="fact-25"]').getBoundingClientRect().top })
+  await page.getByRole('button', { name: '此刻心绪', exact: true }).click()
+  await page.getByRole('button', { name: '长期记忆', exact: true }).click()
+  assert.ok(Math.abs(await page.evaluate(() => document.querySelector('[data-read-anchor="fact-25"]').getBoundingClientRect().top - window.__factTop)) < 3)
+  await page.getByRole('button', { name: '故事时间线', exact: true }).click()
+  assert.ok(Math.abs(await page.evaluate(() => document.querySelector('[data-read-anchor="entry-35"]').getBoundingClientRect().top - window.__entryTop)) < 3)
+  console.log('PASS Preview 8.1: timeline/memory/mind tab reading positions.')
+  console.log('PASS Preview 8.1: row identity, 200-row moving window, new-message badge, chat reading restoration and textarea grow/shrink.')
   assert.deepEqual(errors, [])
   console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
 } finally { await browser.close() }

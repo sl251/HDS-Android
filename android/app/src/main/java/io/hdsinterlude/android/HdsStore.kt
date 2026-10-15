@@ -97,6 +97,7 @@ class HdsStore(private val context: Context) {
             val draft = incoming.getJSONObject(i)
             val row = models.normalize(draft)
             val old = (0 until previous.length()).map { previous.getJSONObject(it) }.firstOrNull { it.optString("id") == row.getString("id") }
+            if (old != null && listOf("endpoint", "protocol", "model").any { old.optString(it) != row.optString(it) }) row.put("imageInput", "unknown")
             models.preserveCredential(draft, row, old)
             val plain = draft.optString("apiKey")
             if (plain.isNotEmpty()) encrypt(plain, row)

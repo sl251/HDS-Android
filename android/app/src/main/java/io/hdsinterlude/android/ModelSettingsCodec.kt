@@ -58,6 +58,9 @@ class ModelSettingsCodec(private val presets: JSONArray) {
         roles.forEach { result.put(it, input.optBoolean(it, false)) }
         val thinking = input.optString("deepseekThinking", if (presetId == "deepseek") "disabled" else "inherit")
         require(thinking in listOf("inherit", "disabled", "enabled")) { "思考模式无效" }
+        val imageInput = input.optString("imageInput", "unknown")
+        require(imageInput in listOf("unknown", "supported", "unsupported")) { "图片能力声明无效" }
+        result.put("imageInput", imageInput)
         result.put("deepseekThinking", thinking)
         return result
     }
@@ -68,9 +71,10 @@ class ModelSettingsCodec(private val presets: JSONArray) {
         for (i in 0 until source.length()) {
             val row = source.getJSONObject(i)
             val clean = JSONObject()
-            for (field in listOf("id", "preset", "label", "endpoint", "model", "modelsEndpoint", "protocol", "enabled", "deepseekThinking") + roles) {
+            for (field in listOf("id", "preset", "label", "endpoint", "model", "modelsEndpoint", "protocol", "enabled", "deepseekThinking", "imageInput") + roles) {
                 if (row.has(field)) clean.put(field, row.get(field))
             }
+            if (!clean.has("imageInput")) clean.put("imageInput", "unknown")
             clean.put("credentialPresent", row.optString("encryptedKey").isNotEmpty())
             result.put(clean)
         }

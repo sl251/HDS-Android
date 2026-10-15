@@ -5,6 +5,7 @@ export type ModelProvider = {
   id: string; preset: string; label: string; endpoint: string; model: string; modelsEndpoint?: string;
   protocol: 'chat-completions' | 'anthropic-messages'; enabled: boolean; credentialPresent: boolean;
   useForMain: boolean; useForCompaction: boolean; useForAlter: boolean;
+  imageInput?: 'unknown' | 'supported' | 'unsupported';
   deepseekThinking?: 'inherit' | 'disabled' | 'enabled'; apiKey?: string; clearKey?: boolean;
 }
 export type ModelOptions = {
@@ -31,7 +32,7 @@ export type NativeBridge = {
   appearance(): Promise<Appearance>;
   saveAppearance(options: Appearance & { removeBackground?: boolean; removeFont?: boolean }): Promise<void>;
   pickAppearanceAsset(options: { kind: 'background' | 'font' }): Promise<Appearance & { cancelled?: boolean }>;
-  pickImage(): Promise<{ cancelled: boolean; dataUri?: string }>;
+  pickImage(options?: { limit?: number }): Promise<{ cancelled: boolean; dataUri?: string; images?: { dataUri: string }[]; errors?: { index: number; message: string }[]; truncated?: boolean }>;
   exportStory(): Promise<{ cancelled: boolean }>;
   restoreStory(options: { cardId: string }): Promise<{ cancelled: boolean }>;
   restorePreviousStory(options: { cardId: string }): Promise<void>;
@@ -54,4 +55,89 @@ export type NativeBridge = {
   updateCard(options: { id: string; card: Card }): Promise<SavedCard>;
   deleteCard(options: { id: string }): Promise<void>;
   rpc(options: { method: string; payload?: Record<string, unknown> }): Promise<{ data: unknown }>;
+}
+
+/** Non-secret route identity shared by the UI and host. Never project credentials/query strings. */
+export type VisionProjection = {
+  enabled: boolean; mode: 'native' | 'sidecar'; providerId: string;
+  failoverEnabled: boolean; strategy: string;
+  candidates: { id: string; endpoint: string; protocol: string; model: string; enabled: boolean; imageInput: 'unknown' | 'supported' | 'unsupported' }[];
+}
+export function visionProjection(input: { providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; endpoint?: string; model?: string }): VisionProjection {
+  const options = input.modelOptions ?? {}
+  const providerId = options.visionProviderId || ''
+  const rows = input.providers ?? [{ id: 'legacy-primary', endpoint: input.endpoint || '', model: input.model || '', enabled: true, useForMain: true } as ModelProvider]
+  const candidates = rows.filter(row => providerId ? row.id === providerId : row.enabled && row.useForMain)
+  return { enabled: options.visionEnabled === true, mode: providerId ? 'sidecar' : 'native', providerId,
+    failoverEnabled: options.failoverEnabled ?? false, strategy: options.failoverStrategy ?? 'priority',
+    candidates: candidates.map(row => {
+      const protocol = row.protocol || 'chat-completions'
+      const url = new URL(row.endpoint.trim())
+      let path = url.pathname.replace(/\/+$/, '')
+      const suffix = protocol === 'anthropic-messages' ? 'messages' : 'chat/completions'
+      if (!path) path = '/v1/' + suffix
+      else if (/\/v[0-9]+(?:beta[0-9]*)?$/.test(path)) path += '/' + suffix
+      else path = path.replace(/\/(?:chat\/completions|messages)$/, '/' + suffix)
+      const imageInput = row.imageInput ?? 'unknown'
+      if (!['unknown', 'supported', 'unsupported'].includes(imageInput)) throw new Error('图片能力声明无效')
+      return { id: row.id, endpoint: url.origin + path, protocol, model: row.model.trim(), enabled: row.enabled !== false, imageInput }
+    }) }
+}
+export function visionRouteReason(route: VisionProjection): string | undefined {
+  if (!route.enabled) return '请开启图片理解，重启后生效'
+  if (!route.candidates.length || route.candidates.some(row => !row.enabled)) return '识图连接已移除或停用'
+  if (route.candidates.some(row => row.imageInput === 'unsupported')) return '识图路线含不支持图片的模型，请选择独立识图模型'
+  if (route.candidates.some(row => row.imageInput !== 'supported')) return '请在模型设置确认识图候选支持图片，或选择独立识图模型'
+}
+export function imageEntryReason(input: { native: boolean; healthy: boolean; busy: boolean; sending: boolean; count: number; enabled: boolean }): string | undefined {
+  if (!input.native) return '浏览器预览无法选择本机图片'
+  if (!input.healthy) return '请先唤醒核心再添加图片'
+  if (input.busy || input.sending) return '正在处理，请稍候再添加图片'
+  if (input.count >= 3) return '最多 3 张图片，请先移除一张'
+  if (!input.enabled) return '请到模型设置开启图片理解（识图模型），再把照片发来'
+}
+
+/** Share one read, and read again after a mutation that overlapped it. Revision keys isolate profiles. */
+export function refreshCoordinator<T>(read: (revision: number) => Promise<T>, apply: (value: T, revision: number) => void) {
+  const flights = new Map<number, { promise: Promise<void>; dirty: boolean }>()
+  return (revision: number, changed = false): Promise<void> => {
+    const running = flights.get(revision)
+    if (running) { running.dirty ||= changed; return running.promise }
+    const flight = { dirty: false, promise: Promise.resolve() }
+    flights.set(revision, flight)
+    flight.promise = (async () => {
+      do { flight.dirty = false; const value = await read(revision); if (!flight.dirty) apply(value, revision) } while (flight.dirty)
+    })().finally(() => { if (flights.get(revision) === flight) flights.delete(revision) })
+    return flight.promise
+  }
+}
+export function mergeMessages(previous: Message[], incoming: Message[]): Message[] {
+  const old = new Map(previous.map(row => [row.id, row]))
+  const next = incoming.map(row => {
+    const normalized = { ...row, images: messageImages(row.images) }
+    const before = old.get(row.id)
+    return before && before.content === normalized.content && before.status === normalized.status && before.direction === normalized.direction && before.occurredAt === normalized.occurredAt && JSON.stringify(messageImages(before.images)) === JSON.stringify(normalized.images) ? before : normalized
+  })
+  return next.length === previous.length && next.every((row, index) => row === previous[index]) ? previous : next
+}
+export function messageStatusLabel(message: Pick<Message, 'direction' | 'status'>): string {
+  if (message.status === 'card-opening') return '角色卡开场白 · 本地已展示'
+  if (message.direction === 'user' && message.status === 'accepted') return '核心已接收，角色尚未必回复'
+  if (message.direction === 'character' && message.status === 'delivered') return '已显示'
+  return message.status === 'failed' ? '发送失败' : ''
+}
+
+export type SchedulingStatus = { requestId: string; outcome: 'registered' | 'rejected'; reasonCode: string; intentId?: number; dueAt?: string }
+
+/** Re-normalize a projected RPC value, discarding unknown properties and preserving candidate order. */
+export function normalizeVisionProjection(value: VisionProjection): VisionProjection {
+  if (!value || !Array.isArray(value.candidates) || value.candidates.length > 12 || !['native', 'sidecar'].includes(value.mode) || (value.mode === 'sidecar') !== !!value.providerId) throw new Error('识图状态格式无效')
+  return visionProjection({ providers: value.candidates.map(row => ({ ...row, useForMain: true } as ModelProvider)), modelOptions: { visionEnabled: value.enabled, visionProviderId: value.providerId, failoverEnabled: value.failoverEnabled, failoverStrategy: value.strategy as ModelOptions['failoverStrategy'] } })
+}
+
+/** Native explicit RPC rejection is distinct from an interrupted transport. */
+export function localRequestFailure(error: unknown): 'failed' | 'unknown' {
+  const value = error as { code?: unknown; message?: unknown } | null
+  if (['IllegalArgumentException', 'RPC_REJECTED'].includes(String(value?.code))) return 'failed'
+  return /未接受|请|无效|Invalid|conflict|最多/.test(String(value?.message ?? error)) ? 'failed' : 'unknown'
 }

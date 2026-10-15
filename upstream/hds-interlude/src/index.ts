@@ -233,6 +233,7 @@ const Runtime: Schema<RuntimeConfig> = Schema.object({
   ignoreCommandMessages: Schema.boolean().default(true).description('是否跳过 interlude.* 管理命令，避免进入剧本。'),
   allowProactiveMessages: Schema.boolean().default(false).description('是否允许无新消息时向参与者主动发送可见消息。'),
   proactiveWillingnessThreshold: Schema.number().min(0).max(1).step(0.05).default(0.65).description('主动联系意愿门槛。'),
+  minimumFollowUpCommitmentSeconds: Schema.natural().min(10).max(43200).default(300).description('承诺最短等待（秒）；最长12小时，过短请求可改用延迟消息。'),
   sweepIntervalMinutes: Schema.natural().min(1).max(1_440).default(5).description('后台扫描周期；仅用于发现到期任务，不代表每轮都调用模型。'),
   minimumAdvanceMinutes: Schema.natural().min(1).max(10_080).default(30).description('手动“interlude.advance”的最小有效补写间隔；到期计划和对话后的短期补写不受此限制。'),
   maxStoriesPerSweep: Schema.natural().min(1).max(1_000).default(20).description('单轮后台扫描最多处理的主剧本数量。'),
@@ -473,7 +474,7 @@ const OneBot: Schema<OneBotNapCatConfig> = Schema.object({
 
 const ChatActions: Schema<ChatActionsConfig> = Schema.object({
   enabled: Schema.boolean().default(false).description('启用聊天动作。'),
-  platforms: Schema.array(Schema.union(['qq', 'wechat'])).role('table').default(['qq']).description('允许使用动作的平台。'),
+  platforms: Schema.array(Schema.union(['qq', 'wechat', 'local'])).role('table').default(['qq']).description('允许使用动作的平台。'),
   quoteReply: Schema.boolean().default(true).description('允许主角引用当前上下文中的一条消息进行指定回复。'),
   messageReactions: Schema.boolean().default(true).description('允许消息表情回应。'),
   allowedReactions: Schema.array(Schema.union(['like', 'smile', 'laugh', 'heart', 'surprised', 'sad', 'angry'])).role('table')

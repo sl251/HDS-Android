@@ -21,6 +21,14 @@ import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
+/** Kept pure so device tests can exercise redaction with synthetic placeholders only. */
+internal fun sanitizedRuntimeLog(line: String, secrets: List<String>, token: String): String {
+    var safe = line.replace(Regex("\\u001B\\[[;\\d]*m"), "")
+    for (secret in secrets) if (secret.isNotEmpty()) safe = safe.replace(secret, "[REDACTED]")
+    if (token.isNotEmpty()) safe = safe.replace(token, "[REDACTED]")
+    return safe.take(1500)
+}
+
 class HdsRuntime private constructor(private val context: Context) {
     val store = HdsStore(context)
     private val environment = File(store.base, "runtime").apply { mkdirs() }
@@ -112,9 +120,7 @@ class HdsRuntime private constructor(private val context: Context) {
     @Suppress("DEPRECATION")
     private fun appVersion() = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
     @Synchronized private fun log(line: String) {
-        var safe = line.replace(Regex("\\u001B\\[[;\\d]*m"), "")
-        for (secret in secrets) if (secret.isNotEmpty()) safe = safe.replace(secret, "[REDACTED]")
-        if (token.isNotEmpty()) safe = safe.replace(token, "[REDACTED]")
+        val safe = sanitizedRuntimeLog(line, secrets, token)
         if (safe.startsWith("HDS startup failed:")) startupFailure = safe.take(1500)
         output.addLast(safe.take(1500)); while (output.size > 200) output.removeFirst()
     }

@@ -44,7 +44,7 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
     finally { setWorking(false) }
   }
   return <section className="settings-group"><details><summary><span><b>生活节奏与表达</b><small>她的日常、主动联系与后台预算</small></span></summary>
-    <p className="caption">沿用电脑版默认值。弹性推进开启后接管固定补写；持续生活总开关仍优先。修改自动保存，重启后生效。</p>
+    <p className="caption">沿用电脑版默认值。弹性推进开启后接管固定补写；持续生活总开关控制自动生活；用户明确约定独立保留，但仍受暂停和预算约束。修改自动保存，重启后生效。</p>
     <label>24 小时后台模型请求上限<NumericField value={value.backgroundLimit ?? 120} array={false} min={0} max={10000} step={1} label="24 小时后台模型请求上限" change={item => change({ ...value, backgroundLimit: item as number })} /></label>
     <p className="caption">默认 120 次，0 为不限。滚动 24 小时统计，失败与重试也计数；重启不清零。直接聊天和手动整理不占后台额度。自动整理、识图等辅助请求也纳入预算。</p>
     {budget && <p role="status">已用 {budget.used} / {budget.limit || '不限'} 次{budget.exhausted ? ` · 后台额度已用完，最早 ${new Date(budget.resumesAt!).toLocaleString()} 恢复` : ''}</p>}
@@ -59,6 +59,7 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
           : <NumericField label={label} value={item} array={field.type === 'array'} min={f.min ?? f.itemMin} max={f.max ?? f.itemMax} step={f.step} change={next => update(section.key, field.key, next)} />}</>}
         </label>
       })}
+      {section.key === 'runtime' && <p className="caption">承诺最长12小时。扫描是漏唤醒/恢复后的兜底，已有到期计时器无需等待扫描；不会唤醒被系统强制停止的应用。显式约定仍受预算与暂停约束。字段修改保存后重启生效。</p>}
       {section.key === 'chatActions' && <p className="caption">仅接通 QQ 引用回复；表情回应与原生表情尚未验证。</p>}
     </details>)}
     <details><summary>从分享码同步生活配置</summary><p className="caption">只同步这里支持的字段。模型连接、人设、总开关和预算保持你的设置。预设中的其他分区会列为忽略。</p>

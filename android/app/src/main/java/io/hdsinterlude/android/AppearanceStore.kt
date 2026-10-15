@@ -40,18 +40,18 @@ class AppearanceStore(private val context: Context) {
         if (input.optBoolean("removeFont")) { File(root, "font.bin").delete() }
     }
     fun import(kind: String, uri: Uri): JSONObject {
-        val bytes = bounded(uri, if (kind == "font") 16 * 1024 * 1024 else 32 * 1024 * 1024)
         val previous = read()
         if (kind == "font") {
+            val bytes = bounded(uri, 16 * 1024 * 1024)
             require(bytes.size >= 12 && (bytes.copyOfRange(0, 4).contentEquals(byteArrayOf(0, 1, 0, 0)) || String(bytes.copyOfRange(0, 4), Charsets.US_ASCII) == "OTTO")) { "请使用有效的 TTF 或 OTF 字体" }
             val temporary = File(root, "font-import.tmp")
             try { temporary.writeBytes(bytes); Typeface.createFromFile(temporary); atomic(File(root, "font.bin"), bytes) } finally { temporary.delete() }
             previous.put("font", "custom").put("fontName", "本地导入字体")
-        } else { require(kind == "background"); atomic(File(root, "background.jpg"), jpeg(bytes, 2048, 1500000)) }
+        } else { require(kind == "background"); atomic(File(root, "background.jpg"), imageBytes(uri, 2048, 1500000)) }
         save(previous)
         return read()
     }
-    fun image(uri: Uri): String = "data:image/jpeg;base64," + Base64.encodeToString(jpeg(bounded(uri, 32 * 1024 * 1024), 1024, 480000), Base64.NO_WRAP)
+    fun image(uri: Uri): String = "data:image/jpeg;base64," + Base64.encodeToString(imageBytes(uri, 1024, 480000), Base64.NO_WRAP)
     private fun bounded(uri: Uri, limit: Int): ByteArray {
         val output = ByteArrayOutputStream()
         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -60,30 +60,54 @@ class AppearanceStore(private val context: Context) {
         } ?: throw IllegalArgumentException("无法读取所选文件")
         return output.toByteArray()
     }
-    private fun jpeg(bytes: ByteArray, edge: Int, limit: Int): ByteArray {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }; BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "无法解码图片，请选择 JPEG、PNG 或 WebP" }
+    /** A bounded private staging file makes cloud/document streams seekable without a source-sized heap copy. */
+    private fun imageBytes(uri: Uri, edge: Int, limit: Int): ByteArray {
+        val temporary = File.createTempFile("hds-image-", ".tmp", context.cacheDir)
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                temporary.outputStream().use { output ->
+                    val block = ByteArray(65536)
+                    var total = 0L
+                    while (true) {
+                        val count = input.read(block)
+                        if (count < 0) break
+                        total += count
+                        require(total <= 32L * 1024 * 1024) { "文件过大，图片最大32MiB" }
+                        output.write(block, 0, count)
+                    }
+                }
+            } ?: throw IllegalArgumentException("无法读取所选文件")
+            return jpeg(temporary, edge, limit)
+        } finally { temporary.delete() }
+    }
+    private fun jpeg(file: File, edge: Int, limit: Int): ByteArray {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0 && bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) { "图片尺寸无效或过大，请选择JPEG、PNG或WebP" }
         val options = BitmapFactory.Options().apply { inSampleSize = 1 }
         while (maxOf(bounds.outWidth, bounds.outHeight) / options.inSampleSize > edge * 2) options.inSampleSize *= 2
-        val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: throw IllegalArgumentException("图片解码失败")
-        val ratio = minOf(1.0, edge.toDouble() / maxOf(original.width, original.height))
-        val resized = Bitmap.createScaledBitmap(original, maxOf(1, (original.width * ratio).toInt()), maxOf(1, (original.height * ratio).toInt()), true)
-        val orientation = try { android.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) } catch (_: Exception) { 1 }
-        val matrix = android.graphics.Matrix()
-        when (orientation) {
-            2 -> matrix.setScale(-1f, 1f)
-            3 -> matrix.setRotate(180f)
-            4 -> matrix.setScale(1f, -1f)
-            5 -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
-            6 -> matrix.setRotate(90f)
-            7 -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
-            8 -> matrix.setRotate(-90f)
-        }
-        val scaled = if (orientation in 2..8) Bitmap.createBitmap(resized, 0, 0, resized.width, resized.height, matrix, true) else resized
+        val bitmaps = mutableSetOf<Bitmap>()
+        fun own(bitmap: Bitmap): Bitmap = bitmap.also { bitmaps.add(it) }
         try {
+            val original = own(BitmapFactory.decodeFile(file.absolutePath, options) ?: throw IllegalArgumentException("图片解码失败"))
+            val ratio = minOf(1.0, edge.toDouble() / maxOf(original.width, original.height))
+            val resized = own(Bitmap.createScaledBitmap(original, maxOf(1, (original.width * ratio).toInt()), maxOf(1, (original.height * ratio).toInt()), true))
+            val orientation = try { android.media.ExifInterface(file.absolutePath).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) } catch (_: Exception) { 1 }
+            val matrix = android.graphics.Matrix()
+            when (orientation) {
+                2 -> matrix.setScale(-1f, 1f)
+                3 -> matrix.setRotate(180f)
+                4 -> matrix.setScale(1f, -1f)
+                5 -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+                6 -> matrix.setRotate(90f)
+                7 -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
+                8 -> matrix.setRotate(-90f)
+            }
+            val scaled = if (orientation in 2..8) own(Bitmap.createBitmap(resized, 0, 0, resized.width, resized.height, matrix, true)) else resized
+            // Preserve Android JPEG alpha handling from the previous pipeline.
             var quality = 88; var result: ByteArray
             do { val output = ByteArrayOutputStream(); require(scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)); result = output.toByteArray(); quality -= 10 } while (result.size > limit && quality >= 18)
             require(result.size <= limit) { "图片压缩后仍过大，请选择较小图片" }; return result
-        } finally { if (scaled !== resized) scaled.recycle(); if (resized !== original) resized.recycle(); original.recycle() }
+        } finally { bitmaps.forEach { if (!it.isRecycled) it.recycle() } }
     }
 }

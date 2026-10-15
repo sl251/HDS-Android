@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { parseJsonCard } from '../packages/card-format'
+import { visionProjection } from '../packages/contracts'
 import type { HostConfig } from '../runtime/host'
 const { startHost } = createRequire(import.meta.url)('../runtime/generated/host.cjs') as typeof import('../runtime/host')
 
@@ -19,10 +20,17 @@ test('real HDS forwards native image input, retains attachment history and holds
   await new Promise<void>(resolve => model.listen(0, '127.0.0.1', resolve))
   const reserve = createServer(); await new Promise<void>(resolve => reserve.listen(0, '127.0.0.1', resolve)); const port = (reserve.address() as { port: number }).port; await new Promise<void>(resolve => reserve.close(() => resolve()))
   const dataDir = mkdtempSync(join(tmpdir(), 'hds-image-chat-'))
-  const config: HostConfig = { card: parseJsonCard(JSON.stringify({ name: '星禾', description: '与小林一起生活' })), endpoint: `http://127.0.0.1:${(model.address() as { port: number }).port}/chat/completions`, model: 'vision-fixture', userName: '小林', userProfile: '邻居', autoAdvance: false, token: 'image-fixture-token-longer-than-32-characters', port, dataDir, modelOptions: { visionEnabled: true } }
+  const config: HostConfig = { card: parseJsonCard(JSON.stringify({ name: '星禾', description: '与小林一起生活' })), endpoint: `http://127.0.0.1:${(model.address() as { port: number }).port}/chat/completions`, model: 'vision-fixture', userName: '小林', userProfile: '邻居', autoAdvance: false, token: 'image-fixture-token-longer-than-32-characters', port, dataDir, providers: [{ id: 'legacy-primary', preset: 'custom', label: 'fixture', endpoint: `http://127.0.0.1:${(model.address() as { port: number }).port}/chat/completions`, model: 'vision-fixture', protocol: 'chat-completions', enabled: true, credentialPresent: false, useForMain: true, useForCompaction: true, useForAlter: true, imageInput: 'supported' }], modelOptions: { visionEnabled: true } }
   let host: Awaited<ReturnType<typeof startHost>> | undefined
   try {
     host = await startHost(config)
+    const same = await host.dispatch('preset.syncStatus', { currentVision: { providers: config.providers, modelOptions: config.modelOptions } }) as any
+    assert.equal(same.visionRestartRequired, false)
+    assert.equal(same.restartRequired, false)
+    assert.equal((await host.dispatch('preset.syncStatus', { currentVision: visionProjection(config) }) as any).visionRestartRequired, false)
+    const changed = await host.dispatch('preset.syncStatus', { currentVision: { providers: config.providers, modelOptions: { visionEnabled: false } } }) as any
+    assert.equal(changed.visionRestartRequired, true)
+    assert.equal((await host.dispatch('preset.syncStatus', { current: {} }) as any).restartRequired, false)
     const dataUri = `data:image/jpeg;base64,${readFileSync('fixtures/images/vision-fixture.jpg').toString('base64')}`
     const upload = await host.dispatch('images.upload', { dataUri }) as { id: string }
     const payload = { requestId: 'image-chat-fixture-001', content: '', images: [upload.id] }
@@ -44,6 +52,11 @@ test('real HDS forwards native image input, retains attachment history and holds
     await assert.rejects(host.dispatch('messages.sendLocal', { requestId: 'paused-image-fixture-001', content: '测试暂停', images: [upload.id] }))
     assert.equal((await host.dispatch('images.get', { id: upload.id }) as { dataUri: string }).dataUri, dataUri)
     await host.stop(); host = undefined
+    for (const imageInput of ['unknown', 'unsupported'] as const) {
+      host = await startHost({ ...config, providers: config.providers!.map(row => ({ ...row, imageInput })) })
+      await assert.rejects(host.dispatch('messages.sendLocal', { requestId: 'capability-fixture-' + imageInput, content: '', images: [upload.id] }), /确认|不支持/)
+      await host.stop(); host = undefined
+    }
     host = await startHost({ ...config, modelOptions: { visionEnabled: false } })
     await assert.rejects(host.dispatch('messages.sendLocal', { requestId: 'disabled-vision-fixture-001', content: '', images: [upload.id] }), /开启主模型识图/)
   } finally { if (host) await host.stop(); await new Promise<void>(resolve => model.close(() => resolve())) }

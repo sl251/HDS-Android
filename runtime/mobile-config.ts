@@ -2,7 +2,7 @@ import { Config } from '../upstream/hds-interlude/src/index'
 
 // This is the supported surface, not a second copy of upstream defaults/types.
 export const supportedFields: Record<string, string[]> = {
-  runtime: ['autoAdvanceIntervalMinutes', 'autoAdvanceJitterMinutes', 'conversationFollowUpMinutes', 'conversationFollowUpJitterMinutes'],
+  runtime: ['minimumFollowUpCommitmentSeconds', 'sweepIntervalMinutes', 'autoAdvanceIntervalMinutes', 'autoAdvanceJitterMinutes', 'conversationFollowUpMinutes', 'conversationFollowUpJitterMinutes'],
   urge: ['enabled', 'frequency', 'proactiveWillingnessThreshold'],
   agency: ['enabled', 'contactMode', 'maxWindowMinutes', 'minimumProactiveIntervalMinutes', 'naturalWillingnessThreshold', 'naturalMinimumIntervalMinutes', 'proactiveDailyCap'],
   schedulePreplan: ['enabled', 'horizonDays', 'variationLevel', 'candidateActivationProbability', 'candidateRevealMinutes', 'reviewAfterLocalHour', 'anchorAutoAdvance'],

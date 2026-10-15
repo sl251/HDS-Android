@@ -36,3 +36,7 @@ android/app/src/main/jniLibs/
 *.tsbuildinfo
 __pycache__/
 android/app/src/main/assets/legal/
+
+# Delegation transcripts and stderr logs (readable summaries are committed instead)
+HDS-Mobile-Plan/evidence/*.jsonl
+HDS-Mobile-Plan/evidence/*.log

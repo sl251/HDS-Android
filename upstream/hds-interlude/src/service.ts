@@ -14,7 +14,7 @@ import {
   shouldTriggerLongHorizon,
 } from './long-arc'
 import { createWorldSeeder, parseWorldSeedEvents, resolveWorldSeederRuntime, seedDomainForRun, validateSeedEvent, type SeedValidationInput, type WorldSeedDomain, type WorldSeeder } from './world-seeder'
-import { fetchWeatherSnapshot, lastWeatherSnapshot, resolveWeatherConfig, type WeatherConfig, type WeatherSnapshot } from './weather'
+import { fetchWeatherSnapshot, lastWeatherSnapshot, resolveWeatherConfig } from './weather'
 import { callQzoneAction, evaluateQzoneGate, matchQzoneFeedContent, normalizeQzoneFeedEntry, normalizeQzoneMsgEntry, probeQzoneAvailable, qzoneFeedCandidates, qzoneIntentFromPayload, qzoneReactionDeltas, qzoneRecordsForEndpoint, qzoneVisibilityLabel, resolveQzoneConfig, QzoneActionError, type QzoneActionCaller, type QzoneActionKind, type QzoneConfig, type QzoneFeedEntry, type QzoneMsgEntry, type QzonePostRecord } from './qzone'
 import {
   channelContextMetadata, deriveGroupEndpoint, deriveParticipantUserEndpoint, deriveStoryRoleEndpoint,
@@ -544,6 +544,7 @@ export interface RuntimeConfig {
   allowProactiveMessages: boolean
   /** Minimum narrator-declared willingness for a background-initiated contact. */
   proactiveWillingnessThreshold?: number
+  minimumFollowUpCommitmentSeconds?: number
   sweepIntervalMinutes: number
   minimumAdvanceMinutes: number
   maxStoriesPerSweep: number
@@ -1207,6 +1208,8 @@ export class InterludeService extends Service {
       const rawEvent = events.find(item => isRecord(item) && item.commitId === action.commitId && item.eventId === action.eventId)
       if (!isRecord(rawEvent) || !isOutgoingScriptEvent(rawEvent as unknown as ScriptEventDraft)) continue
       const event = rawEvent as unknown as ScriptEventDraft
+      // The due intent owns a scheduled-contact plan; outbox recovery must never send it early or compete with reconciliation.
+      if (event.metadata?.scheduledContactPlan === true) continue
       for (const segment of action.segments) {
         if (!isRecord(segment) || segment.kind !== 'message' || segment.status !== 'pending' || typeof segment.content !== 'string' || !segment.content) continue
         // 群 pending 段(group-message 事件不带 participantId):从事件/行动的
@@ -2050,6 +2053,25 @@ export class InterludeService extends Service {
       limit: Math.max(1, Math.min(limit, 100)),
       sort: { updatedAt: 'desc' },
     })
+  }
+
+  async adminSchedulingStatus(storyId: string) {
+    const rows = await this.dbGet('interlude_script_entry', { storyId, kind: 'admin-note' }, { sort: { id: 'desc' }, limit: 30 })
+    return rows.flatMap(row => {
+      const value = row.metadata?.scheduledContactRegistration
+      if (!isRecord(value) || (value.outcome !== 'registered' && value.outcome !== 'rejected') || typeof value.requestId !== 'string' || typeof value.reasonCode !== 'string') return []
+      return [{ requestId: value.requestId.slice(0, 128), outcome: value.outcome, reasonCode: /^[a-z-]{1,64}$/.test(value.reasonCode) ? value.reasonCode : 'invalid-plan-time', ...(typeof value.intentId === 'number' && Number.isSafeInteger(value.intentId) && value.intentId > 0 ? { intentId: value.intentId } : {}), ...(toDate(value.dueAt) ? { dueAt: toDate(value.dueAt)!.toISOString() } : {}) }]
+    }).slice(0, 10)
+  }
+
+  private async recordSchedulingStatus(storyId: string, participantId: string, outcome: 'registered' | 'rejected', reasonCode: string, now: Date, intentId?: number, dueAt?: string) {
+    try {
+      const user = (await this.dbGet('interlude_script_entry', { storyId, participantId, kind: 'user-message' }, { sort: { id: 'desc' }, limit: 1 }))[0]
+      const requestId = String(user?.metadata?.messageId ?? user?.id ?? now.toISOString())
+      const existing = await this.adminSchedulingStatus(storyId)
+      if (existing.some(item => item.requestId === requestId && item.outcome === outcome && item.intentId === intentId && item.reasonCode === reasonCode)) return
+      await this.appendEntry(storyId, { kind: 'admin-note', actor: 'system', content: '定时联系登记状态：' + reasonCode, occurredAt: now.toISOString(), metadata: { scheduledContactRegistration: { requestId, outcome, reasonCode, ...(intentId ? { intentId } : {}), ...(dueAt ? { dueAt } : {}) } } }, now, participantId)
+    } catch { this.reportStandalone('warn', 'scheduled-contact status write failed') }
   }
 
   async adminPendingIntents(storyId: string, limit = 20) {
@@ -4882,8 +4904,10 @@ export class InterludeService extends Service {
           }
           if (turnSucceeded && taskCurrent()) {
             await this.dbSet('interlude_story', { id: current.id }, { cursorAt: now, updatedAt: now })
-            const ordinaryDueIds = dueBatch.filter(intent => intent.type !== 'follow-up-commitment').map(intent => intent.id)
+            const ordinaryDueIds = dueBatch.filter(intent => intent.type !== 'follow-up-commitment' && intent.payload?.purpose !== 'scheduled-contact').map(intent => intent.id)
             if (ordinaryDueIds.length) await this.dbSet('interlude_intent', { id: { $in: ordinaryDueIds } }, { status: 'completed', updatedAt: now })
+            const scheduledDueIds = dueBatch.filter(intent => intent.type === 'delayed-reply' && intent.payload?.purpose === 'scheduled-contact').map(intent => intent.id)
+            if (scheduledDueIds.length) await this.dbSet('interlude_intent', { id: { $in: scheduledDueIds }, status: 'pending' }, { notBefore: new Date(now.getTime() + Math.max(1, this.config.runtime.sweepIntervalMinutes) * Time.minute), updatedAt: now })
             if (dueBatch.some(intent => intent.type === 'delayed-reply')) {
               delayedReplyProcessed = true
               await this.pauseAutomaticAdvanceAfterDelayedReply(story.id, now, dueParticipant?.id ?? '')
@@ -4923,6 +4947,7 @@ export class InterludeService extends Service {
       const hasMoreFollowUps = dueFollowUps.length > 0 && await this.completeConversationFollowUps(story.id, now)
       if (!hasMoreFollowUps) await this.scheduleNextAutomaticAdvance(story.id, now)
     }
+    await this.scheduleNextSplitWake(story.id)
     return messages
   }
 
@@ -5048,6 +5073,7 @@ export class InterludeService extends Service {
     const endpointSelection = this.narrativeEndpointSelection(story, allParticipants, availableGroupTargets)
     return reconcileTransportReferences(await this.narrator.decide({
       urgeEnabled: this.urgeConfig.enabled && !dueIntents.some(intent => intent.type === 'narrative-retry'),
+      scheduledContactPolicy: { delayedMinSeconds: this.config.runtime.minimumDelayedReplySeconds, delayedMaxMinutes: this.config.runtime.maximumDelayedReplyMinutes, commitmentMinSeconds: this.config.runtime.minimumFollowUpCommitmentSeconds ?? 300, commitmentMaxHours: 12 },
       phase, refreshContinuity, outputRecovery, story, from, now, userMessage, userReportedTimes, images, audio, visualObservations, historicalGroupImages, timelinePlan, developmentTendencies,
       writingOptions: {
         messageSeparator: this.config.runtime.messageSeparator?.trim() || '<sep/>',
@@ -5380,9 +5406,10 @@ export class InterludeService extends Service {
             .map(fact => Number(fact.localTime.slice(-5, -3)) * 60 + Number(fact.localTime.slice(-2)))
             .filter(Number.isFinite))
         : undefined
+      const initialScheduleIssue = phase === 'user-message' && !groupContext ? scheduledContactIssue(decision, userMessage ?? '', now, story.setting.timezone, this.config.runtime) : undefined
       const initialTimeOverflow = detectLiveScriptTimeOverflow(decision.script, phase, from, effectiveNow, story.setting.timezone, endorsedClocks)
       const initialVisibleRecovery = this.modelRouting.main.available && !earlyReplyCommitted && requiresVisibleReplyRecovery(phase, groupContext, decision)
-      if (initialTimeOverflow || initialVisibleRecovery) {
+      if (initialTimeOverflow || initialVisibleRecovery || initialScheduleIssue && !earlyReplyCommitted) {
         // 诊断：记录被抛弃草稿里模型实际返回的 interaction（缺失/为空/形状错误），
         // 让下一次"结构化可见回复缺失"可以直接从日志定位是模型行为还是解析问题。
         if (initialVisibleRecovery) {
@@ -5416,6 +5443,17 @@ export class InterludeService extends Service {
           } else {
             throw new Error('Narrative provider omitted the required visible-reply structure after one recovery attempt.')
           }
+        }
+      }
+      if (phase === 'user-message' && !groupContext) {
+        const issue = scheduledContactIssue(decision, userMessage ?? '', now, story.setting.timezone, this.config.runtime)
+        if (issue) {
+          await this.recordSchedulingStatus(story.id, participant?.id ?? '', 'rejected', earlyReplyCommitted ? 'streamed-unregistered' : issue, now)
+          if (!earlyReplyCommitted) throw new Error('scheduled-contact: ' + issue)
+          decision = { ...decision, followUpCommitment: undefined, intents: [], interaction: undefined }
+        } else if (!decision.followUpCommitment && decision.interaction?.reply.mode === 'immediate') {
+          const inferred = classifyFollowUp(decision.interaction.reply.content, now, story.setting.timezone, userMessage, this.config.runtime.minimumFollowUpCommitmentSeconds)
+          if (inferred) decision = { ...decision, followUpCommitment: inferred }
         }
       }
       // The fixed narrative contract requires prose for every real model turn.
@@ -5599,6 +5637,15 @@ export class InterludeService extends Service {
     }
     let scriptEntry: ScriptEntry | undefined
     if (commit) {
+      if (participant && phase === 'user-message' && decision.interaction?.reply.mode === 'delayed' && decision.interaction.reply.purpose === 'scheduled-contact') {
+        const event = findPrivateOutgoingMessageEvent(commit, participant.id, 'delayed', decision.interaction.reply.content, this.config.runtime.messageSeparator)
+        if (event) event.metadata = { ...event.metadata, scheduledContactPlan: true }
+      }
+      if (participant && phase === 'intent-due' && permitMessages) {
+        const ids = contextIntents.filter(intent => intent.type === 'delayed-reply' && intent.payload?.purpose === 'scheduled-contact' && intent.participantId === participant.id).map(intent => intent.id)
+        const event = findPrivateOutgoingMessageEvent(commit, participant.id, 'immediate', decision.interaction?.reply.content, this.config.runtime.messageSeparator)
+        if (event && ids.length) event.metadata = { ...event.metadata, scheduledContactIntentIds: ids }
+      }
       // A resolution belongs to this exact message reaching the user.
       if (participant && (permitMessages || immediateReplyAlreadyDelivered) && decision.followUpResolutions.length) {
         const event = findPrivateOutgoingMessageEvent(commit, participant.id, 'immediate', decision.interaction?.reply.content, this.config.runtime.messageSeparator)
@@ -5606,9 +5653,8 @@ export class InterludeService extends Service {
       }
       if (participant && phase === 'user-message' && (permitMessages || immediateReplyAlreadyDelivered)) {
         const event = findPrivateOutgoingMessageEvent(commit, participant.id, 'immediate', decision.interaction?.reply.content, this.config.runtime.messageSeparator)
-        const commitment = decision.followUpCommitment ?? (interactionPromisesFollowUp(decision.interaction?.reply.content)
-          ? inferredFollowUpCommitment(decision.interaction!.reply.content!, now) : undefined)
-        if (event && commitment) event.metadata = { ...event.metadata, followUpCommitment: commitment }
+        const commitment = decision.followUpCommitment ?? (interactionPromisesFollowUp(decision.interaction?.reply.content) ? inferredFollowUpCommitment(decision.interaction!.reply.content!, now, this.config.runtime.minimumFollowUpCommitmentSeconds) : undefined)
+        if (event && commitment && (commitment.kind !== 'scheduled-contact' || event.scriptBinding?.status === 'bound')) event.metadata = { ...event.metadata, followUpCommitment: commitment }
       }
       scriptEntry = await this.appendEntry(
         story.id,
@@ -5625,7 +5671,9 @@ export class InterludeService extends Service {
       // Carry that provenance into the shared intent ledger so its due-turn
       // is allowed to send the eventual message without enabling broad
       // background outreach.
-      const payload = isRecord(intent.payload) ? intent.payload : {}
+      const payload = { ...(isRecord(intent.payload) ? intent.payload : {}) }
+      // Only the validated reply branch below may assign the reserved scheduling purpose.
+      if (payload.purpose === 'scheduled-contact') delete payload.purpose
       await this.appendIntent(story.id, {
         ...intent,
         payload: phase === 'user-message' && participant
@@ -5864,6 +5912,7 @@ export class InterludeService extends Service {
           content: interaction.reply.content,
           ...(delayedEndpointId ? { endpointId: delayedEndpointId } : {}),
           userInitiated: phase === 'user-message',
+          ...(phase === 'user-message' && interaction.reply.purpose === 'scheduled-contact' ? { purpose: 'scheduled-contact' } : {}),
           interaction: true,
           ...(commit
               ? scriptEventPayload(attachMessageEvent(
@@ -5874,6 +5923,10 @@ export class InterludeService extends Service {
             : {}),
         },
       }, now, participant.id)
+      if (phase === 'user-message' && interaction.reply.purpose === 'scheduled-contact') {
+        const created = (await this.dbGet('interlude_intent', { storyId: story.id, participantId: participant.id, type: 'delayed-reply', status: 'pending' })).find(intent => intent.payload?.purpose === 'scheduled-contact' && intent.notBefore.getTime() === sendAt.getTime())
+        if (created) await this.recordSchedulingStatus(story.id, participant.id, 'registered', 'registered', now, created.id, interaction.reply.sendAt)
+      }
       this.scheduleDueIntentWake(story.id, sendAt)
     }
 
@@ -6706,6 +6759,7 @@ export class InterludeService extends Service {
     }
     if (this.sweepRunning || this.hasPendingNarrative(storyId)) return 'busy'
     await this.sweep()
+    await this.scheduleNextSplitWake(storyId)
   }
 
   private async reconcileTerminalSplitIntent(storyId: string, intent: NarrativeIntent, now: Date) {
@@ -6769,11 +6823,12 @@ export class InterludeService extends Service {
   }
 
   private async scheduleNextSplitWake(storyId: string) {
-    const pending = await this.dbGet('interlude_intent', { storyId, status: 'pending', type: 'split-message' }, {
-      sort: { notBefore: 'asc' }, limit: 1,
+    const pending = await this.dbGet('interlude_intent', { storyId, status: 'pending', notBefore: { $gt: new Date() } }, {
+      sort: { notBefore: 'asc' }, limit: 100,
     })
-    const next = pending[0]
-    if (next) this.scheduleDueIntentWake(storyId, next.notBefore)
+    const next = pending.find(intent => intent.type !== 'active-consequence')
+    const story = next ? await this.getStory(storyId) : undefined
+    if (next && story?.status === 'active' && this.desktopRuntimePhase !== 'paused') this.scheduleDueIntentWake(storyId, next.notBefore)
   }
 
   /** Deliver already-decided <sep/> segments without invoking the narrator. */
@@ -6911,6 +6966,7 @@ export class InterludeService extends Service {
     if (duplicate || pending.length >= 2) {
       this.reportOperation('diagnostic', 'debug', story, 'user-message',
         '承诺回访未重复创建 参与者=%s 原因=%s', participantId, duplicate ? '同一事项待处理' : '待处理上限')
+      if (draft.kind === 'scheduled-contact') await this.recordSchedulingStatus(story.id, participantId, 'rejected', duplicate ? 'duplicate-plan' : 'pending-limit', now)
       return
     }
     const sourceEntryIds = [
@@ -6925,6 +6981,10 @@ export class InterludeService extends Service {
         requiresVisibleOutcome: true, userInitiated: true, originDeliveryEventId,
       },
     }, now, participantId)
+    if (draft.kind === 'scheduled-contact') {
+      const created = (await this.dbGet('interlude_intent', { storyId: story.id, participantId, type: 'follow-up-commitment', status: 'pending' })).find(intent => intent.payload?.originDeliveryEventId === originDeliveryEventId && intent.summary === draft.summary)
+      if (created) await this.recordSchedulingStatus(story.id, participantId, 'registered', 'registered', now, created.id, draft.notBefore)
+    }
     this.scheduleDueIntentWake(story.id, new Date(draft.notBefore))
     this.reportOperation('standard', 'info', story, 'user-message',
       '已登记承诺回访 参与者=%s 类型=%s 到期=%s', participantId, draft.kind, formatLogTime(new Date(draft.notBefore), story.setting.timezone))
@@ -7062,7 +7122,7 @@ export class InterludeService extends Service {
       const intents = await this.dbGet('interlude_intent', { storyId, participantId, status: 'pending' })
       const matching = intents.filter(intent => intent.participantId === participantId && (
         intent.type === 'split-message'
-        || cancelPlanned && (intent.type === 'delayed-reply' || intent.type === 'cross-conversation-message')
+        || cancelPlanned && (intent.type === 'delayed-reply' && intent.payload?.purpose !== 'scheduled-contact' || intent.type === 'cross-conversation-message')
       ))
       if (!matching.length) return matching
 
@@ -7686,8 +7746,17 @@ export class InterludeService extends Service {
       const events = Array.isArray(metadata.scriptEvents) ? metadata.scriptEvents : []
       const event = events.find(item => isRecord(item) && item.commitId === reference.commitId && item.eventId === reference.eventId && item.kind === 'outgoing-message')
       if (delivered && event?.participantId && metadata.followUpResolutionEventId !== event.eventId) {
+        const scheduledIds = Array.isArray(event.metadata?.scheduledContactIntentIds) ? event.metadata.scheduledContactIntentIds.filter(id => Number.isSafeInteger(id) && id > 0) : []
+        for (const id of scheduledIds) {
+          const intent = (await this.dbGet('interlude_intent', { id, storyId, participantId: event.participantId, status: 'pending', type: 'delayed-reply' }))[0]
+          if (intent?.payload?.purpose === 'scheduled-contact') {
+            await this.dbSet('interlude_intent', { id, status: 'pending' }, { status: 'completed', updatedAt: at })
+            const plan = restoreMessageEvent(intent.payload, String(intent.payload?.content ?? ''))
+            if (plan) await this.updateScriptDeliveryOutcome(storyId, plan, 'cancelled', at, 'scheduled-plan-reconciled')
+          }
+        }
         const resolutions = normalizeFollowUpResolutions(event.metadata?.followUpResolutions)
-        const commitment = normalizeFollowUpCommitment(event.metadata?.followUpCommitment, toDate(entry.occurredAt) ?? at)
+        const commitment = normalizeFollowUpCommitment(event.metadata?.followUpCommitment, toDate(entry.occurredAt) ?? at, this.config.runtime.minimumFollowUpCommitmentSeconds)
         if (resolutions.length || commitment) {
           await this.applyFollowUpResolutions(storyId, event.participantId, resolutions,
             { seen: false, reply: { mode: 'immediate', content: event.content } }, at, event.eventId)
@@ -10212,47 +10281,6 @@ export class InterludeService extends Service {
     })
   }
 
-  private async compactUnlocked(story: InterludeStory, now: Date, force: boolean, generation?: string) {
-    const taskCurrent = () => !generation || this.taskGenerationCurrent(story.id, generation)
-    if (!taskCurrent()) return false
-    const review = await this.prepareSchedulePreplanReview(story, now)
-    const context = await this.prepareCompaction(story, now, force)
-    if (review?.needsModel && review.request) {
-      const proposal = await this.requestSchedulePreplan(story, review.request)
-      if (!taskCurrent()) return false
-      const persisted = await this.persistSchedulePreplanReview(story, review, proposal, new Date())
-      if (persisted) this.schedulePreplanBackoff.delete(story.id)
-      else this.schedulePreplanBackoff.set(story.id, Date.now() + SCHEDULE_PREPLAN_RETRY_BACKOFF)
-    }
-    if (!context || context.phase === 'skip') return context?.overlayCompacted ?? false
-    const startedAt = Date.now()
-    this.reportOperation('standard', 'info', story, 'advance', '后台整理开始 条目=%d 字符=%d 场景压缩=%s SchedulePreplan=%s', context.sceneEntries.length, context.chars, context.sceneCompactionDue, !!review?.needsModel)
-    let decision: CompactionDecision = {}
-    try {
-      decision = await this.compactor.compact(context.compactRequest)
-      if (!taskCurrent()) return false
-    } catch (error) {
-      this.noteCompactionFailure(story.id, context.fingerprint, error)
-      this.report('warn', story, 'advance', '记忆压缩失败：%s', error)
-      return false
-    }
-    try {
-      if (context.sceneCompactionDue) {
-        context.factEmbeddings = await this.prepareCompactionEmbeddings(story.id, decision, context.sceneEntries)
-        if (!taskCurrent()) return false
-      }
-      const result = await this.applyCompaction(story, context, decision, now, startedAt)
-      if (!await this.compactionCheckpointAdvanced(context)) {
-        throw new Error(`Compaction checkpoint did not advance (scene=${context.scene.id}, expected=${context.sceneEntries.at(-1)?.id ?? 0})`)
-      }
-      this.scheduler.clearBackoff(story.id)
-      return result
-    } catch (error) {
-      this.noteCompactionFailure(story.id, context.fingerprint, error)
-      throw error
-    }
-  }
-
   /** Everything up to the expensive compactor call: cheap reads plus the due
    * checks. Runs inside the story serial queue, but the model call itself must
    * not — a queued compactor request would delay the next live turn. */
@@ -12127,14 +12155,15 @@ function followUpExpiresAt(value: unknown, now: Date) {
   return requested < maximum ? requested : maximum
 }
 
-function normalizeFollowUpCommitment(value: unknown, now: Date): FollowUpCommitmentDraft | undefined {
+export function normalizeFollowUpCommitment(value: unknown, now: Date, minimumSeconds = 300): FollowUpCommitmentDraft | undefined {
   if (!isRecord(value)) return undefined
-  const kind = value.kind === 'thinking' || value.kind === 'checking' || value.kind === 'decision' || value.kind === 'emotional-settle'
+  const kind = value.kind === 'thinking' || value.kind === 'checking' || value.kind === 'decision' || value.kind === 'emotional-settle' || value.kind === 'scheduled-contact'
     ? value.kind
     : undefined
   const summary = typeof value.summary === 'string' ? clip(value.summary, 360).trim() : ''
   const notBefore = toDate(value.notBefore)
-  if (!kind || !summary || !notBefore || notBefore.getTime() - now.getTime() < 5 * Time.minute || notBefore.getTime() - now.getTime() > 12 * Time.hour) return undefined
+  if (kind === 'scheduled-contact' && (typeof value.notBefore !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value.notBefore))) return undefined
+  if (!kind || !summary || !notBefore || notBefore.getTime() - now.getTime() < minimumSeconds * Time.second || notBefore.getTime() - now.getTime() > 12 * Time.hour) return undefined
   const sourceEntryIds = Array.isArray(value.sourceEntryIds)
     ? value.sourceEntryIds.filter(id => typeof id === 'number' && Number.isSafeInteger(id) && id > 0).slice(0, 4)
     : []
@@ -12146,10 +12175,100 @@ function normalizeFollowUpCommitment(value: unknown, now: Date): FollowUpCommitm
   }
 }
 
-function inferredFollowUpCommitment(content: string, now: Date): FollowUpCommitmentDraft {
+/** Deliberately bounded time grammar. Ambiguous/quoted/negative statements never become a default delay. */
+export function scheduledNumber(value: string): number {
+  if (value === '半') return 0.5
+  if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value)
+  const digits = '零一二三四五六七八九'
+  let total = 0, digit = 0
+  for (const char of value.replaceAll('〇', '零').replaceAll('两', '二')) {
+    const unit = ({ 十: 10, 百: 100, 千: 1000 } as Record<string, number>)[char]
+    if (unit) { total += (digit || 1) * unit; digit = 0 }
+    else if (digits.includes(char)) digit = digits.indexOf(char)
+    else return NaN
+  }
+  return total + digit
+}
+export function scheduledContactTime(text: string, now: Date, timezone: string): { detected: boolean; dueAt?: string; reasonCode?: string } {
+  const number = String.raw`(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百千]+|半)`
+  const times: number[] = []
+  let detected = false
+  for (const match of text.matchAll(new RegExp(String.raw`(${number})\s*(秒钟?|分钟|小时|seconds?|minutes?|hours?)\s*(?:之?后|later)?`, 'giu'))) {
+    detected = true
+    const amount = scheduledNumber(match[1])
+    const unit = /^(?:秒|second)/i.test(match[2]) ? 1000 : /^(?:分|minute)/i.test(match[2]) ? 60000 : 3600000
+    times.push(now.getTime() + amount * unit)
+  }
+  for (const match of text.matchAll(new RegExp(String.raw`(今天|今晚|明天)?\s*(${number})(?:[:：](\d{2})|点(?:(${number})分?|(半))?)`, 'gu'))) {
+    detected = true
+    let hour = scheduledNumber(match[2]); const minute = match[5] ? 30 : match[3] ? Number(match[3]) : match[4] ? scheduledNumber(match[4]) : 0
+    if (match[1] === '今晚' && hour < 12) hour += 12
+    if (!Number.isInteger(hour) || hour > 23 || !Number.isInteger(minute) || minute > 59) return { detected, reasonCode: 'ambiguous-time' }
+    const day = calendarDayKey(now, timezone)
+    const target = new Date(day + 'T00:00:00Z'); if (match[1] === '明天') target.setUTCDate(target.getUTCDate() + 1)
+    target.setUTCHours(hour, minute)
+    const targetMillis = target.getTime()
+    let utc = targetMillis
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+    for (let i = 0; i < 3; i++) {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(utc)).map(part => [part.type, part.value]))
+      const represented = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second)
+      utc += targetMillis - represented
+    }
+    times.push(utc)
+  }
+  if (!detected) return { detected: /稍后|晚点|一会|later|\d|[零一二两三四五六七八九十]+点/i.test(text), reasonCode: 'ambiguous-time' }
+  const unique = [...new Set(times)]
+  if (unique.length !== 1 || !Number.isFinite(unique[0])) return { detected, reasonCode: 'ambiguous-time' }
+  if (unique[0] <= now.getTime() || /分钟前|小时前|秒前/.test(text)) return { detected, reasonCode: 'past-time' }
+  return { detected, dueAt: new Date(unique[0]).toISOString() }
+}
+export function isScheduledContactRequest(content: string): boolean {
+  const text = content.replace(/“[^”]*”|"[^"]*"|「[^」]*」|‘[^’]*’|'[^']*'/g, '')
+  if (/如果|假如|不要|不用|不必|别(?:再|给我|联系|提醒)|\b(?:if|never|don.t)\b/i.test(text)) return false
+  return /(?:给我|向我).{0,12}(?:消息|信息)|发.{0,8}消息给我|联系我|提醒(?!你|他|她)|\b(?:message|text|contact|remind) me\b/i.test(text)
+}
+export function classifyFollowUp(content: unknown, now: Date, timezone: string, userMessage = '', minimumSeconds = 300): FollowUpCommitmentDraft | undefined {
+  if (typeof content !== 'string') return
+  for (const sentence of content.replace(/^I’ll/i, 'I will').split(/[。！!;；\n]/)) {
+    const text = sentence.trim()
+    if (/[?？“”"「」‘’]|如果|假如|不会|不能|不想|不打算|他说|她说|我不|不再|不(?:主动)?(?:给你|向你|联系你|提醒你)|\b(?:if|not|never)\b|won.t|cannot|can.t/i.test(text)) continue
+    const chinese = /^(?:好[的啊]?[,，、 ]*)?我(?:会|到时会|答应)?\s*(?:在|再过|过)?[\d零〇一二两三四五六七八九十百千半今明再]/u.test(text) && /(?:给你|向你)(?:发(?:一条)?消息|发信息|发送消息)|联系你|提醒你/u.test(text)
+    const english = /^(?:OK[,， ]*)?I(?:'ll|’ll| will)\b.*\b(?:message|text|contact|remind) you\b.*\bin\s+\d+(?:\.\d+)?\s+(?:seconds?|minutes?|hours?)/i.test(text)
+    if (chinese || english) {
+      if (userMessage && !isScheduledContactRequest(userMessage)) return
+      const parsed = scheduledContactTime(text, now, timezone)
+      const requested = userMessage ? scheduledContactTime(userMessage, now, timezone) : undefined
+      if (!parsed.dueAt || (requested?.detected && (!requested.dueAt || requested.dueAt !== parsed.dueAt))) return
+      return normalizeFollowUpCommitment({ kind: 'scheduled-contact', summary: clip('定时联系：' + text, 360), notBefore: parsed.dueAt }, now, minimumSeconds)
+    }
+  }
+  if (interactionPromisesFollowUp(content)) return inferredFollowUpCommitment(content, now, minimumSeconds)
+}
+/** Validate the plan before any non-streaming confirmation can leave the host. */
+export function scheduledContactIssue(decision: NarrativeDecision, userMessage: string, now: Date, timezone: string, runtime: RuntimeConfig): string | undefined {
+  const reply = decision.interaction?.reply
+  const scheduled = decision.followUpCommitment?.kind === 'scheduled-contact' || reply?.purpose === 'scheduled-contact'
+  const accepted = typeof reply?.content === 'string' && /^(?:好[的啊呀]?[,，、 ]*)?(?:我(?:会|在|过|再|明天|今天|今晚|[零一二两三四五六七八九十\d])|I(?:'ll|’ll| will)).*(?:给你.*(?:消息|信息)|联系你|提醒你|message you|text you|contact you|remind you)/i.test(reply.content) && !/不会|不能|不想|不再|不(?:主动)?(?:给你|向你|联系你|提醒你)|如果|假如|\b(?:not|never)\b|won.t|can.t|[?？“”"「」]/i.test(reply.content)
+  if (!scheduled && !accepted) return
+  if (!isScheduledContactRequest(userMessage)) return scheduled ? 'not-contact-request' : undefined
+  const requested = scheduledContactTime(userMessage, now, timezone)
+  if (!requested.dueAt) return 'ambiguous-time'
+  const delay = new Date(requested.dueAt).getTime() - now.getTime()
+  if (reply?.mode === 'delayed' && reply.purpose === 'scheduled-contact') {
+    if (decision.followUpCommitment || decision.intents?.length) return 'duplicate-plan'
+    if (delay < runtime.minimumDelayedReplySeconds * 1000 || delay > runtime.maximumDelayedReplyMinutes * Time.minute || toDate(reply.sendAt)?.getTime() !== new Date(requested.dueAt).getTime() || !reply.content?.trim()) return 'invalid-plan-time'
+    return
+  }
+  const draft = decision.followUpCommitment ?? classifyFollowUp(reply?.content, now, timezone, userMessage, runtime.minimumFollowUpCommitmentSeconds ?? 300)
+  if (reply?.mode !== 'immediate' || !reply.content || !decision.script?.includes(reply.content) || !draft || draft.kind !== 'scheduled-contact' || toDate(draft.notBefore)?.getTime() !== new Date(requested.dueAt).getTime() || !normalizeFollowUpCommitment(draft, now, runtime.minimumFollowUpCommitmentSeconds)) return 'invalid-plan-time'
+  if (decision.intents?.length) return 'duplicate-plan'
+}
+
+function inferredFollowUpCommitment(content: string, now: Date, minimumSeconds = 300): FollowUpCommitmentDraft {
   return {
     kind: 'thinking', summary: clip(`The character promised to return after thinking: ${content}`, 360),
-    notBefore: new Date(now.getTime() + 20 * Time.minute).toISOString(),
+    notBefore: new Date(now.getTime() + Math.max(20 * Time.minute, minimumSeconds * Time.second)).toISOString(),
   }
 }
 
@@ -12226,6 +12345,7 @@ export function normalizeDecision(raw: NarrativeDecision, from: Date, now: Date,
   // The only channel for a private reply is interaction. Automatic life
   // passes have no live participant event, so they cannot emit it at all.
   const interaction = phase === 'advance' ? undefined : normalizeInteraction(raw?.interaction, now, runtime)
+  if (interaction && phase !== 'user-message') delete interaction.reply.purpose
   // Optional memories are model suggestions, not a source of truth.  Never
   // let a model turn an invented online contact into durable retrieval data.
   const memories = Array.isArray(raw?.memories)
@@ -12264,7 +12384,7 @@ export function normalizeDecision(raw: NarrativeDecision, from: Date, now: Date,
   const automaticDeliverySummary = isAutomaticNarrativePhase(phase)
     ? normalizeAutomaticDeliverySummary(raw?.automaticDeliverySummary) || undefined
     : undefined
-  const followUpCommitment = phase === 'user-message' ? normalizeFollowUpCommitment(raw?.followUpCommitment, now) : undefined
+  const followUpCommitment = phase === 'user-message' ? normalizeFollowUpCommitment(raw?.followUpCommitment, now, runtime.minimumFollowUpCommitmentSeconds) : undefined
   const followUpResolutions = phase === 'user-message' || phase === 'intent-due'
     ? normalizeFollowUpResolutions(raw?.followUpResolutions)
     : []
@@ -12392,7 +12512,7 @@ export function normalizeInteraction(value: unknown, now: Date, runtime: Runtime
   if (mode === 'immediate') return { seen, reply: { mode: 'immediate', content } }
   const delay = sendAt?.getTime() - now.getTime()
   if (!sendAt || delay < runtime.minimumDelayedReplySeconds * 1_000 || delay > runtime.maximumDelayedReplyMinutes * Time.minute) return { seen, reply: { mode: 'none' } }
-  return { seen, reply: { mode: 'delayed', content, sendAt: sendAt.toISOString() } }
+  return { seen, reply: { mode: 'delayed', content, sendAt: sendAt.toISOString(), ...(value.reply.purpose === 'scheduled-contact' ? { purpose: 'scheduled-contact' as const } : {}) } }
 }
 
 function validMemory(value: unknown): value is MemoryDraft {
