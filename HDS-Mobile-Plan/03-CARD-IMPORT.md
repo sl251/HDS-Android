@@ -107,3 +107,25 @@ HDS 分享导入复用 `sanitizeSharePayload` 等白名单语义；模型连接�
 使用合成角色或有权分发的样本，至少覆盖：V1/V2/V3 JSON、V2 PNG、双块 PNG、中文/emoji、无卡 PNG、损坏 CRC、非法 base64、超长字段、未知扩展、重复导入、CHARX 相对资源、路径穿越包、正则超时、世界书递归循环、备选开场、HDS 分享 revision 改变。
 
 导入成功的验证不止数据库有记录：用固定模型 stub 断言实际 HDS 请求含期望的人设、选中的 lore 条目和示例；用真实 API 人工检查 5—10 轮角色连贯性。后者有随机性，报告模型/参数和观察结论，不能用一次回复作为完全一致证明。
+
+## 9. 实现进展与修复记录（2026-10-15）
+
+改动落在 `packages/card-format/index.ts`、`packages/persona-format/index.ts`、`android/app/src/main/java/io/hdsinterlude/android/HdsRuntimePlugin.kt`；已推送到 `docs/t13-background-keepalive`。
+
+| 症状 | 原因 | 修复 |
+|---|---|---|
+| “这张 PNG 没有标准角色卡元数据” | 只遍历 `tEXt` 且强制 base64 | 增读 `iTXt`（UTF-8 布局），`tEXt` 内直接写 raw JSON 也接受；`zTXt` 给明确指引（改用同源 PNG/JSON 导入） |
+| “角色卡 base64 数据损坏” | 严格正则不容空白、URL-safe、缺 padding | 去空白、`-_` 归一化、自动补 padding |
+| JSON 卡报“无法解析” | 文本先过 strict YAML，`\/` 或重复键被判死 | `{`/`[` 开头直接 `JSON.parse`，YAML 只用于非 JSON 文本 |
+| “暂不支持角色卡版本：xxx” | `spec` 白名单硬拒 | 接受 v2/v3 别名（`ccv3`、`chara_card_v2` 等）；未知版本降级按 V3 解析并记 warning |
+| 无 `spec` 的 V2 卡被拒 | 只认根 `spec` | 无 spec 但 `data.name` 存在时按 V2 解析 |
+| 旧 TavernAI 卡报“未找到人设块” | `char_name` 等未映射，且 `parsePersona` 路由不含它们 | 映射 `char_name`/`char_persona`/`char_greeting`/`world_scenario`/`example_dialogue`；路由补 `char_name`、`data.name` |
+| “太大” | JSON 上限 5 MiB、单字段 256 Ki 字符 | 放宽到 16 MiB / 1 Mi 字符；角色名超 128 字符截断并警告，不再整卡拒绝 |
+| 世界书静默丢失 | 只认 `character_book`、`lorebook_v3` | 补 `lorebook` |
+| 部分文件选不中 | MIME 白名单缺 `application/x-json`、`text/json`、`application/zip` | 补齐；ZIP/`.charx` 给专门提示，而非“既不是 PNG 也不是文本” |
+
+**上限口径**：JSON 与解码元数据 16 MiB、PNG 文件 32 MiB、单字段 1 Mi 字符、对象深度 64。这是按 §6 的“T07 依据真实合法样本与手机测量调整”做的临时放宽，**尚无真实失败样本定标**；拿到实测失败的卡后要重新定标并记录手机内存表现。
+
+**明确未做**：`.charx`（ZIP + DEFLATE，需要异步解析路径）与 `zTXt` 解压仍不支持，只给清晰错误提示。官方 SillyTavern `src/character-card-parser.js` 只写只读 `tEXt` + base64，主流酒馆卡路径本已通畅；本轮增量在第三方工具产出的 `iTXt`/raw-text/旧字段变体。
+
+**验证**：`node --import tsx --test tests/card-format.test.ts` 5/5 通过（新增 raw-text `tEXt`、76 列换行 base64、`zTXt` 压缩卡、未知 spec 宽容、legacy 映射、名称截断）；`tsc --noEmit` 干净。`tests/qq.test.ts` 的 1 项失败经 `git stash` 回退确认是改动前既有失败。agy 只读核对报告归档 `evidence/agy-card-import-audit.md`（其中行号为改动前）。
