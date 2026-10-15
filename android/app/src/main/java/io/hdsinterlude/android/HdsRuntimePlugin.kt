@@ -185,7 +185,7 @@ class HdsRuntimePlugin : Plugin() {
     } }
     @PluginMethod fun pickCard(call: PluginCall) {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "image/png", "application/octet-stream", "text/plain", "text/yaml", "application/yaml", "application/x-yaml"))
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "application/x-json", "text/json", "image/png", "application/octet-stream", "text/plain", "text/yaml", "application/yaml", "application/x-yaml", "application/zip", "application/x-zip-compressed"))
         startActivityForResult(call, intent, "cardPicked")
     }
     @ActivityCallback private fun cardPicked(call: PluginCall?, result: ActivityResult) {

@@ -42,17 +42,24 @@ function hdsCard(config: Record<string, unknown>, instance: string): Card {
 /** Downloaded typ0 koishi.yml, HDS JSON/envelopes, or existing Tavern JSON/PNG. */
 export function parsePersona(bytes: Uint8Array): Card[] {
   if (bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71) return [parseCard(bytes)]
-  if (bytes.byteLength > 5 * 1024 * 1024) throw new Error('JSON / YAML 配置超过 5 MiB')
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\uFEFF/, '')
+  if (bytes.byteLength > 16 * 1024 * 1024) throw new Error('JSON / YAML 配置超过 16 MiB')
+  const utf16 = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : bytes[0] === 0xfe && bytes[1] === 0xff ? 'utf-16be' : null
+  let text: string
+  try { text = new TextDecoder(utf16 ?? 'utf-8', { fatal: true }).decode(bytes).replace(/^\uFEFF/, '') } catch { throw new Error('文件不是 UTF-8/UTF-16 文本（可能是压缩包），请解压后导入其中的 JSON') }
   let value: unknown
   try {
-    const document = parseDocument(text, { schema: 'core', uniqueKeys: true, prettyErrors: false, strict: true, stringKeys: true })
-    if (document.errors.length || document.warnings.length) throw new Error('parse')
-    visit(document, (_key, node) => { if (isAlias(node)) throw new Error('alias') })
-    value = document.toJS({ maxAliasCount: 0 })
-  } catch { throw new Error('JSON / YAML 无法解析：请检查语法；重复键、自定义标签、锚点引用和多文档暂不支持') }
+    const head = text.trimStart().charAt(0)
+    if (head === '{' || head === '[') value = JSON.parse(text)
+    else {
+      const document = parseDocument(text, { schema: 'core', uniqueKeys: true, prettyErrors: false, strict: true, stringKeys: true })
+      if (document.errors.length || document.warnings.length) throw new Error('parse')
+      visit(document, (_key, node) => { if (isAlias(node)) throw new Error('alias') })
+      value = document.toJS({ maxAliasCount: 0 })
+    }
+  } catch { throw new Error('JSON / YAML 无法解析：请检查语法；自定义标签、锚点引用和多文档暂不支持') }
   if (!isRecord(value)) throw new Error('人设文件必须包含配置对象')
-  if ('spec' in value || typeof value.name === 'string') return [parseJsonCard(JSON.stringify(value))]
+  const looksLikeCard = 'spec' in value || typeof value.name === 'string' || typeof value.char_name === 'string' || (isRecord(value.data) && typeof value.data.name === 'string')
+  if (looksLikeCard) return [parseJsonCard(JSON.stringify(value))]
   validateTree(value)
   const candidates: { value: Record<string, unknown>; path: string }[] = []
   const scan = (node: Record<string, unknown>, path = '') => {
