@@ -29,7 +29,7 @@ Urge 开启时替代固定补写时间点；关闭后恢复自定义补写（未
 - Android `MobileSettingsCodecTest` 验证升级默认值、往返、类型/范围和越权字段拒绝；由发布 CI 执行。
 - 上游 837 项：830 通过、3 失败、4 跳过。3 项均在未修改的 main 模型源码下复现：configuration 测试仍断言 rc50、release-consistency 日志文档仍写 rc50、fixes-review 的旧假对象缺少 flushBufferedNarrativeBody。没有改断言伪造通过。
 
-发布须以 GitHub Actions 的 Android 编译、lint、单测、签名 APK，以及 Linux ARM64 / PRoot / QQ 用户空间检查结果为准；发布资产另附校验和。
+发布验证通过：Android 编译、lint、51 项 JVM 单测、签名 APK，以及 Linux ARM64 / PRoot / QQ 用户空间检查均成功；证据见 [release.md](evidence/preview8/release.md)，发布资产另附校验和。
 
 ## 未完成 / NOT RUN
 
