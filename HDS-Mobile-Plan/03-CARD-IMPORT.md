@@ -123,9 +123,10 @@ HDS 分享导入复用 `sanitizeSharePayload` 等白名单语义；模型连接�
 | “太大” | JSON 上限 5 MiB、单字段 256 Ki 字符 | 放宽到 16 MiB / 1 Mi 字符；角色名超 128 字符截断并警告，不再整卡拒绝 |
 | 世界书静默丢失 | 只认 `character_book`、`lorebook_v3` | 补 `lorebook` |
 | 部分文件选不中 | MIME 白名单缺 `application/x-json`、`text/json`、`application/zip` | 补齐；ZIP/`.charx` 给专门提示，而非“既不是 PNG 也不是文本” |
+| 真卡报“结构有问题” | 同一 PNG 含**两个同名 `chara` 块**（被多个工具先后写过），原实现按规格直接拒绝 | 逐个解析全部卡数据块，保留信息最完整的一个（ccv3 优先 → 非 `none` avatar → 世界书条目数 → 描述长度），其余块记 warning；不再整卡拒绝 |
 
-**上限口径**：JSON 与解码元数据 16 MiB、PNG 文件 32 MiB、单字段 1 Mi 字符、对象深度 64。这是按 §6 的“T07 依据真实合法样本与手机测量调整”做的临时放宽，**尚无真实失败样本定标**；拿到实测失败的卡后要重新定标并记录手机内存表现。
+**上限口径**：JSON 与解码元数据 16 MiB、PNG 文件 32 MiB、单字段 1 Mi 字符、对象深度 64。这是按 §6 的“T07 依据真实合法样本与手机测量调整”做的临时放宽。**已有真卡定标样本**：一张 charhub 导出的 103 KB PNG（两个 8.1 KB `chara` 块、描述 4204 字符），远低于上限；“太大”一类真实样本仍未到手，上限继续待定标，拿到后要重新记录手机内存表现。
 
 **明确未做**：`.charx`（ZIP + DEFLATE，需要异步解析路径）与 `zTXt` 解压仍不支持，只给清晰错误提示。官方 SillyTavern `src/character-card-parser.js` 只写只读 `tEXt` + base64，主流酒馆卡路径本已通畅；本轮增量在第三方工具产出的 `iTXt`/raw-text/旧字段变体。
 
-**验证**：`node --import tsx --test tests/card-format.test.ts` 5/5 通过（新增 raw-text `tEXt`、76 列换行 base64、`zTXt` 压缩卡、未知 spec 宽容、legacy 映射、名称截断）；`tsc --noEmit` 干净。`tests/qq.test.ts` 的 1 项失败经 `git stash` 回退确认是改动前既有失败。agy 只读核对报告归档 `evidence/agy-card-import-audit.md`（其中行号为改动前）。
+**验证**：`node --import tsx --test tests/card-format.test.ts` 6/6 通过（新增 raw-text `tEXt`、76 列换行 base64、`zTXt` 压缩卡、未知 spec 宽容、legacy 映射、名称截断、重复块保留最完整）；并用用户实测失败的真卡实跑 `parseCard` 通过（Asuka / v2 / 选中带 charhub avatar 与世界书的块0）。真卡未入库，回归测试按同一结构合成。`tsc --noEmit` 干净。`tests/qq.test.ts` 的 1 项失败经 `git stash` 回退确认是改动前既有失败。agy 只读核对报告归档 `evidence/agy-card-import-audit.md`（其中行号为改动前）。
