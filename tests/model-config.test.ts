@@ -38,9 +38,8 @@ test('vision projection is canonical, secret-free and checks every candidate', (
   assert.deepEqual(visionProjection(base), visionProjection({ modelOptions: { visionEnabled: true }, providers: [{ ...writer, endpoint: 'https://example.com/v1/', apiKey: 'TEST_SECRET' }] }))
   assert.doesNotMatch(JSON.stringify(visionProjection(base)), /apiKey|credential/)
   assert.equal(visionRouteReason(visionProjection(base)), undefined)
-  for (const imageInput of ['unknown', 'unsupported'] as const) {
-    assert.ok(visionRouteReason(visionProjection({ ...base, providers: [writer, row('fallback', { useForMain: true, imageInput })] })))
-  }
+  assert.equal(visionRouteReason(visionProjection({ ...base, providers: [writer, row('fallback', { useForMain: true, imageInput: 'unknown' })] })), undefined)
+  assert.ok(visionRouteReason(visionProjection({ ...base, providers: [writer, row('fallback', { useForMain: true, imageInput: 'unsupported' })] })))
   assert.equal(visionRouteReason(visionProjection({ providers: [row('text', { useForMain: true }), writer], modelOptions: { visionEnabled: true, visionProviderId: 'writer' } })), undefined)
   assert.throws(() => mobileModelConfig({ endpoint: '', model: '', providers: [row('bad', { imageInput: 'invalid' as any })] }), /能力/)
 })

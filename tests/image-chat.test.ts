@@ -46,17 +46,18 @@ test('real HDS forwards native image input, retains attachment history and holds
     assert.deepEqual(history.find(row => row.direction === 'user')?.images, [upload.id])
     await assert.rejects(host.dispatch('images.get', { id: '../settings' }))
     await host.stop(); host = undefined
+    host = await startHost({ ...config, providers: config.providers!.map(row => ({ ...row, imageInput: 'unknown' })) })
+    await host.dispatch('messages.sendLocal', { requestId: 'capability-fixture-unknown', content: '', images: [upload.id] })
+    await host.stop(); host = undefined
+    host = await startHost({ ...config, providers: config.providers!.map(row => ({ ...row, imageInput: 'unsupported' })) })
+    await assert.rejects(host.dispatch('messages.sendLocal', { requestId: 'capability-fixture-unsupported', content: '', images: [upload.id] }), /不支持/)
+    await host.stop(); host = undefined
     writeFileSync(join(dataDir, 'restore-held.json'), '{}')
     host = await startHost(config)
     assert.equal(((await host.dispatch('story.snapshot', {})) as any).story.status, 'paused')
     await assert.rejects(host.dispatch('messages.sendLocal', { requestId: 'paused-image-fixture-001', content: '测试暂停', images: [upload.id] }))
     assert.equal((await host.dispatch('images.get', { id: upload.id }) as { dataUri: string }).dataUri, dataUri)
     await host.stop(); host = undefined
-    for (const imageInput of ['unknown', 'unsupported'] as const) {
-      host = await startHost({ ...config, providers: config.providers!.map(row => ({ ...row, imageInput })) })
-      await assert.rejects(host.dispatch('messages.sendLocal', { requestId: 'capability-fixture-' + imageInput, content: '', images: [upload.id] }), /确认|不支持/)
-      await host.stop(); host = undefined
-    }
     host = await startHost({ ...config, modelOptions: { visionEnabled: false } })
     await assert.rejects(host.dispatch('messages.sendLocal', { requestId: 'disabled-vision-fixture-001', content: '', images: [upload.id] }), /开启主模型识图/)
   } finally { if (host) await host.stop(); await new Promise<void>(resolve => model.close(() => resolve())) }

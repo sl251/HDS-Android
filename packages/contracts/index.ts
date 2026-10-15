@@ -87,7 +87,7 @@ export function visionRouteReason(route: VisionProjection): string | undefined {
   if (!route.enabled) return '请开启图片理解，重启后生效'
   if (!route.candidates.length || route.candidates.some(row => !row.enabled)) return '识图连接已移除或停用'
   if (route.candidates.some(row => row.imageInput === 'unsupported')) return '识图路线含不支持图片的模型，请选择独立识图模型'
-  if (route.candidates.some(row => row.imageInput !== 'supported')) return '请在模型设置确认识图候选支持图片，或选择独立识图模型'
+  // 未声明（unknown）不再拦截：旧配置没有该字段，无法确认时按可发送处理，避免升级后误拦
 }
 export function imageEntryReason(input: { native: boolean; healthy: boolean; busy: boolean; sending: boolean; count: number; enabled: boolean }): string | undefined {
   if (!input.native) return '浏览器预览无法选择本机图片'
