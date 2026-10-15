@@ -13,7 +13,7 @@
 
 - 📱 **真正手机纯本地**：手机内置轻量化运行沙箱（PRoot + Node.js + SQLite WASM）。所有角色卡、对话剧情、长期记忆与心理状态档案，**完全保存在你的手机本地**，断网也能看，数据不经任何第三方中转。
 - 🔒 **硬件级隐私保护**：你的 AI 模型 API Key 经由 Android Keystore 硬件级加密保存；AI 仅作为提供思考的大脑，所有的记忆和陪伴历程全属于你。
-- 🏷️ **当前最新版本**：**`0.1.0-preview.8 · ARM64 · Android 8.0+`**。新增生活节奏配置、分享码同步与后台预算；已真机安装验证、角色卡导入正常，仍待完善的范围见 [preview8 说明](docs/PREVIEW8.md)。👉 [**直达下载 preview.8 最新安装包**](#-极速上手教程)
+- 🏷️ **当前最新版本**：**`0.1.0-preview.8.2 · ARM64 · Android 8.0+`**。修复 preview.8.1 的图片发送回归：升级后即使开了图片理解也可能被"未确认支持图片"误拦，8.2 起未声明的模型不再拦截，只有明确不支持时才提示改用独立识图模型（详见 [preview 8.2 说明](docs/PREVIEW8.2.md)）；图片加号在识图未开启等情况给出明确提示并引导到设置；相册可一次多选（最多 3 张）；支持"七分钟后叫我"这类定时联系（时间不明确会明确拒绝并记入待办）；聊天翻看旧消息不再被强制拉回底部、发送失败可重试；见闻/长期记忆/当前心绪切换时保留滚动位置；日志默认更详细；大图查看更省内存不易闪退。👉 [**直达下载 preview.8.2 最新安装包**](#-极速上手教程)
 
 ---
 
@@ -46,14 +46,14 @@ flowchart LR
 
 ### 第一步：安装最新安装包
 
-从下方官方通道下载最新的 **preview.8** 安装包：
+从下方官方通道下载最新的 **preview.8.2** 安装包：
 
-- 🏷️ **GitHub Release 快速下载**：前往 [v0.1.0-preview.8 Release 发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.8)（GitHub 标记为 Latest 的正式版本）直接点击下载 `HDS-Android-0.1.0-preview.8-arm64.apk`。
-- 📦 **GitHub Actions 官方构建产物**：前往 [preview.8 Actions 构建详情页 (Run #38722802409)](https://github.com/sl251/HDS-Android/actions/runs/38722802409)，在页面下方的 **Artifacts** 列表中点击下载并解压。
+- 🏷️ **GitHub Release 快速下载**：前往 [v0.1.0-preview.8.2 Release 发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.8.2)（GitHub 标记为 Latest 的正式版本）直接点击下载 `HDS-Android-0.1.0-preview.8.2-arm64.apk`。
+- 📦 **GitHub Actions 官方构建产物**：前往 [preview.8.2 Actions 构建详情页 (Run #38789636952)](https://github.com/sl251/HDS-Android/actions/runs/38789636952)，在页面下方的 **Artifacts** 列表中点击下载并解压。
 - 🔐 **文件校验信息**：
-  - 文件名：`HDS-Android-0.1.0-preview.8-arm64.apk`
-  - SHA-256：`9aeb14798b93fd23dbb9bcd931bca6b007ef766d033d0e7fcf47fb9bcf80a55c`
-  - 文件大小：187,004,153 字节（约 178 MiB）
+  - 文件名：`HDS-Android-0.1.0-preview.8.2-arm64.apk`
+  - SHA-256：`cd7ecc998d83e40481001a6e65a5e300d4e5866e891cbd358c481ea461061042`
+  - 文件大小：186,998,829 字节（约 178 MiB）
   - 完整清单见 Release 附件 `SHA256SUMS.txt`，可用 `sha256sum -c SHA256SUMS.txt` 自行校验。
 
 > [!IMPORTANT]
@@ -196,7 +196,16 @@ flowchart LR
 
 ## 📋 版本更新历史
 
-- **`0.1.0-preview.8` (当前最新版本)**
+- **`0.1.0-preview.8.2` (当前最新版本)**
+  - 修复 preview.8.1 的图片发送回归：未声明图片能力的模型不再被拦截（恢复 preview.8 行为），只有明确不支持时才提示改用独立识图模型。
+  - 验证状态：全量测试 46/46 通过；真机图片发送待用户在 8.2 上确认（2026-10-16）。
+- **`0.1.0-preview.8.1`**
+  - 图片：加号在识图未开启等五种情况给出明确提示并引导到「模型与识图」；相册支持一次多选（最多 3 张）；重启判定改用运行中配置，减少误报。
+  - 定时联系：支持"七分钟后提醒我"这类约定并精确到秒；时间不明确时明确拒绝并写入待办；只有真实投递成功才算完成。
+  - 聊天与见闻：翻看旧消息不再被强制拉回底部，新消息以角标提示；发送状态可见、失败可一键重试；见闻/长期记忆/当前心绪切换后保留滚动位置。
+  - 日志与大图：默认日志级别更为详细；大图处理降低内存占用峰值。
+  - 验证状态：维护者已在真机实测定时消息与图片发送通过（2026-10-16）。
+- **`0.1.0-preview.8`**
   - 新增生活节奏与表达设置、分享码差异同步、滚动 24 小时后台模型预算及状态通知。
   - 接入 QQ 群引用回复；补充任务书审查与实际支持状态。
   - 维护者真机覆盖安装与角色卡导入验证通过；完整保活自愈与长时（Doze / 厂商后台）验收仍待完成，详见 [PREVIEW8.md](docs/PREVIEW8.md)。
@@ -253,6 +262,8 @@ cd android
 
 ## 📚 详细文档与参考
 
+- 🆕 [Preview 8.2 修复图片发送回归](docs/PREVIEW8.2.md)
+- [Preview 8.1 图片提示、定时联系与阅读体验修复](docs/PREVIEW8.1.md)
 - 🆕 [Preview 8 生活节奏、分享码与后台模型预算](docs/PREVIEW8.md)
 - 📱 [Preview 7 / 7.1 特性与机制说明](docs/PREVIEW7.md)
 - 📖 [Preview 6 故事体验与原位唤醒设计](docs/STORY-EXPERIENCE-PREVIEW6.md)
