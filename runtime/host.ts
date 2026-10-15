@@ -14,13 +14,20 @@ import { messageImages } from '../packages/contracts'
 import { personaDefaults, personaEditPatch } from './persona'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
+import { mapMobileConfig, normalizeMobileConfig, mobileSchema, type MobileConfig } from './mobile-config'
+import { BackgroundBudget } from './background-budget'
+import { inspectPreset } from './preset'
+export { mobileSchema } from './mobile-config'
+export { normalizeMobileConfig, mapMobileConfig } from './mobile-config'
+export { mobilePreset, inspectPreset } from './preset'
 
-export type HostConfig = { card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
+export type HostConfig = { mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
 export async function startHost(input: HostConfig) {
   if (!input.card?.name || !input.model || !input.endpoint || !input.token || input.token.length < 32) throw new Error('Missing valid host configuration')
   const endpoint = new URL(input.endpoint)
   if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('Invalid model endpoint')
   mkdirSync(input.dataDir, { recursive: true })
+  if (input.qqDir) mkdirSync(input.qqDir, { recursive: true })
   const restoreMarker = join(input.dataDir, 'restore-held.json')
   let restoreHeld = existsSync(restoreMarker)
   const app = new Context({ prefix: ['interlude.'] })
@@ -46,15 +53,17 @@ export async function startHost(input: HostConfig) {
   }
   let bot!: LocalBot
   app.plugin(ctx => { bot = new LocalBot(ctx) })
+  const mobile = normalizeMobileConfig(input.mobileConfig)
+  const budget = new BackgroundBudget(join(input.qqDir ?? input.dataDir, 'background-budget.json'), mobile.backgroundLimit)
   const config = HDS.Config({
+    ...mapMobileConfig(mobile, input.autoAdvance),
     storyDefaults: personaDefaults(input.card, input.userProfile),
     model: mobileModelConfig(input),
-    runtime: { autoCreate: true, autoAdvanceEnabled: input.autoAdvance, allowProactiveMessages: input.autoAdvance, userMessageDebounceSeconds: 1, conversationFollowUpMinutes: input.autoAdvance ? [10, 20] : [], typingMaxDelaySeconds: 12 },
     logging: { level: 'warn', colors: false, kaomoji: false, logMessageContent: false, logScriptPreview: false },
-    timelineDirector: { enabled: input.autoAdvance },
     qzone: { enabled: false }, browser: { enabled: false },
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
+  config.model.mobileBeforeRequest = budget.beforeRequest
   const media = imageStore(input.dataDir)
   let promptTrace: string[] = []
   config.model.mobileCardPrompt = request => {
@@ -139,7 +148,7 @@ export async function startHost(input: HostConfig) {
       const task = Promise.resolve().then(async () => {
         const currentStory = await app.interlude.findStory(current)
         if (!currentStory) throw new Error('故事已变更')
-        if (kind === 'compact') return app.interlude.compactStory(currentStory)
+        if (kind === 'compact') return budget.runManual(() => app.interlude.compactStory(currentStory))
         if (kind === 'overlay-clear') {
           const target = String(payload.target || '')
           if (!['character', 'perspective', 'relationship', 'world', 'all'].includes(target) || payload.confirm !== true) throw new Error('请确认要清理的人设演化范围')
@@ -160,7 +169,10 @@ export async function startHost(input: HostConfig) {
       work.add(task)
       return job
     }
-    if (method === 'health') return { hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
+    if (method === 'preset.sync') return inspectPreset(app, String(payload.code ?? ''), normalizeMobileConfig(payload.current as MobileConfig ?? mobile), typeof payload.fingerprint === 'string' ? payload.fingerprint : undefined)
+    if (method === 'preset.syncStatus') return { restartRequired: JSON.stringify(normalizeMobileConfig(payload.current as MobileConfig ?? mobile)) !== JSON.stringify(mobile) }
+    if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (config as any)[section.key]?.[field.key]]))])), budget: budget.status() }
+    if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc' } } as never)).reverse().map(row => ({ ...row, images: messageImages((row as { images?: unknown }).images) }))
     if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
     if (method === 'story.pause' || method === 'story.resume') {

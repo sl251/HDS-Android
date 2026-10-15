@@ -1,3 +1,5 @@
+> preview.8 更新：配置分区行已按实际代码更新为 PARTIAL / UPSTREAM_DEFAULT / DISABLED 等状态，证据指向具体实现与测试。命令行清单仍是初始盘点，不能把 NOT_IMPLEMENTED 一概理解为相应产品能力不存在。详情见 [PREVIEW8.md](PREVIEW8.md)。
+
 # feature-parity.csv 说明
 
 `docs/feature-parity.csv` 由 `scripts/inventory-hds.mjs` 从上游 HDS-Interlude 固定提交

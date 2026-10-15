@@ -122,6 +122,8 @@ export interface FailoverConfig {
 }
 
 export interface ModelConfig {
+  /** Mobile host only: reserve a model attempt before any network transport. */
+  mobileBeforeRequest?: (foreground?: boolean) => void
   /** Android host: character context only; engine protocol remains first. */
   mobileCardPrompt?: (request: NarrativeRequest) => { before: string; after: string }
 
@@ -325,6 +327,7 @@ export class OpenAICompatibleEmbedder implements NarrativeEmbedder {
       ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
       ...parseObject(provider.extraHeaders, 'extraHeaders'),
     }
+    this.config?.mobileBeforeRequest?.()
     const response = provider.proxyAgent
       ? await postJsonViaProxy(endpoint, body, headers, embedding.timeout, provider.proxyAgent) as EmbeddingResponse
       : await this.ctx.http.post<EmbeddingResponse>(endpoint, body, { headers, timeout: embedding.timeout })
@@ -428,7 +431,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
             return decision
           } catch (error) {
             // 停机/重载（HMR）期间重试必然失败且污染冷却表：立即中止整条链路。
-            if (isContextDisposedError(error)) throw error
+            if (isContextDisposedError(error) || (error as { code?: string })?.code === 'HDS_MOBILE_BUDGET') throw error
             const detail = describeHttpError(error)
             if (earlyReplyCommitted) throw new Error(`Narrative stream failed after an early visible reply: ${detail}`)
             // 思考型网关把 reasoning 计入输出预算:小 cap 下推理吃满,残句 JSON
@@ -522,6 +525,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
       if (Date.now() >= deadline) throw new Error(`${task} provider total timeout exceeded.`)
       const body = buildBody(capped)
       if (provider.zhipuOfficial && provider.protocol === 'chat-completions') {
+        this.config?.mobileBeforeRequest?.()
         const text = await requestZhipuStreaming(provider.endpoint, { ...body, stream: true, thinking: { type: 'enabled' }, reasoning_effort: provider.reasoningEffort ?? 'high' }, headers, undefined, collect, remaining, provider.proxyAgent)
         return parse(text)
       }
@@ -776,7 +780,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
             return { description }
           } catch (error) {
             // 停机/重载（HMR）期间重试必然失败且污染冷却表：立即中止整条链路。
-            if (isContextDisposedError(error)) throw error
+            if (isContextDisposedError(error) || (error as { code?: string })?.code === 'HDS_MOBILE_BUDGET') throw error
             const detail = error instanceof Error ? error.message : String(error)
             failures.push(`${provider.label || provider.id} (attempt ${attempt}): ${detail}`)
             this.logger?.debug('Alter System 分析模型失败：%s；尝试=%s', provider.label || provider.id, detail)
@@ -867,7 +871,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
             failures.push(`${provider.label} attempt ${attempt}: empty response`)
           } catch (error) {
             // 停机/重载（HMR）期间重试必然失败：立即中止，不再遍历后续提供商。
-            if (isContextDisposedError(error)) throw error
+            if (isContextDisposedError(error) || (error as { code?: string })?.code === 'HDS_MOBILE_BUDGET') throw error
             const detail = describeHttpError(error)
             failures.push(`${provider.label} attempt ${attempt}: ${detail}`)
             this.logger?.debug(
@@ -902,7 +906,8 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
     this.onUsage(aggregated)
   }
 
-  private async postChat(provider: ProviderConfig, body: Record<string, unknown>, timeout: number, cacheFirst = false): Promise<ChatCompletionResponse & { usage?: unknown }> {
+  private async postChat(provider: ProviderConfig, body: Record<string, unknown>, timeout: number, cacheFirst = false, foreground = false): Promise<ChatCompletionResponse & { usage?: unknown }> {
+    this.config?.mobileBeforeRequest?.(foreground)
     const extraHeaders = parseObject(provider.extraHeaders, 'extraHeaders', this.logger)
     // 按协议提升 payload 与请求头；代理路径（provider.proxyAgent）对三种协议
     // 统一走 undici ProxyAgent——Koishi 4.18 的 cordis http 不支持 proxyAgent
@@ -1010,6 +1015,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
       ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
       ...parseObject(provider.extraHeaders, 'extraHeaders', this.logger),
     }
+    if (streamingEarlyReply || (provider.zhipuOfficial && provider.protocol === 'chat-completions')) this.config?.mobileBeforeRequest?.(request.phase === 'user-message')
     const text = provider.protocol === 'anthropic-messages' && streamingEarlyReply
       ? await requestAnthropicStreaming(provider.endpoint, anthropicBody(requestBody, provider, cacheFirstPayload),
         anthropicHeaders(provider, parseObject(provider.extraHeaders, 'extraHeaders', this.logger)) as Record<string, string>,
@@ -1024,7 +1030,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
       : streamingEarlyReply
         ? await requestOpenAICompatibleStreaming(provider.endpoint, withDeepSeekThinking(provider, { ...requestBody, stream: true, stream_options: { include_usage: true } }), headers, overrides.timeout ?? provider.timeout, onStreamText, collect, provider.proxyAgent)
         : await (async () => {
-            const response = await this.postChat(provider, requestBody, overrides.timeout ?? provider.timeout, cacheFirstPayload)
+            const response = await this.postChat(provider, requestBody, overrides.timeout ?? provider.timeout, cacheFirstPayload, request.phase === 'user-message')
             collect(response?.usage)
 
             return extractChatText(response)

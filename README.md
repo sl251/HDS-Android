@@ -13,7 +13,7 @@
 
 - 📱 **真正手机纯本地**：手机内置轻量化运行沙箱（PRoot + Node.js + SQLite WASM）。所有角色卡、对话剧情、长期记忆与心理状态档案，**完全保存在你的手机本地**，断网也能看，数据不经任何第三方中转。
 - 🔒 **硬件级隐私保护**：你的 AI 模型 API Key 经由 Android Keystore 硬件级加密保存；AI 仅作为提供思考的大脑，所有的记忆和陪伴历程全属于你。
-- 🏷️ **当前最新版本**：**`0.1.0-preview.7.1 · ARM64 · Android 8.0+`**。经过完整构建与真机测试，全新液态玻璃 UI、原位唤醒、多模态识图与见闻记忆管理均已就绪！👉 [**直达下载 preview.7.1 最新安装包**](#-极速上手教程)
+- 🏷️ **当前最新版本**：**`0.1.0-preview.8 · ARM64 · Android 8.0+`**。新增生活节奏配置、分享码同步与后台预算；自动化验证和真机未测范围见 [preview8 说明](docs/PREVIEW8.md)。👉 [**直达下载 preview.8 最新安装包**](#-极速上手教程)
 
 ---
 
@@ -46,12 +46,12 @@ flowchart LR
 
 ### 第一步：安装最新安装包
 
-从下方官方通道下载最新的 **preview.7.1** 安装包：
+从下方官方通道下载最新的 **preview.8** 安装包：
 
-- 🏷️ **GitHub Release 快速下载**：前往 [v0.1.0-preview.7.1 Release 发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.7.1) 直接点击下载 `HDS-Android-0.1.0-preview.7.1-arm64.apk`。
-- 📦 **GitHub Actions 官方构建产物**：前往 [preview.7.1 Actions 构建详情页 (Run #38559548274)](https://github.com/sl251/HDS-Android/actions/runs/38559548274)，在页面下方的 **Artifacts** 列表中点击下载并解压。
+- 🏷️ **GitHub Release 快速下载**：前往 [v0.1.0-preview.8 Release 发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.8) 直接点击下载 `HDS-Android-0.1.0-preview.8-arm64.apk`。
+- 📦 **GitHub Actions 官方构建产物**：前往 [preview.8 Actions 构建详情页 (Run #38559548274)](https://github.com/sl251/HDS-Android/actions/runs/38559548274)，在页面下方的 **Artifacts** 列表中点击下载并解压。
 - 🔐 **文件校验信息**：
-  - 文件名：`HDS-Android-0.1.0-preview.7.1-arm64.apk`
+  - 文件名：`HDS-Android-0.1.0-preview.8-arm64.apk`
   - SHA-256：`6bdec0c1d527d33cf1c3ab9c9824e5573dac8d8d0b466a6b2ff866d54ef0c496`
   - 大小：约 178 MB
 
@@ -195,7 +195,7 @@ flowchart LR
 
 ## 📋 版本更新历史
 
-- **`0.1.0-preview.7.1` (当前最新候选版)**
+- **`0.1.0-preview.8` (当前最新候选版)**
   - 修复角色回复气泡的外层嵌套问题，去除了误引用的卡片外框与多余边距，恢复清爽优雅的单层回复气泡。
   - 继承 preview.7 的全部液态玻璃、图片输入与记忆管理特性。
 - **`0.1.0-preview.7`**

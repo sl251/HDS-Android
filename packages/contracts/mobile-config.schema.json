@@ -1,0 +1,413 @@
+{
+  "version": 1,
+  "backgroundLimit": 120,
+  "sections": [
+    {
+      "key": "runtime",
+      "description": "【节奏 5】运行时：消息合并、打字、失败重试与自动生活推进。",
+      "fields": [
+        {
+          "key": "autoAdvanceIntervalMinutes",
+          "type": "number",
+          "default": 40,
+          "description": "普通时段自动推进的目标间隔，单位分钟。",
+          "min": 5,
+          "max": 1440,
+          "step": 1
+        },
+        {
+          "key": "autoAdvanceJitterMinutes",
+          "type": "number",
+          "default": 5,
+          "description": "自动推进间隔的随机浮动范围，单位分钟。",
+          "min": 0,
+          "max": 60,
+          "step": 1
+        },
+        {
+          "key": "conversationFollowUpMinutes",
+          "type": "array",
+          "default": [
+            10,
+            20
+          ],
+          "description": "一段对话结束后，额外补写生活的时间点，单位分钟。默认约第 10、20 分钟。",
+          "itemMin": 1,
+          "itemMax": 240
+        },
+        {
+          "key": "conversationFollowUpJitterMinutes",
+          "type": "number",
+          "default": 1,
+          "description": "短期补写的随机浮动范围，单位分钟。填 0 可固定在指定时间点。",
+          "min": 0,
+          "max": 10,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "key": "urge",
+      "description": "【节奏 6】Urge 弹性推进：剧本驱动的自动调度（可选，替代固定间隔）。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "启用弹性推进，替代固定间隔及对话后 10/20 分钟补写；不改变剧本文本。总自动推进开关仍优先。"
+        },
+        {
+          "key": "frequency",
+          "type": "union",
+          "default": "medium",
+          "description": "低/中/高频或自定义；自定义未填写项沿用中频。高频会增加主叙事和时间导演调用。",
+          "options": [
+            "low",
+            "medium",
+            "high",
+            "custom"
+          ]
+        },
+        {
+          "key": "proactiveWillingnessThreshold",
+          "type": "number",
+          "default": 0.4,
+          "description": "仅 Urge 启用时的主动联系意愿门槛(Agency strict 模式使用;natural/balanced 模式改用 Agency 的 naturalWillingnessThreshold,调这里不生效)；不是发送概率。",
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        }
+      ]
+    },
+    {
+      "key": "agency",
+      "description": "【节奏 9】Agency 行动窗口：日程压力、隐私、设备和生活来源的联系条件。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "启用主体行动窗口。它只判断日程、隐私、设备和生活来源的联系理由，不读取或复用 Alter 情绪值。"
+        },
+        {
+          "key": "contactMode",
+          "type": "union",
+          "default": "strict",
+          "description": "主动联系温度。",
+          "options": [
+            "strict",
+            "natural",
+            "balanced"
+          ]
+        },
+        {
+          "key": "maxWindowMinutes",
+          "type": "number",
+          "default": 240,
+          "description": "一张 Agency Window 最长有效时间；过期后必须由新的生活回合重新判断。",
+          "min": 5,
+          "max": 1440,
+          "step": 1
+        },
+        {
+          "key": "minimumProactiveIntervalMinutes",
+          "type": "number",
+          "default": 60,
+          "description": "同一参与者两次普通主动联系之间的安全间隔；承诺型联系可以绕过。",
+          "min": 0,
+          "max": 10080,
+          "step": 1
+        },
+        {
+          "key": "naturalWillingnessThreshold",
+          "type": "number",
+          "default": 0.25,
+          "description": "自然/平衡模式的意愿阈值（严格模式沿用 Urge/运行时阈值）。",
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        },
+        {
+          "key": "naturalMinimumIntervalMinutes",
+          "type": "number",
+          "default": 30,
+          "description": "自然/平衡模式的安全间隔分钟；仅当小于严格间隔时生效。",
+          "min": 0,
+          "max": 10080,
+          "step": 1
+        },
+        {
+          "key": "proactiveDailyCap",
+          "type": "number",
+          "default": 3,
+          "description": "每参与者每 24 小时主动联系上限（全模式生效；0 = 不限）。",
+          "min": 0,
+          "max": 20,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "key": "schedulePreplan",
+      "description": "【节奏 7】日程预排：近期稳定日程与变化颗粒度；主提示词只读取未来约半天。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": true,
+          "description": "启用近期日程审查与投影。"
+        },
+        {
+          "key": "horizonDays",
+          "type": "number",
+          "default": 14,
+          "description": "日程保存和展开天数。",
+          "min": 3,
+          "max": 30,
+          "step": 1
+        },
+        {
+          "key": "variationLevel",
+          "type": "union",
+          "default": "stable",
+          "description": "变化颗粒度：稳定规律、阶段例外或少量候选变化。",
+          "options": [
+            "stable",
+            "contextual",
+            "granular"
+          ]
+        },
+        {
+          "key": "candidateActivationProbability",
+          "type": "number",
+          "default": 0.25,
+          "description": "候选变化激活概率(仅【变化颗粒度=granular】的 tentative 块适用;按故事+日期+块标识确定性决定,不逐轮重掷)。",
+          "min": 0.05,
+          "max": 0.5,
+          "step": 0.05
+        },
+        {
+          "key": "candidateRevealMinutes",
+          "type": "number",
+          "default": 120,
+          "description": "候选具体内容的提前揭示时间(仅 granular 模式;已激活候选在揭示时间之前仅显示\"可能的个人安排\",进入揭示时间后显示具体内容;未激活候选不显示)。",
+          "min": 15,
+          "max": 360,
+          "step": 1
+        },
+        {
+          "key": "reviewAfterLocalHour",
+          "type": "number",
+          "default": 3,
+          "description": "每天从主角本地时间几点起允许进行一次空闲审查；没有新证据且覆盖充足时不调用模型。",
+          "min": 0,
+          "max": 23,
+          "step": 1
+        },
+        {
+          "key": "anchorAutoAdvance",
+          "type": "boolean",
+          "default": true,
+          "description": "让固定日程的开始/结束成为自动推进候选锚点，减少随机推进跨过上课、到校或离校等关键节点。"
+        }
+      ]
+    },
+    {
+      "key": "timelineDirector",
+      "description": "【节奏 8】时间导演：自动回合的时间账本与熔断保护。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": true,
+          "description": "启用时间导演：自动回合先生成相对时间账本——只提供客观时间事实与可能的时间逻辑，不做笃定的未来预测（如几点起床）；用户消息对主角的影响由主模型判断。失败时降级为无账本推进，不冻结自动推进。"
+        }
+      ]
+    },
+    {
+      "key": "chatActions",
+      "description": "【表达 10】聊天动作：引用回复、贴反应与 QQ 原生表情。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "启用聊天动作。"
+        },
+        {
+          "key": "quoteReply",
+          "type": "boolean",
+          "default": true,
+          "description": "允许主角引用当前上下文中的一条消息进行指定回复。"
+        },
+        {
+          "key": "expressionThreshold",
+          "type": "number",
+          "default": 0.7,
+          "description": "表情与本地表情包的最低表达意愿。",
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        }
+      ]
+    },
+    {
+      "key": "alterSystem",
+      "description": "【内在 13】Alter 情绪：低频氛围偏移、动态阈值、权重和侧端分析。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": true,
+          "description": "启用情绪偏移追踪。它只增加临时氛围参考，不替代 recentScript、continuity 或稳定设定。"
+        },
+        {
+          "key": "baseThreshold",
+          "type": "number",
+          "default": 10,
+          "description": "Alter 累计绝对值达到此基础阈值时调用侧端分析模型。按各参与者/独立生活 scope 分别累计,不是全故事总量。",
+          "min": 1,
+          "max": 50
+        },
+        {
+          "key": "densityFactor",
+          "type": "number",
+          "default": 0.3,
+          "description": "最近一小时该 scope 的叙事越密集，阈值降低的比例越大；运行时最低不会低于基础阈值的一半。",
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        },
+        {
+          "key": "sameDirectionBoost",
+          "type": "number",
+          "default": 0.05,
+          "description": "新变化与上次触发方向一致时，每点 Alter 增加的提示权重。",
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "oppositeDecay",
+          "type": "number",
+          "default": 0.15,
+          "description": "新变化与上次触发方向相反时，每点 Alter 衰减的提示权重。",
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        {
+          "key": "minWeight",
+          "type": "number",
+          "default": 0.2,
+          "description": "权重低于该值时清除当前 emotionalOffset。",
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        },
+        {
+          "key": "maxIntensity",
+          "type": "number",
+          "default": 2,
+          "description": "触发值超过阈值时允许的最大情绪偏移强度。",
+          "min": 1,
+          "max": 3,
+          "step": 0.1
+        },
+        {
+          "key": "temperature",
+          "type": "number",
+          "default": 0.3,
+          "description": "侧端分析温度。较低值能保持描述稳定而不过度发挥。",
+          "min": 0,
+          "max": 2,
+          "step": 0.1
+        },
+        {
+          "key": "topP",
+          "type": "number",
+          "default": 1,
+          "description": "侧端分析 top_p。",
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        },
+        {
+          "key": "maxTokens",
+          "type": "number",
+          "default": 400,
+          "description": "侧端分析最大输出 token；只需要一到两句话。",
+          "min": 64,
+          "max": 2000,
+          "step": 1
+        },
+        {
+          "key": "timeout",
+          "type": "number",
+          "default": 30000,
+          "description": "侧端分析超时。失败时保留累计值，稍后重试。",
+          "min": 1000,
+          "max": 120000,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "key": "memory",
+      "description": "【内在 12】记忆与连续性：场景压缩、事实召回、剧情余波和设定演化。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": true,
+          "description": "启用场景压缩、长期事实和状态演化。"
+        },
+        {
+          "key": "backgroundIntervalMinutes",
+          "type": "number",
+          "default": 10,
+          "description": "后台记忆整理检查周期，单位分钟。",
+          "min": 1,
+          "max": 1440,
+          "step": 1
+        },
+        {
+          "key": "sceneEntryThreshold",
+          "type": "number",
+          "default": 16,
+          "description": "未压缩剧本条目达到此数量时触发整理。默认 16 条，减少短对话中的频繁后台调用。",
+          "min": 1,
+          "max": 500,
+          "step": 1
+        },
+        {
+          "key": "sceneCharacterThreshold",
+          "type": "number",
+          "default": 10000,
+          "description": "未压缩剧本字符数达到此值时触发整理。默认 10000 字，长场景会优先保持连续性。",
+          "min": 500,
+          "max": 200000,
+          "step": 1
+        },
+        {
+          "key": "recentEntryLimit",
+          "type": "number",
+          "default": 30,
+          "description": "每次主叙事请求附带的最近原始条目数。",
+          "min": 1,
+          "max": 200,
+          "step": 1
+        },
+        {
+          "key": "factLimit",
+          "type": "number",
+          "default": 20,
+          "description": "每次主叙事请求附带的长期事实数。",
+          "min": 1,
+          "max": 200,
+          "step": 1
+        }
+      ]
+    }
+  ]
+}

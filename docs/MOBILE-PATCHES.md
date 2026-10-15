@@ -14,3 +14,8 @@ HDS 原始版本为 1.0.1-rc51，固定提交 9a77fadb88c6e57914ebac8ca75cf54a27
 preview.4 的模型分工直接使用原 HDS provider flags / failover / SSE 路由。typ0 人设使用原生 storyDefaults 和 updateSetting，Tavern 继续使用上下文钩子；不整体升级 rc51。
 
 Preview7：复用原版 sidecar/native 识图路由，原生桥接新增图片压缩、外观文件与故事存档事务。见闻管理复用原版事实、待办、overlay 和 compact API；`mobileManageFact` 在修改前失效旧叙事工作并刷新连续性缓存。详见 `docs/PREVIEW7.md`。
+
+
+## preview.8 model request budget
+
+`src/narrator.ts` adds an optional mobileBeforeRequest hook before embedding, plain/proxy JSON and streaming model transports. The Android host installs a persistent rolling 24-hour limiter; ordinary upstream use leaves the hook unset. Direct user-message narrative requests pass foreground=true. Manual compaction uses a scoped asynchronous exemption that expires on completion. Budget errors abort provider retries without changing model credentials or the HDS output contract. Evidence: `tests/preview8.test.ts`, upstream suite baseline comparison in `docs/PREVIEW8.md`.
