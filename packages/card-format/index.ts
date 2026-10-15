@@ -87,7 +87,7 @@ export function parseCard(bytes: Uint8Array): Card {
     return parseJsonCard(text)
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  const candidates = new Map<string, string>()
+  const candidates = new Map<string, string[]>()
   const warnings: string[] = []
   let offset = 8, ended = false, chunks = 0
   while (offset < bytes.length) {
@@ -117,8 +117,9 @@ export function parseCard(bytes: Uint8Array): Card {
         if (compressed) throw new Error('这张 PNG 使用压缩角色卡元数据（zTXt 或压缩 iTXt），请用 SillyTavern 重新导出为 PNG，或导入同名 JSON')
         if (value === null) throw new Error(`PNG ${type} 卡元数据块损坏`)
         if (body.length > MAX_JSON * 1.4) throw new Error('PNG 卡元数据超过限制')
-        if (candidates.has(key)) throw new Error(`PNG 存在重复 ${key} 卡数据`)
-        candidates.set(key, value)
+        const list = candidates.get(key) ?? []
+        list.push(value)
+        candidates.set(key, list)
       }
     }
     if (type === 'IHDR') {
@@ -128,12 +129,33 @@ export function parseCard(bytes: Uint8Array): Card {
     if (type === 'IEND') { if (length !== 0 || offset !== bytes.length) throw new Error('PNG 结束块损坏'); ended = true; break }
   }
   if (!ended) throw new Error('PNG 缺少结束块')
-  const selected = candidates.get('ccv3') ?? candidates.get('chara')
-  if (!selected) throw new Error('这张 PNG 没有角色卡元数据（读取 tEXt / iTXt 的 chara、ccv3 块）；请确认是酒馆导出的角色卡 PNG')
-  if (candidates.size > 1) warnings.push('PNG 同时含 V2/V3 元数据，采用 V3；V3 损坏会拒绝导入。')
-  const jsonText = decodeCardText(selected)
-  if (new TextEncoder().encode(jsonText).length > MAX_JSON) throw new Error('PNG 内角色卡数据超过 16 MiB')
-  const card = parseJsonCard(jsonText)
+  const all: { key: string; text: string }[] = []
+  for (const [key, list] of candidates) for (const text of list) all.push({ key, text })
+  if (all.length === 0) throw new Error('这张 PNG 没有角色卡元数据（读取 tEXt / iTXt 的 chara、ccv3 块）；请确认是酒馆导出的角色卡 PNG')
+  // 同一张卡常被多个工具先后写过多份元数据（出现同名块）：逐个解析，保留信息最完整的一个，而不是直接拒绝
+  const avatarOf = (card: Card): unknown => {
+    const root = card.raw as Record<string, unknown>
+    const inner = record(root.data) ? (root.data as Record<string, unknown>) : root
+    return inner.avatar
+  }
+  const richness = (card: Card, key: string) => {
+    const avatar = avatarOf(card)
+    return (key === 'ccv3' ? 1 : 0) + (avatar && avatar !== 'none' ? 1 : 0) + (Array.isArray(card.lorebook?.entries) ? card.lorebook.entries.length : 0) + card.description.length
+  }
+  let best: { card: Card; key: string } | null = null
+  for (const { key, text } of all) {
+    try {
+      const jsonText = decodeCardText(text)
+      if (new TextEncoder().encode(jsonText).length > MAX_JSON) throw new Error('PNG 内角色卡数据超过 16 MiB')
+      const candidate = parseJsonCard(jsonText)
+      if (!best || richness(candidate, key) > richness(best.card, best.key)) best = { card: candidate, key }
+    } catch (error) {
+      warnings.push(`PNG 内 ${key} 元数据块解析失败，已跳过：${(error as Error).message}`)
+    }
+  }
+  if (!best) throw new Error('PNG 内的角色卡元数据无法解析；请用 SillyTavern 重新导出，或导入同名 JSON')
+  if (all.length > 1) warnings.push(`PNG 含 ${all.length} 个卡数据块（常见于被多个工具先后写过的卡），已保留信息最完整的一个。`)
+  const card = best.card
   card.warnings.push(...warnings)
   return card
 }

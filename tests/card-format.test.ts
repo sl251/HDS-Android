@@ -38,3 +38,16 @@ test('PNG raw-text tEXt, wrapped base64, and zTXt compressed cards', () => {
 })
 test('lore triggers against delivered history; creator notes and disabled lore stay out', () => { const card = parseJsonCard(JSON.stringify(raw)); const prompt = cardPrompt(card, '小林', ['我的收音机坏了']); assert.match(prompt.before, /青木/); assert.match(prompt.before, /星禾🌱: 晚上好/); assert.doesNotMatch(prompt.before, /THIS_IS_NOT_CANON|DISABLED_LORE/); assert.doesNotMatch(cardPrompt(card, '小林', ['晚上好']).before, /青木/) })
 test('regex lore is preserved but never executed and budgets visibly trim', () => { const card = parseJsonCard(JSON.stringify({ ...raw, data: { ...raw.data, character_book: { token_budget: 3, entries: [{ constant: true, content: 'too large for this budget' }, { constant: true, content: 'x', use_regex: true, keys: ['(a+)+$'] }] } } })); const prompt = cardPrompt(card, '我', ['aaaa']); assert.doesNotMatch(prompt.before, /too large/); assert.ok(prompt.trace.some(line => line.includes('预算'))); assert.ok(prompt.trace.some(line => line.includes('正则'))) })
+test('duplicate chara blocks from successive tools: keep richest instead of rejecting', () => {
+  const dimensions = Buffer.alloc(13); dimensions.writeUInt32BE(1, 0); dimensions.writeUInt32BE(1, 4)
+  const encode = (card: unknown) => pngChunk('tEXt', Buffer.concat([Buffer.from('chara\0'), Buffer.from(Buffer.from(JSON.stringify(card)).toString('base64'))]))
+  const rich = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Asuka', description: 'd', avatar: 'https://avatars.charhub.io/avatars/X/a.png', character_book: { entries: [{ enabled: true, keys: ['k'], content: 'c' }] } } }
+  const poor = { spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Asuka', description: 'd', avatar: 'none' } }
+  const bytes = Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), pngChunk('IHDR', dimensions), encode(rich), encode(poor), pngChunk('IEND', Buffer.alloc(0))])
+  const card = parseCard(bytes)
+  assert.equal(card.name, 'Asuka')
+  assert.equal((card.raw as Record<string, any>).data.avatar, 'https://avatars.charhub.io/avatars/X/a.png')
+  assert.ok(card.lorebook && (card.lorebook as any).entries.length === 1)
+  assert.ok(card.warnings.some(w => w.includes('2 个卡数据块')))
+  assert.doesNotThrow(() => parseCard(Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), pngChunk('IHDR', dimensions), encode(poor), encode(rich), pngChunk('IEND', Buffer.alloc(0))])))
+})
