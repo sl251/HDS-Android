@@ -23,6 +23,21 @@
 
 补充：`memory`（`:331`）、`alterSystem`（`:296`）、`timelineDirector`（`:539`）、`schedulePreplan`、`failover`、`compaction` 默认都是**开**，所以移动端并非"什么都没接上"，而是**主动性调度（urge/agency）与表达层（chatActions/stickers）没接**。
 
+## 0.2 关于 autoAdvance 的精确表述（避免口径混淆）
+
+`host.ts:52` 的 runtime 覆盖了 6 个字段，其中：
+
+```
+autoAdvanceEnabled / allowProactiveMessages = input.autoAdvance
+conversationFollowUpMinutes = input.autoAdvance ? [10, 20] : []   ← 写死
+```
+
+而 `autoAdvanceIntervalMinutes`（默认 40）与 `autoAdvanceJitterMinutes`（默认 5）**未下发**（`src/index.ts:248-249`）。
+
+所以准确说法不是"全是写死"，也不是"全走上游默认"，而是：
+**自动推进的间隔沿用上游默认（40 分钟 ± 5），但"对话后补写窗口"被写死成 10/20 分钟**。
+这也是 Urge 的接入点——`urge` 的 description 原文就说它"替代固定间隔及对话后 10/20 分钟补写"（`src/index.ts:533`）。
+
 ---
 
 ## 1. 现状核实：上游 22 个配置分区 × 移动端下发现状
@@ -30,7 +45,7 @@
 上游 `Config`（`src/index.ts:526-592`）共 21 个编号分区 + `mainPrompt` + 已弃用的 `chatRhythm`。
 移动端下发（`host.ts:49-57`）：`storyDefaults` / `model` / `runtime` / `logging` / `timelineDirector` / `onebot`，并显式 `qzone{enabled:false}`、`browser{enabled:false}`。
 
-| # | 分区 | 定义行 | enabled 默认 | 移动端 | 真实生效 |
+| # | 分区 | Config 块行 | enabled 默认 | 移动端 | 真实生效 |
 |---|---|---|---|---|---|
 | 1 | storyDefaults【必填1】 | 527 | —（必填） | ✅ 下发 | 生效 |
 | 2 | model【必填2】 | 528 | —（必填） | ✅ 下发 | 生效（含 mobileCardPrompt 注入 `host.ts:60`） |
@@ -80,7 +95,8 @@
 
 ### P1 — 表达与社交补全
 
-**P1-3 · chatActions**：先做 QQ **引用回复 + 表情回应**（纯文本侧）。上游默认值已给出 `quoteReply:true / messageReactions:true / nativeFaces:true / expressionThreshold:0.7`（`src/index.ts:541`）
+**P1-3 · chatActions**：先做 QQ **引用回复**，表情回应次之。上游默认值已给出 `quoteReply:true / messageReactions:true / nativeFaces:true / expressionThreshold:0.7`（`src/index.ts:541`），投递链在 `src/service.ts:2836-2858` 与 `src/narrator.ts:1705-1714`。
+**可行性前置（必须先验证）**：移动端 QQ 走 koishi-plugin-adapter-onebot 的标准 send 路径（`runtime/qq.ts:87-89` 挂 `app.on('send')` 记录出站消息），因此**引用回复有落点**；但**消息表情回应（reaction）与 QQ 原生表情**需要确认 NapCat/适配器是否暴露 `set_msg_emoji_like` 等接口——**未验证前不得承诺**，本轮只做引用回复。
 **P1-4 · QQ 信箱缺口**：媒体上传/下载、好友管理、多账号、登出/清登录态、旧聊天同步（对齐 `QQ-ROADMAP.md`）
 **P1-5 · alterSystem 参数 UI**：情绪阈值/权重/侧端分析开关（现在只有 `useForAlter` 勾选）
 **P1-6 · works 创作线**：上游 `src/works.ts` 有模块（`CommonWorksConfig{enabled,generationMode,modelId}`），需确认移动端是否零入口
@@ -148,6 +164,10 @@
 ## 附：核对过程
 
 - 本文所有 `file:line` 由编制者逐条 `grep`/`sed` 实读，非引用二手结论
-- agy（claude-sonnet-4-6，plan 只读）独立盘点报告：`HDS-Mobile-Plan/evidence/` 下同名 evidence 文件
+- agy（claude-sonnet-4-6，plan 只读）独立盘点报告：`HDS-Mobile-Plan/evidence/agy-preview8-parity-inventory.md`
+- **交叉核对结论**：agy 独立得出与本文 §0.1 相同的修正（`schedulePreplan`/`memory`/`alterSystem` 默认开、移动端静默运行）；双方一致确认 `presetSync.sections` 不含 `model`。
+  - agy 认为 `autoAdvance` 间隔"沿用上游默认"——本文 §0.2 进一步精确：间隔走默认，**补写窗口是写死的 [10,20]**。
+  - agy 提示 chatActions 的实际执行依赖本地 bot 能力——本文据此把 P1-3 降为"先做引用回复"，并列为前置验证项。
 - 已知与用户口述清单的差异：schedulePreplan 默认值、chatRhythm 已弃用（见 §0.1）
-- **未核实项**：各分区在移动端真机上的实际生效情况（无设备测试）、Urge 接开后调用量增幅（需实测）
+- **未核实项**：各分区在真机上的实际生效情况（无设备测试）、Urge 接开后调用量增幅（需实测）、NapCat 表情/原生表情接口可用性
+- dispatch 白名单现状：`runtime/host.ts:115-215`（`qq.*`、`images.*`、`memory.*`、`maintenance.*`、`health`、`messages.*`、`story.*`）；`presetSync` 需新增 `preset.sync` / `preset.syncStatus`，其余纯配置模块只需改下发，不必新增 dispatch
