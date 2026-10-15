@@ -38,6 +38,9 @@ try {
         if (method === 'selectCard') { f.status.state = 'stopped'; f.status.running = false; f.prefs.activeCard = options.id; return {} }
         if (method === 'cancelInstall') { f.status.state = 'stopped'; f.status.running = false; return {} }
         if (method === 'rpc') {
+          if (options.method === 'config.status') return { data: { budget: { used: 5, limit: 120, exhausted: false } } }
+          if (options.method === 'preset.syncStatus') return { data: { restartRequired: true } }
+          if (options.method === 'preset.sync') return { data: { config: { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }, title: '生活预设 fixture', code: 'ABCDEFGH', revision: 1, fingerprint: 'fixture', removed: ['model'], changes: [{ section: 'agency', field: 'enabled', after: true }] } }
           if (options.method === 'messages.history') return { data: f.messages || [] }
           if (options.method === 'images.upload') return { data: { id: 'a'.repeat(64) } }
           if (options.method === 'images.get') return { data: { dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' } }
@@ -243,6 +246,31 @@ try {
   await page.waitForFunction(() => { const image = document.querySelector('.custom-background'); return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0 })
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark')
   assert.ok((await page.locator('.custom-background').getAttribute('src')).endsWith('?v=2'))
+  await page.evaluate(() => { window.__storyFixture.status.state = 'healthy'; window.__storyFixture.status.running = true })
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByText('生活节奏与表达', { exact: true }).click()
+  await page.getByLabel('24 小时后台模型请求上限', { exact: true }).fill('45')
+  await page.getByText('弹性推进', { exact: true }).click()
+  await page.getByLabel(/^启用弹性推进/).check()
+  await page.getByRole('combobox', { name: /^弹性推进/ }).selectOption('low')
+  await page.waitForFunction(() => window.__storyFixture.prefs.mobileConfig?.backgroundLimit === 45 && window.__storyFixture.prefs.mobileConfig?.sections?.urge?.frequency === 'low')
+  const modelBefore = await page.evaluate(() => JSON.stringify(window.__storyFixture.prefs.providers))
+  await page.getByText('从分享码同步生活配置', { exact: true }).click()
+  await page.getByLabel('typ0.space 分享码').fill('ABCDEFGH')
+  await page.getByRole('button', { name: '检查预设差异', exact: true }).click()
+  await page.getByText('生活预设 fixture · 修订 1').waitFor()
+  await page.getByRole('button', { name: '应用到生活设置', exact: true }).click()
+  await page.waitForFunction(() => window.__storyFixture.prefs.mobileConfig?.sections?.agency?.contactMode === 'balanced')
+  assert.equal(await page.evaluate(() => window.__storyFixture.prefs.mobileConfig.backgroundLimit), 45)
+  assert.equal(await page.evaluate(() => JSON.stringify(window.__storyFixture.prefs.providers)), modelBefore)
+  await page.getByRole('button', { name: '检查重载状态', exact: true }).click()
+  await page.getByText('生活设置与当前运行配置不同，请保存并重启。').waitFor()
+  for (const width of [320,390,740]) {
+    await page.setViewportSize({ width, height: 844 })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Life settings @ ${width}`)
+  }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: 'artifacts/preview8-life-settings.png', fullPage: true })
   assert.deepEqual(errors, [])
   console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
 } finally { await browser.close() }

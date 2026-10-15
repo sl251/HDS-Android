@@ -12,7 +12,8 @@ export type ModelOptions = {
   mainTemperature: number; mainMaxTokens: number; mainTimeout: number;
   mainPayloadOrder: 'cache-first' | 'legacy'; failoverEnabled: boolean; failoverStrategy: 'priority' | 'round-robin'; visionEnabled?: boolean; visionProviderId?: string;
 }
-export type ModelSettings = { providers: ModelProvider[]; modelOptions: ModelOptions; userName: string; userProfile: string; autoAdvance: boolean }
+export type MobileConfig = { sections?: Record<string, Record<string, unknown>>; backgroundLimit?: number }
+export type ModelSettings = { mobileConfig?: MobileConfig; providers: ModelProvider[]; modelOptions: ModelOptions; userName: string; userProfile: string; autoAdvance: boolean }
 export type ImageAttachment = { id: string; dataUri: string }
 export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string; images?: string[] }
 /** SQLite JSON columns from older records may contain {} instead of an array. */

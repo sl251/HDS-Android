@@ -31,8 +31,12 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     if (req.url === '/api/QQLogin/CheckLoginStatus') { assert.equal(req.headers.authorization, 'Bearer fixture-credential'); res.end(JSON.stringify({ code: 0, data: { isLogin: loggedIn, coreReady: loggedIn } })); return }
     if (req.url === '/api/QQLogin/GetQQLoginInfo') { res.end(JSON.stringify({ code: 0, data: { uin: '55555', nick: '星禾' } })); return }
     if (req.url === '/api/QQLogin/RefreshQRcode' || req.url === '/api/QQLogin/SetQuickLogin') { loginActions++; res.end(JSON.stringify({ code: -1, message: 'QQ Is Logined' })); return }
-    calls.push(JSON.parse(raw))
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ script: '星禾放下书，拿起手机回复邻居。', interaction: { seen: true, reply: { mode: 'immediate', content: 'QQ_FIXTURE_REPLY，明天见。' } } }) } }] }))
+    const modelRequest = JSON.parse(raw)
+    calls.push(modelRequest)
+    const prompt = modelRequest.messages.map((message: any) => typeof message.content === 'string' ? message.content : '').join('\n')
+    const refs = [...prompt.matchAll(/"messageRef"\s*:\s*"(msg-[^"]+)"/g)]
+    const replyTo = refs.at(-1)?.[1]
+    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ script: '星禾放下书，拿起手机回复邻居。', ...(replyTo ? { groupReply: { mode: 'immediate', content: 'QQ_QUOTE_REPLY', replyTo } } : {}), interaction: { seen: true, reply: { mode: 'immediate', content: 'QQ_FIXTURE_REPLY，明天见。' } } }) } }] }))
   })
   await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve)); const httpPort = (http.address() as any).port
   const ws = new WebSocketServer({ host: '127.0.0.1', port: 0 }); await new Promise<void>(resolve => ws.once('listening', resolve))
@@ -51,7 +55,7 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
   })
   const reserved = createServer(); await new Promise<void>(resolve => reserved.listen(0, '127.0.0.1', resolve)); const port = (reserved.address() as any).port; await new Promise<void>(resolve => reserved.close(() => resolve()))
   const dir = mkdtempSync(join(tmpdir(), 'hds-qq-test-'))
-  const host = await startHost({ card: parseJsonCard(JSON.stringify({ spec: 'chara_card_v2', data: { name: '星禾', description: 'QQ_PERSONA_MARKER，邻居的朋友' } })), endpoint: `http://127.0.0.1:${httpPort}/v1/chat/completions`, model: 'fixture', userName: '邻居', userProfile: '', autoAdvance: false, token: 'qq-test-rpc-token-more-than-32-characters', port, dataDir: dir, qqDir: join(dir, 'qq') })
+  const host = await startHost({ card: parseJsonCard(JSON.stringify({ spec: 'chara_card_v2', data: { name: '星禾', description: 'QQ_PERSONA_MARKER，邻居的朋友' } })), endpoint: `http://127.0.0.1:${httpPort}/v1/chat/completions`, model: 'fixture', userName: '邻居', userProfile: '', autoAdvance: false, mobileConfig: { sections: { chatActions: { enabled: true, quoteReply: true } } }, token: 'qq-test-rpc-token-more-than-32-characters', port, dataDir: dir, qqDir: join(dir, 'qq') })
   try {
     const qq = host.qq! as any
     assert.equal((await host.dispatch('qq.status', {}) as any).policy.enabled, false)
@@ -111,6 +115,8 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     assert.match(JSON.stringify(calls.at(-1)), /GROUP_FIXTURE/)
     await waitFor(async () => (await host.dispatch('qq.conversations', {}) as any[]).some(row => row.id === 'group:88888'))
     await waitFor(() => delivered.some(row => row.action === 'send_group_msg' && String(row.params.group_id) === '88888'))
+    const groupDelivery = delivered.find(row => row.action === 'send_group_msg')
+    assert.ok(groupDelivery.params.message.some((segment: any) => segment.type === 'reply' && String(segment.data.id) === '1005'), 'HDS quote must reach the actual OneBot send payload')
     await host.dispatch('qq.policy', { enabled: false, users: ['12345'], groups: [] })
     const bot = host.app.bots.find(bot => bot.platform === 'onebot')!
     await assert.rejects(() => bot.sendMessage('private:12345', 'must not send'), /暂停|授权/)

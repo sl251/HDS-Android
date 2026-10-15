@@ -46,8 +46,10 @@ class HdsStore(private val context: Context) {
             .put("credentialPresent", primary.optBoolean("credentialPresent")).put("providers", providers)
             .put("modelOptions", models.options(source.optJSONObject("modelOptions") ?: JSONObject()))
             .put("userName", source.optString("userName", "我")).put("userProfile", source.optString("userProfile"))
+            .put("mobileConfig", mobileSettings.normalize(source.optJSONObject("mobileConfig") ?: JSONObject()))
             .put("autoAdvance", source.optBoolean("autoAdvance", false)).put("activeCard", source.optString("activeCard"))
     }
+    private val mobileSettings by lazy { MobileSettingsCodec(JSONObject(context.assets.open("mobile-config.schema.json").bufferedReader().use { it.readText() })) }
     private fun decrypt(prefs: JSONObject): String {
         val encrypted = prefs.optString("encryptedKey")
         if (encrypted.isEmpty()) return ""
@@ -109,6 +111,7 @@ class HdsStore(private val context: Context) {
             require(text.length <= if (field == "userProfile") 12000 else 128) { "设置字段过长" }
             source.put(field, text.trim())
         }
+        source.put("mobileConfig", mobileSettings.normalize(input.optJSONObject("mobileConfig") ?: source.optJSONObject("mobileConfig") ?: JSONObject()))
         source.put("autoAdvance", input.optBoolean("autoAdvance", false))
         write(settingsFile, source)
     }

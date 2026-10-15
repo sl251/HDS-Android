@@ -39,6 +39,25 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var startupFailure = ""
     @Volatile private var profileMaintenance = false
     @Volatile private var cleanStop = false
+    @Volatile private var backgroundBudget = JSONObject()
+    @Volatile private var serviceHealthFailed = false
+
+    fun notificationText(): String = when {
+        state == "healthy" && serviceHealthFailed -> "本机健康检查暂未响应，请打开应用查看诊断"
+        state == "healthy" && backgroundBudget.optBoolean("exhausted") -> "后台模型预算已用完；直接聊天仍可用，详情见空间"
+        state == "healthy" -> "HDS 核心运行中；QQ 连接状态见信箱"
+        state == "failed" -> "核心运行失败，请打开应用查看诊断"
+        else -> progress
+    }
+    fun refreshServiceHealth(done: () -> Unit) {
+        executor.execute {
+            if (state == "healthy" && !profileMaintenance) {
+                try { backgroundBudget = rpc("health", JSONObject()).getJSONObject("data").optJSONObject("budget") ?: JSONObject(); serviceHealthFailed = false }
+                catch (_: Exception) { serviceHealthFailed = true; log("前台健康检查暂未响应；未重放消息或重启业务") }
+            }
+            done()
+        }
+    }
 
     private val transaction = RuntimeTransaction(environment)
     private val diagnosticFile = File(environment, "install-diagnostic.json")
@@ -236,6 +255,7 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     private fun startNow() {
         cleanStop = false
+        backgroundBudget = JSONObject(); serviceHealthFailed = false
         val profile = store.profile()
         val qqData = File(store.base, "qq").apply { mkdirs() }
         File(rootfs, "qq-data").mkdirs()
@@ -352,7 +372,7 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {
         require(!profileMaintenance || method == "health") { "故事正在备份或维护" }
-        require(method in listOf("images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
+        require(method in listOf("config.status", "preset.sync", "preset.syncStatus", "images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
         require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         val connection = URL("http://127.0.0.1:$port/rpc").openConnection() as HttpURLConnection
         try {
