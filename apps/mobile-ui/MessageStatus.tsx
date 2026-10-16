@@ -7,7 +7,7 @@ export function MessageStatus({ message, lastCharacterReplyTs = 0, onRetry, disa
   if (!label) return null
   if (message.status === 'card-opening') return <div className="message-opening">{label}</div>
   if (message.status === 'failed') return <button type="button" className="message-status message-retry" disabled={disabled} onClick={onRetry}>{label}</button>
-  return <small className={`message-status${label === '已读' ? ' is-read' : ''}`}><svg className="delivery-checks" viewBox="0 0 24 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m1 8 4 4L15 2M10 11l2 2L23 2" /></svg>{label}</small>
+  return <small className={`message-status${label === '已读' ? ' is-read' : ''}`}><span className="delivery-morph" aria-hidden="true"><svg className="delivery-checks" viewBox="0 0 24 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m1 8 4 4L15 2M10 11l2 2L23 2" /></svg><svg className="read-checks" viewBox="0 0 24 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m1 8 4 4L15 2M10 11l2 2L23 2" /></svg></span>{label}</small>
 }
 
 /** The bridge has no typing event; approximate it only while a send request is in flight. */

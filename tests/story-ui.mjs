@@ -5,11 +5,14 @@ const browser = await chromium.launch(process.env.HDS_BROWSER ? { executablePath
 await mkdir('artifacts', { recursive: true })
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
+  page.setDefaultTimeout(30000)
   const openCategory = async category => {
     const details = page.locator(`[data-settings-category="${category}"] > details`)
     if (!await details.evaluate(element => element.open)) await details.locator(':scope > summary').click()
   }
   const errors = []; page.on('pageerror', error => errors.push(error.message))
+  const stickerFixture = await readFile('fixtures/images/sticker-fixture.gif')
+  assert.ok(stickerFixture.subarray(0,6).toString() === 'GIF89a' && stickerFixture.includes(Buffer.from('NETSCAPE2.0')))
   const background = `data:image/jpeg;base64,${(await readFile('fixtures/images/vision-fixture.jpg')).toString('base64')}`
   await page.addInitScript(value => { window.__backgroundFixture = value }, background)
   await page.addInitScript(() => {
@@ -20,14 +23,17 @@ try {
     const f = window.__storyFixture = { launchCardId, appearance: JSON.parse(localStorage.getItem('test-native-appearance') || 'null'), prefs, saves: [], calls: [], saveDelay: 0, failSave: false, status: { state: 'stopped', installed: false, environmentState: 'missing', running: false, progress: '', error: '', logs: [], device: { model: 'UI fixture', android: '15', sdk: 35, abi: 'arm64', pageSize: 4096, availableBytes: 1e10 }, version: 'test' } }
     window.androidBridge = {}
     window.Capacitor = {
-      convertFileSrc: () => '/fixtures/images/vision-fixture.jpg',
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
+      convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
         if (method === 'notificationSettings') return f.notifications || { enabled: false, permission: 'prompt', available: false }
         if (method === 'setMessageNotifications') { f.notifications = { enabled: options.enabled, permission: 'denied', available: false }; return f.notifications }
         if (method === 'openNotificationSettings') { f.openedNotificationSettings = true; return {} }
         if (method === 'notificationLaunch') { const cardId = f.launchCardId; delete f.launchCardId; return { cardId } }
+        if (method === 'pickStickers') { f.importDirectory = options.directory; return f.nextStickerImport || { cancelled: true } }
+        if (method === 'stickerImage') return { dataUri: window.__backgroundFixture }
+        if (method === 'pruneStickers') { f.pruned = options.keep; return {} }
         if (method === 'pickImage') return { cancelled: false, dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' }
         if (method === 'pickAppearanceAsset') { f.appearance = { ...f.appearance, backgroundPath: '/data/user/0/io.hdsinterlude.android/no_backup/hds/appearance/background.jpg', backgroundRevision: (f.appearance?.backgroundRevision || 0) + 1 }; localStorage.setItem('test-native-appearance', JSON.stringify(f.appearance)); return f.appearance }
         if (['exportStory','restoreStory','resetStory','restorePreviousStory'].includes(method)) { f.status.state = 'stopped'; f.status.running = false; return { cancelled: false, backup: 'fixture-backup' } }
@@ -43,7 +49,7 @@ try {
           f.prefs = { ...snapshot, providers: snapshot.providers.filter(row => row.endpoint && row.model).map(({apiKey, clearKey, ...row}) => ({...row, credentialPresent: Boolean(apiKey) || (!clearKey && row.credentialPresent)})) }
           f.saves.push(snapshot); return {}
         }
-        if (method === 'start') { f.status.state = f.status.installed ? 'starting' : 'installing'; f.status.running = true; return {} }
+        if (method === 'start') { f.status.state = f.autoHealthyStart ? 'healthy' : f.status.installed ? 'starting' : 'installing'; f.status.running = true; return {} }
         if (method === 'stop') { f.status.state = 'stopped'; f.status.running = false; return {} }
         if (method === 'selectCard') { f.status.state = 'stopped'; f.status.running = false; f.prefs.activeCard = options.id; return {} }
         if (method === 'cancelInstall') { f.status.state = 'stopped'; f.status.running = false; return {} }
@@ -54,7 +60,8 @@ try {
           if (options.method === 'preset.syncStatus') return { data: options.payload?.currentVision ? { visionRestartRequired: false, activeVision: { enabled: true, candidates: [{ enabled: true, imageInput: 'supported' }] } } : { restartRequired: true } }
           if (options.method === 'preset.sync') return { data: { config: { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }, title: '生活预设 fixture', code: 'ABCDEFGH', revision: 1, fingerprint: 'fixture', removed: ['model'], changes: [{ section: 'agency', field: 'enabled', after: true }] } }
           if (options.method === 'messages.history') return { data: f.messages || [] }
-          if (options.method === 'images.upload') return { data: { id: 'a'.repeat(64) } }
+          if (options.method === 'images.upload') { (f.uploaded ||= []).push(options.payload.dataUri); return { data: { id: 'a'.repeat(64) } } }
+          if (options.method === 'images.get' && f.imageData) return { data: { dataUri: f.imageData } }
           if (options.method === 'images.get') return { data: { dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' } }
           if (options.method === 'messages.sendLocal') {
             (f.attempts ||= []).push(structuredClone(options.payload))
@@ -77,6 +84,7 @@ try {
     }
   })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
+  if (!process.env.HDS_M3_ONLY) {
   await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
   assert.deepEqual(await page.locator('nav button').allTextContents(), ['故事','见闻','空间'])
   await page.screenshot({ path: 'artifacts/story-resting.png', fullPage: true })
@@ -441,6 +449,220 @@ try {
   await page.getByRole('button', { name: '切换角色或故事', exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: '切换角色或故事', exact: true }).textContent(), '林间⌄')
   console.log('PASS P0-b: hot/cold launch card selection opens chat at latest.')
+
+  }
+  // M3: exercise native bridge boundaries with real React/DOM, not synthetic successful UI state.
+  await page.evaluate(() => { for (const key of Object.keys(localStorage)) if (key.startsWith('hds-draft-') || key === 'hds-stickers-v1') localStorage.removeItem(key) })
+  await page.reload()
+  await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: '打开表情包', exact: true }).count(), 0)
+  await page.evaluate(() => { window.__storyFixture.autoHealthyStart = true; Object.assign(window.__storyFixture.status, { state: 'healthy', running: true, installed: true, environmentState: 'ready' }) })
+  await page.waitForFunction(() => document.querySelector('header .status.online'))
+  const m3Composer = page.getByRole('textbox', { name: '消息内容' })
+  await m3Composer.fill('输入法候选')
+  await m3Composer.evaluate(element => {
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true }))
+  })
+  assert.equal(await page.evaluate(() => window.__storyFixture.attempts?.length || 0), 0)
+  await m3Composer.press('Shift+Enter')
+  assert.ok((await m3Composer.inputValue()).includes('\n'))
+  await m3Composer.fill('普通回车发送')
+  await m3Composer.press('Enter')
+  await page.waitForFunction(() => window.__storyFixture.sent?.content === '普通回车发送')
+  await page.waitForFunction(() => document.querySelector('textarea').value === '')
+  // Text-only paste keeps the browser default; image paste enters the JPEG/upload/preview pipeline.
+  assert.equal(await m3Composer.evaluate(element => {
+    const data = new DataTransfer(); data.setData('text/plain', '文本粘贴')
+    return element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }))
+  }), true)
+  await m3Composer.evaluate(element => {
+    const canvas = document.createElement('canvas'); canvas.width = 20; canvas.height = 20
+    canvas.toBlob(blob => { const data = new DataTransfer(); data.items.add(new File([blob], 'paste.png', { type: 'image/png' })); element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })) })
+  })
+  await page.getByAltText('待发送图片').waitFor()
+  assert.ok(await page.evaluate(() => window.__storyFixture.uploaded.at(-1).startsWith('data:image/jpeg;base64,')))
+  await m3Composer.fill('第一位的草稿')
+  await page.getByRole('button', { name: '切换角色或故事', exact: true }).click()
+  await page.getByRole('button', { name: '林间 继续故事 →', exact: true }).click()
+  await page.waitForFunction(() => window.__storyFixture.prefs.activeCard === 'second')
+  assert.equal(await m3Composer.inputValue(), '')
+  assert.equal(await page.getByAltText('待发送图片').count(), 0)
+  await m3Composer.fill('第二位的草稿')
+  await page.getByRole('button', { name: '切换角色或故事', exact: true }).click()
+  await page.getByRole('button', { name: '赵旻 继续故事 →', exact: true }).click()
+  await page.waitForFunction(() => window.__storyFixture.prefs.activeCard === 'first')
+  assert.equal(await m3Composer.inputValue(), '第一位的草稿')
+  await page.getByAltText('待发送图片').waitFor()
+  await page.reload()
+  await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
+  assert.equal(await m3Composer.inputValue(), '第一位的草稿')
+  await page.getByAltText('待发送图片').waitFor()
+  await page.evaluate(() => Object.assign(window.__storyFixture.status, { state: 'healthy', running: true }))
+  await page.waitForFunction(() => document.querySelector('header .status.online'))
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await openCategory('personal')
+  await page.getByRole('button', { name: /^表情包/ }).click()
+  await page.getByRole('dialog', { name: '表情包管理' }).waitFor()
+  await page.evaluate(() => { window.__storyFixture.nextStickerImport = { cancelled: false, name: '开心包', assets: [0,1].map(() => ({ id: 'b'.repeat(64), path: '/private/hds/stickers/happy.gif', size: 42, mime: 'image/gif' })), skipped: 1 } })
+  await page.getByRole('button', { name: '整文件夹导入', exact: true }).click()
+  await page.getByRole('dialog', { name: '表情包管理' }).getByText('导入 1 张，跳过 2 张（重复或格式不支持）', { exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => window.__storyFixture.importDirectory), true)
+  await page.getByRole('heading', { name: '开心包 · 1 张' }).waitFor()
+  await page.getByRole('button', { name: '多选图片导入', exact: true }).click()
+  await page.getByRole('dialog', { name: '表情包管理' }).getByRole('status').filter({ hasText: '导入 1 张，跳过 2 张' }).waitFor()
+  assert.equal(await page.evaluate(() => window.__storyFixture.importDirectory), false)
+  // Rename, remove an individual image, then delete the now-empty pack with confirmation.
+  await page.locator('.sticker-group').first().getByRole('button', { name: '重命名', exact: true }).click()
+  await page.getByRole('textbox', { name: '表情包名称', exact: true }).fill('重命名包')
+  await page.getByRole('button', { name: '保存包名', exact: true }).click()
+  await page.getByRole('heading', { name: '重命名包 · 1 张' }).waitFor()
+  const renamedPack = page.locator('.sticker-group').filter({ has: page.getByRole('heading', { name: '重命名包 · 1 张' }) })
+  await renamedPack.getByRole('button', { name: '管理贴纸', exact: true }).click()
+  await renamedPack.getByRole('button', { name: '删除单个贴纸', exact: true }).click()
+  await page.getByRole('heading', { name: '重命名包 · 0 张' }).waitFor()
+  await page.locator('.sticker-group').filter({ has: page.getByRole('heading', { name: '重命名包 · 0 张' }) }).getByRole('button', { name: '删除包', exact: true }).click()
+  await page.getByRole('alertdialog', { name: '删除表情包确认' }).waitFor()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  assert.equal(await page.getByRole('heading', { name: '重命名包 · 0 张' }).count(), 1)
+  await page.locator('.sticker-group').filter({ has: page.getByRole('heading', { name: '重命名包 · 0 张' }) }).getByRole('button', { name: '删除包', exact: true }).click()
+  await page.getByRole('button', { name: '确认删除表情包', exact: true }).click()
+  await page.getByRole('heading', { name: '重命名包 · 0 张' }).waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: '关闭表情包管理' }).click()
+  await page.getByRole('button', { name: '故事', exact: true }).click()
+  await page.getByRole('button', { name: '打开表情包', exact: true }).waitFor()
+  await page.evaluate(() => { window.__storyFixture.sendDelay = 300; window.__storyFixture.attempts = []; window.__storyFixture.failSend = true })
+  await page.getByRole('button', { name: '打开表情包', exact: true }).click()
+  await page.getByRole('region', { name: '表情抽屉' }).waitFor()
+  for (const width of [320, 740, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `M3 sticker drawer @ ${width}`)
+  }
+  await page.screenshot({ path: 'artifacts/preview9-m3-sticker-drawer.png' })
+  await page.getByRole('button', { name: '发送表情 · 开心包', exact: true }).click()
+  await page.getByRole('region', { name: '表情抽屉' }).waitFor({ state: 'detached' })
+  assert.equal(await page.getByRole('button', { name: '打开表情包', exact: true }).isDisabled(), true)
+  await page.getByRole('button', { name: '未送达·点击重试', exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => window.__storyFixture.attempts.length), 1)
+  await page.evaluate(() => { window.__storyFixture.failSend = false })
+  await page.getByRole('button', { name: '未送达·点击重试', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.sticker-message'))
+  assert.equal(await page.evaluate(() => window.__storyFixture.attempts.length), 2)
+  assert.equal(await page.evaluate(() => window.__storyFixture.attempts[0].requestId === window.__storyFixture.attempts[1].requestId), true)
+  assert.equal(await page.locator('.sticker-message .bubble').count(), 0)
+  assert.ok((await page.locator('.sticker-message img').getAttribute('src')).endsWith('sticker-fixture.gif'))
+  await page.screenshot({ path: 'artifacts/preview9-m3-sticker-chat.png' })
+  assert.equal(await page.locator('.sticker-body').evaluate(element => element.getBoundingClientRect().width), 144)
+  assert.equal(await m3Composer.inputValue(), '第一位的草稿', 'Instant stickers preserve the separate text/image draft')
+  await page.getByAltText('待发送图片').waitFor()
+  assert.equal(await page.evaluate(() => window.__storyFixture.sent.content), '')
+  await page.getByRole('button', { name: '打开表情包', exact: true }).click()
+  await page.getByRole('button', { name: '发送最近表情', exact: true }).waitFor()
+  await page.getByRole('button', { name: '收起表情抽屉' }).click()
+  // A WebView restart retains both library and the local message-id marker.
+  const sentSticker = await page.evaluate(() => window.__storyFixture.messages)
+  await page.reload()
+  await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
+  await page.evaluate(rows => { window.__storyFixture.messages = rows; Object.assign(window.__storyFixture.status, { state: 'healthy', running: true }) }, sentSticker)
+  await page.locator('.sticker-message').waitFor()
+  assert.equal(await page.locator('.sticker-message .bubble').count(), 0)
+  await page.getByRole('button', { name: '打开表情包', exact: true }).waitFor()
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('textarea').value === '')
+  assert.equal(await page.evaluate(() => localStorage.getItem('hds-draft-first')), null)
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('hds-draft-second')).content), '第二位的草稿')
+  console.log('PASS M3: CJK/229 composition gate, Enter/Shift+Enter, text/image paste, per-card text+attachment drafts and restart, empty/filled sticker entry, SAF/default pack name, multi-select feedback/dedup, rename/delete confirmation/individual delete, instant send/collapse/disabled guard and same-ID failed retry, GIF without bubble, recents, persisted message marker and successful draft clear.')
+  // Long-image scrolling, pinch, pan, dismiss, focus and reduced motion are DOM-observable.
+  await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 300; canvas.height = 2400
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#37a'; ctx.fillRect(0,0,300,2400)
+    const f = window.__storyFixture; f.imageData = canvas.toDataURL('image/png')
+    f.messages = [{ id: 'long-image', content: '<think>历史思考段</think>历史回复', direction: 'character', occurredAt: new Date().toISOString(), status: 'delivered', images: ['c'.repeat(64)] }]
+  })
+  await page.locator('.bubble').filter({ hasText: '历史回复' }).waitFor()
+  assert.equal(await page.getByText('历史思考段', { exact: true }).count(), 0)
+  const thought = page.getByRole('button', { name: '思考 · 耗时未提供 · 点击展开', exact: true })
+  await thought.click()
+  await page.getByText('历史思考段', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '思考 · 耗时未提供 · 点击收起', exact: true }).click()
+  await page.getByRole('button', { name: '查看消息图片', exact: true }).click()
+  const viewer = page.getByRole('dialog', { name: '消息图片预览' })
+  await viewer.waitFor()
+  await viewer.locator('img').evaluate(image => image.decode())
+  assert.equal(await page.evaluate(() => document.body.style.overflow), 'hidden')
+  assert.equal(await page.getByRole('button', { name: '关闭图片预览' }).evaluate(element => element === document.activeElement), true)
+  assert.equal(await viewer.locator('.image-scroll').evaluate(element => element.scrollHeight > element.clientHeight), true)
+  await page.screenshot({ path: 'artifacts/preview9-m3-long-image.png' })
+  await viewer.locator('.image-scroll').evaluate(element => { element.scrollTop = 300 })
+  assert.equal(await viewer.locator('.image-scroll').evaluate(element => element.scrollTop), 300)
+  const touch = async (type, points) => viewer.locator('.image-scroll').evaluate((element, { type, points }) => {
+    const touches = points.map(([x,y], identifier) => new Touch({ identifier, target: element, clientX: x, clientY: y }))
+    element.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches, changedTouches: touches }))
+  }, { type, points })
+  await touch('touchstart', [[100,300], [200,300]])
+  await touch('touchmove', [[50,300], [250,300]])
+  await page.waitForFunction(() => Number(document.querySelector('.image-viewer').dataset.zoom) > 1)
+  assert.equal(await viewer.locator('.image-scroll').evaluate(element => getComputedStyle(element).overflowY), 'hidden')
+  await touch('touchend', [])
+  await touch('touchstart', [[150,300]])
+  await touch('touchmove', [[150,450]])
+  await touch('touchend', [])
+  assert.equal(await viewer.count(), 1, 'Zoomed pan cannot dismiss the image')
+  await page.keyboard.press('Escape')
+  await viewer.waitFor({ state: 'detached' })
+  assert.equal(await page.getByRole('button', { name: '查看消息图片' }).evaluate(element => element === document.activeElement), true)
+  await page.getByRole('button', { name: '查看消息图片' }).click()
+  await viewer.waitFor()
+  await touch('touchstart', [[150,200]])
+  await touch('touchmove', [[150,350]])
+  await touch('touchend', [])
+  await viewer.waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: '查看消息图片' }).click()
+  await viewer.waitFor()
+  await viewer.locator('.image-scroll').click({ position: { x: 2, y: 400 } })
+  await viewer.waitFor({ state: 'detached' })
+  // Browser-dispatched touches also exercise scroll arbitration and a slow downward gesture.
+  await page.getByRole('button', { name: '查看消息图片' }).click()
+  await viewer.waitFor()
+  const client = await page.context().newCDPSession(page)
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+  const browserTouch = (type, y) => client.send('Input.dispatchTouchEvent', { type, touchPoints: y === undefined ? [] : [{ x: 150, y }] })
+  await browserTouch('touchStart', 600)
+  for (const y of [590, 560, 510, 450, 400]) { await browserTouch('touchMove', y); await page.waitForTimeout(20) }
+  await browserTouch('touchEnd')
+  await page.waitForFunction(() => document.querySelector('.image-scroll').scrollTop > 0)
+  assert.equal(await viewer.count(), 1)
+  await page.getByRole('button', { name: '关闭图片预览' }).click()
+  await viewer.waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: '查看消息图片' }).click()
+  await viewer.waitFor()
+  await browserTouch('touchStart', 200)
+  for (const y of [202, 205, 214, 240, 280, 340]) { await browserTouch('touchMove', y); await page.waitForTimeout(20) }
+  await browserTouch('touchEnd')
+  await viewer.waitFor({ state: 'detached' })
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: false })
+  await client.detach()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  assert.equal(await page.locator('main').evaluate(element => getComputedStyle(element).animationName), 'none')
+  await page.getByRole('button', { name: '查看消息图片' }).click()
+  await viewer.waitFor()
+  assert.equal(await viewer.evaluate(element => getComputedStyle(element).animationName), 'none')
+  await page.getByRole('button', { name: '关闭图片预览' }).click()
+  await viewer.waitFor({ state: 'detached' })
+  await page.evaluate(() => { window.__storyFixture.sendDelay = 1800; window.__storyFixture.autoHealthyStart = true })
+  await m3Composer.fill('通知切换中的发送')
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.evaluate(() => { window.__storyFixture.launchCardId = 'second' })
+  await page.waitForFunction(() => window.__storyFixture.prefs.activeCard === 'second')
+  await page.waitForFunction(() => localStorage.getItem('hds-draft-first') === null)
+  assert.equal(await m3Composer.inputValue(), '第二位的草稿')
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('hds-draft-second')).content), '第二位的草稿')
+  console.log('PASS M3: notification card switching during send clears only the acknowledged card draft.')
+  console.log('PASS M3: historical thinking toggle, native long-image overflow and browser touch scrolling, slow downward gesture, pinch zoom, zoomed pan without dismissal, top-edge downward close, blank/Escape close, body scroll lock/focus restore and reduced-motion fuse.')
+
   assert.deepEqual(errors, [])
-  console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
+  if (!process.env.HDS_M3_ONLY) console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
 } finally { await browser.close() }
