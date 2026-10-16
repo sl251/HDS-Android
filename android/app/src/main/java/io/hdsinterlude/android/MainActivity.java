@@ -50,6 +50,18 @@ public class MainActivity extends BridgeActivity {
         updateSystemBars(container);
         ViewCompat.requestApplyInsets(container);
     }
+    @Override public void onResume() {
+        super.onResume();
+        AppVisibility.setForeground(true);
+    }
+    @Override public void onPause() {
+        AppVisibility.setForeground(false);
+        super.onPause();
+    }
+    @Override protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
     private void updateSystemBars(View container) {
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         container.setBackgroundColor(Color.parseColor(dark ? "#20241f" : "#f5f3ed"));

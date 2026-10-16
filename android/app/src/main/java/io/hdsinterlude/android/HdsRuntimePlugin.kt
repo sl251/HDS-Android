@@ -9,6 +9,8 @@ import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import com.getcapacitor.annotation.Permission
+import com.getcapacitor.annotation.PermissionCallback
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import org.json.JSONObject
@@ -25,12 +27,35 @@ internal fun pickedImageUris(result: ActivityResult): List<android.net.Uri> {
     return uris.toList()
 }
 
-@CapacitorPlugin(name = "HdsRuntime")
+@CapacitorPlugin(name = "HdsRuntime", permissions = [Permission(alias = "notifications", strings = [android.Manifest.permission.POST_NOTIFICATIONS])])
 class HdsRuntimePlugin : Plugin() {
     private val io = Executors.newSingleThreadExecutor()
     private fun runtime() = HdsRuntime.get(context)
     private fun resolve(call: PluginCall, result: JSONObject = JSONObject()) { call.resolve(JSObject.fromJSONObject(result)) }
     private fun run(call: PluginCall, operation: () -> JSONObject) { io.execute { try { resolve(call, operation()) } catch (failure: Throwable) { call.reject(failure.message ?: "原生操作失败", failure.javaClass.simpleName) } } }
+    @PluginMethod fun notificationSettings(call: PluginCall) { resolve(call, CharacterNotifications(context).status()) }
+    @PluginMethod fun setMessageNotifications(call: PluginCall) {
+        val notifications = CharacterNotifications(context)
+        val enabled = call.getBoolean("enabled", false) == true
+        notifications.setEnabled(enabled)
+        if (enabled && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            notifications.markRequested()
+            requestPermissionForAlias("notifications", call, "notificationPermissionResult")
+        } else resolve(call, notifications.status())
+    }
+    @PermissionCallback private fun notificationPermissionResult(call: PluginCall) { resolve(call, CharacterNotifications(context).status()) }
+    @PluginMethod fun openNotificationSettings(call: PluginCall) {
+        try { activity.startActivity(CharacterNotifications(context).settingsIntent()); resolve(call) }
+        catch (failure: Exception) { call.reject("无法打开系统通知设置", failure) }
+    }
+    @PluginMethod fun notificationLaunch(call: PluginCall) {
+        activity.runOnUiThread {
+            val intent = activity.intent
+            val cardId = intent?.getStringExtra(CharacterNotifications.CARD_EXTRA)
+            intent?.removeExtra(CharacterNotifications.CARD_EXTRA)
+            resolve(call, JSONObject().apply { if (cardId != null) put("cardId", cardId) })
+        }
+    }
     @PluginMethod fun status(call: PluginCall) { resolve(call, runtime().status()) }
     @PluginMethod fun settings(call: PluginCall) { run(call) { runtime().store.publicSettings() } }
     @PluginMethod fun appearance(call: PluginCall) { run(call) { AppearanceStore(context).read() } }

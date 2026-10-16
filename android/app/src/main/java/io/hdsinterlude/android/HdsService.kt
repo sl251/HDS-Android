@@ -21,9 +21,44 @@ class HdsService : Service() {
     }
     @Volatile private var intentionalStop = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private val messageIo = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private lateinit var messages: CharacterNotifications
+    private val push: (String, String, CharacterMessage, Boolean) -> Unit = { id, name, message, foreground ->
+        enqueueMessages { messages.receive(id, name, message, foreground, { messages.avatar(HdsRuntime.get(this).store, id) }) }
+    }
+    private fun enqueueMessages(work: () -> Unit) {
+        try { messageIo.execute { try { work() } catch (failure: Exception) { android.util.Log.i("HDS", "角色消息补拉跳过：${failure.javaClass.simpleName}") } } }
+        catch (_: java.util.concurrent.RejectedExecutionException) { /* Service already stopped. */ }
+    }
+    private fun catchUp() {
+        val runtime = HdsRuntime.get(this)
+        if (runtime.status().optString("state") != "healthy") return
+        val cardId = runtime.runningCardId; val name = runtime.runningCardName
+        if (cardId.isBlank()) return
+        // Drain bounded pages in timestamp order. Stdout never advances this
+        // reconciliation cursor, so missed older pushes remain recoverable.
+        var since = messages.cursor(cardId)
+        repeat(20) {
+            if (active !== this || intentionalStop || runtime.runningCardId != cardId) return
+            val rows = runtime.rpc("messages.since", org.json.JSONObject().put("since", since.toString()).put("limit", 200)).getJSONArray("data")
+            if (active !== this || intentionalStop || runtime.runningCardId != cardId) return
+            val foreground = AppVisibility.visible
+            if (rows.length() == 0) return
+            var through = since
+            for (i in 0 until rows.length()) {
+                val message = CharacterMessage.fromJson(rows.getJSONObject(i)) ?: throw IllegalArgumentException("无效消息")
+                messages.receive(cardId, name, message, foreground, { messages.avatar(runtime.store, cardId) })
+                through = maxOf(through, message.occurredAt)
+            }
+            if (through <= since) return
+            messages.reconcile(cardId, through); since = through
+            if (rows.length() < 200) return
+        }
+    }
     private val handler = Handler(Looper.getMainLooper())
     private val health = object : Runnable { override fun run() {
         HdsRuntime.get(this@HdsService).refreshServiceHealth {
+            enqueueMessages { catchUp() }
             handler.post {
                 if (active === this@HdsService && !intentionalStop) {
                     if (android.os.Build.VERSION.SDK_INT < 33 || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -38,6 +73,9 @@ class HdsService : Service() {
     override fun onCreate() {
         super.onCreate()
         active = this
+        messages = CharacterNotifications(this)
+        messages.createChannel()
+        HdsRuntime.get(this).messagePush = push
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HDS:runtime").apply { setReferenceCounted(false) }
         renew.run()
         val manager = getSystemService(NotificationManager::class.java)
@@ -56,6 +94,6 @@ class HdsService : Service() {
         if (intent?.action == "STOP") { intentionalStop = true; HdsRuntime.get(this).stopAsync(); stopSelf() }
         return START_NOT_STICKY
     }
-    override fun onDestroy() { handler.removeCallbacksAndMessages(null); wakeLock?.let { if (it.isHeld) it.release() }; if (active === this) active = null; if (!intentionalStop) HdsRuntime.get(this).stopAsync(); super.onDestroy() }
+    override fun onDestroy() { if (HdsRuntime.get(this).messagePush === push) HdsRuntime.get(this).messagePush = null; messageIo.shutdownNow(); handler.removeCallbacksAndMessages(null); wakeLock?.let { if (it.isHeld) it.release() }; if (active === this) active = null; if (!intentionalStop) HdsRuntime.get(this).stopAsync(); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 }

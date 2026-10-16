@@ -57,6 +57,11 @@ class HdsRuntime private constructor(private val context: Context) {
         state == "failed" -> "核心运行失败，请打开应用查看诊断"
         else -> progress
     }
+    @Volatile var messagePush: ((String, String, CharacterMessage, Boolean) -> Unit)? = null
+    @Volatile var runningCardId = ""
+        private set
+    @Volatile var runningCardName = ""
+        private set
     fun refreshServiceHealth(done: () -> Unit) {
         executor.execute {
             if (state == "healthy" && !profileMaintenance) {
@@ -301,7 +306,19 @@ class HdsRuntime private constructor(private val context: Context) {
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
         val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data").put("qqDir", "/qq-data")
-        val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach { if (it == "HDS_MOBILE_CLEAN_STOP") cleanStop = true; log(it) } } }, "hds-output").apply { start() }
+        val cardId = prefs.getString("activeCard")
+        val cardName = configuration.getJSONObject("card").getString("name")
+        runningCardId = cardId; runningCardName = cardName
+        val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach {
+            if (it.startsWith("HDS_MSG_PUSH ")) {
+                val message = parseMessagePush(it)
+                if (message != null) messagePush?.invoke(cardId, cardName, message, AppVisibility.visible)
+                else log("忽略无效角色消息标记")
+            } else {
+                if (it == "HDS_MOBILE_CLEAN_STOP") cleanStop = true
+                log(it)
+            }
+        } } }, "hds-output").apply { start() }
         child.outputStream.write((configuration.toString() + "\n").toByteArray(Charsets.UTF_8)); child.outputStream.flush()
         val deadline = System.currentTimeMillis() + 90000
         var lastFailure = ""
@@ -378,7 +395,7 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {
         require(!profileMaintenance || method == "health") { "故事正在备份或维护" }
-        require(method in listOf("config.status", "preset.sync", "preset.syncStatus", "images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
+        require(method in listOf("config.status", "preset.sync", "preset.syncStatus", "images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.since", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
         require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         val connection = URL("http://127.0.0.1:$port/rpc").openConnection() as HttpURLConnection
         try {
