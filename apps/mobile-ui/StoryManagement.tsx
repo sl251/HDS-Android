@@ -1,14 +1,14 @@
 import React, { useState } from 'react'
 import type { NativeBridge } from '../../packages/contracts'
 
-type Props = { bridge: NativeBridge; cardId: string; name: string; native: boolean; busy: boolean; healthy: boolean; act: (task: () => Promise<unknown>, success?: string) => Promise<void>; changed: () => Promise<void>; notify: (text: string) => void }
+type Props = { bridge: NativeBridge; cardId: string; name: string; native: boolean; busy: boolean; healthy: boolean; act: (task: () => Promise<unknown>, success?: string) => Promise<void>; changed: (historyReplaced?: boolean) => Promise<void>; notify: (text: string) => void }
 export function StoryManagement({ bridge, cardId, name, native, busy, act, changed, notify }: Props) {
   const [confirm, setConfirm] = useState<'reset' | 'restore' | 'export' | 'previous' | null>(null)
   const execute = async () => {
-    if (confirm === 'reset') { await bridge.resetStory({ cardId }); await changed(); notify('故事已重开，旧故事保存在本机备份。唤醒后将从当前人设开始。') }
-    if (confirm === 'restore') { const result = await bridge.restoreStory({ cardId }); if (!result.cancelled) { await changed(); notify('存档已恢复。唤醒后保持暂停，请在见闻检查后恢复故事。') } }
+    if (confirm === 'reset') { await bridge.resetStory({ cardId }); await changed(true); notify('故事已重开，旧故事保存在本机备份。唤醒后将从当前人设开始。') }
+    if (confirm === 'restore') { const result = await bridge.restoreStory({ cardId }); if (!result.cancelled) { await changed(true); notify('存档已恢复。唤醒后保持暂停，请在见闻检查后恢复故事。') } }
     if (confirm === 'export') { const result = await bridge.exportStory(); if (!result.cancelled) { await changed(); notify('完整存档已导出；故事已休息，可随时唤醒。') } }
-    if (confirm === 'previous') { await bridge.restorePreviousStory({ cardId }); await changed(); notify('最近本机备份已恢复，唤醒后请检查并恢复故事。') }
+    if (confirm === 'previous') { await bridge.restorePreviousStory({ cardId }); await changed(true); notify('最近本机备份已恢复，唤醒后请检查并恢复故事。') }
     setConfirm(null)
   }
   return <section className="settings-group"><details><summary><span><b>存档与故事管理</b><small>{name || '请先选择角色'} · 备份、恢复与重新开始</small></span></summary><fieldset disabled={!native || busy || !cardId}>
