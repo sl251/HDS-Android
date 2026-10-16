@@ -28,7 +28,12 @@ export type DownloadProgress = { component: string; receivedBytes: number; total
 export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[] }
 export type QQConversation = { id: string; name: string; last: string; time: number; unread: number }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
+export type MessageNotificationSettings = { enabled: boolean; permission: 'prompt' | 'granted' | 'denied'; available: boolean }
 export type NativeBridge = {
+  notificationSettings(): Promise<MessageNotificationSettings>;
+  setMessageNotifications(options: { enabled: boolean }): Promise<MessageNotificationSettings>;
+  openNotificationSettings(): Promise<void>;
+  notificationLaunch(): Promise<{ cardId?: string }>;
   appearance(): Promise<Appearance>;
   saveAppearance(options: Appearance & { removeBackground?: boolean; removeFont?: boolean }): Promise<void>;
   pickAppearanceAsset(options: { kind: 'background' | 'font' }): Promise<Appearance & { cancelled?: boolean }>;

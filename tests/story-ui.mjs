@@ -11,13 +11,19 @@ try {
   await page.addInitScript(() => {
     const row = (id, all) => ({ id, preset: 'custom', label: id === 'writer' ? '故事模型' : '轻量模型', endpoint: 'https://example.com/v1', model: id, protocol: 'chat-completions', enabled: true, imageInput: 'supported', credentialPresent: true, useForMain: all, useForCompaction: all, useForAlter: all })
     const prefs = { providers: [row('writer', true), row('light', false)], modelOptions: { mainStreamingMode: 'off', mainResponseFormat: 'json-object', mainTemperature: .8, mainMaxTokens: 4096, mainTimeout: 60000, mainPayloadOrder: 'cache-first', failoverEnabled: false, failoverStrategy: 'priority', visionEnabled: true }, userName: '我', userProfile: '', autoAdvance: false, activeCard: 'first' }
-    const f = window.__storyFixture = { appearance: JSON.parse(localStorage.getItem('test-native-appearance') || 'null'), prefs, saves: [], calls: [], saveDelay: 0, failSave: false, status: { state: 'stopped', installed: false, environmentState: 'missing', running: false, progress: '', error: '', logs: [], device: { model: 'UI fixture', android: '15', sdk: 35, abi: 'arm64', pageSize: 4096, availableBytes: 1e10 }, version: 'test' } }
+    const launchCardId = sessionStorage.getItem('test-notification-launch') || undefined
+    sessionStorage.removeItem('test-notification-launch')
+    const f = window.__storyFixture = { launchCardId, appearance: JSON.parse(localStorage.getItem('test-native-appearance') || 'null'), prefs, saves: [], calls: [], saveDelay: 0, failSave: false, status: { state: 'stopped', installed: false, environmentState: 'missing', running: false, progress: '', error: '', logs: [], device: { model: 'UI fixture', android: '15', sdk: 35, abi: 'arm64', pageSize: 4096, availableBytes: 1e10 }, version: 'test' } }
     window.androidBridge = {}
     window.Capacitor = {
       convertFileSrc: () => '/fixtures/images/vision-fixture.jpg',
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','exportStory','restoreStory','resetStory','restorePreviousStory'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
+        if (method === 'notificationSettings') return f.notifications || { enabled: false, permission: 'prompt', available: false }
+        if (method === 'setMessageNotifications') { f.notifications = { enabled: options.enabled, permission: 'denied', available: false }; return f.notifications }
+        if (method === 'openNotificationSettings') { f.openedNotificationSettings = true; return {} }
+        if (method === 'notificationLaunch') { const cardId = f.launchCardId; delete f.launchCardId; return { cardId } }
         if (method === 'pickImage') return { cancelled: false, dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' }
         if (method === 'pickAppearanceAsset') { f.appearance = { ...f.appearance, backgroundPath: '/data/user/0/io.hdsinterlude.android/no_backup/hds/appearance/background.jpg', backgroundRevision: (f.appearance?.backgroundRevision || 0) + 1 }; localStorage.setItem('test-native-appearance', JSON.stringify(f.appearance)); return f.appearance }
         if (['exportStory','restoreStory','resetStory','restorePreviousStory'].includes(method)) { f.status.state = 'stopped'; f.status.running = false; return { cancelled: false, backup: 'fixture-backup' } }
@@ -82,6 +88,16 @@ try {
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '消息内容')
   assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '等你醒来')
   await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByText('消息与提醒', { exact: true }).click()
+  const notifications = page.getByRole('checkbox', { name: '角色消息通知', exact: true })
+  assert.equal(await notifications.isChecked(), false)
+  await notifications.check()
+  await page.getByText('系统通知权限或角色消息渠道未开启', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '去系统设置', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.__storyFixture.openedNotificationSettings), true)
+  await notifications.uncheck()
+  await page.getByRole('button', { name: '去系统设置', exact: true }).waitFor()
+  console.log('PASS P0-b: notification toggle defaults off, denied permission state and system settings link.')
   await page.getByText('模型与识图', { exact: true }).click()
   await page.getByText('任务分工', { exact: true }).click()
   await page.getByText('图片理解', { exact: true }).click()
@@ -359,6 +375,19 @@ try {
   assert.ok(Math.abs(await page.evaluate(() => document.querySelector('[data-read-anchor="entry-35"]').getBoundingClientRect().top - window.__entryTop)) < 3)
   console.log('PASS Preview 8.1: timeline/memory/mind tab reading positions.')
   console.log('PASS Preview 8.1: row identity, 200-row moving window, new-message badge, chat reading restoration and textarea grow/shrink.')
+  // Hot notification: switch away from another page/card and discard old
+  // reading position. Cold WebView: the bridge retains its launch card until read.
+  await page.evaluate(() => { window.__storyFixture.launchCardId = 'first' })
+  await page.waitForFunction(() => window.__storyFixture.prefs.activeCard === 'first')
+  await page.getByRole('button', { name: '切换角色或故事', exact: true }).waitFor()
+  await page.waitForFunction(() => document.documentElement.scrollHeight - innerHeight - scrollY < 100)
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.evaluate(() => sessionStorage.setItem('test-notification-launch', 'second'))
+  await page.reload()
+  await page.waitForFunction(() => window.__storyFixture.prefs.activeCard === 'second')
+  await page.getByRole('button', { name: '切换角色或故事', exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: '切换角色或故事', exact: true }).textContent(), '林间⌄')
+  console.log('PASS P0-b: hot/cold launch card selection opens chat at latest.')
   assert.deepEqual(errors, [])
   console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
 } finally { await browser.close() }

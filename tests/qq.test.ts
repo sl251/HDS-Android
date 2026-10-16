@@ -98,6 +98,9 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     await waitFor(() => delivered.length > 0)
     assert.match(JSON.stringify(calls), /QQ_PERSONA_MARKER/)
     assert.equal(String(delivered[0].params.user_id), '12345')
+    // The socket fixture sees send_private_msg before the adapter receives its
+    // receipt and persists the outgoing inbox row. Wait for that real boundary.
+    await waitFor(async () => (await host.dispatch('qq.history', { conversation: 'private:12345' }) as any[]).some(row => row.outgoing))
     const history = await host.dispatch('qq.history', { conversation: 'private:12345' }) as any[]
     assert.equal(history.filter(row => row.id.endsWith(':1003')).length, 1)
     assert.ok(history.some(row => row.outgoing), 'Real HDS delivery must appear in QQ inbox')

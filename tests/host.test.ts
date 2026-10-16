@@ -45,6 +45,42 @@ test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and 
     const history = await host.dispatch('messages.history', {}) as { direction: string }[]
     assert.equal(history.filter(row => row.direction === 'user').length, 1)
     assert.ok(history.some(row => row.direction === 'character'), 'A model fixture is only useful if HDS confirms visible local delivery')
+    // Exercise the real RPC/database projection, including a page boundary with
+    // equal timestamps (strict > must not drop a second message in the same ms).
+    const base = '2099-01-01T00:00:00.000Z'
+    const fixtures = [
+      { id: 'since-equal', direction: 'character', content: '相等', occurredAt: base },
+      { id: 'since-user', direction: 'user', content: '用户', occurredAt: '2099-01-01T00:00:01Z' },
+      { id: 'since-a', direction: 'character', content: '长'.repeat(45) + '\n第二行', occurredAt: '2099-01-01T00:00:01Z' },
+      { id: 'since-b', direction: 'character', content: '<img src="x"/>', occurredAt: '2099-01-01T00:00:01Z' },
+      { id: 'since-c', direction: 'character', content: '稍后', occurredAt: '2099-01-01T00:00:02Z' },
+    ]
+    for (const row of fixtures) await host.app.database.create('mobile_message' as never, { ...row, occurredAt: new Date(row.occurredAt), status: 'delivered', images: [] } as never)
+    const sinceRows = await host.dispatch('messages.since', { since: base, limit: 1 }) as { id: string; content: string; fullContent: string; occurredAt: string }[]
+    assert.deepEqual(sinceRows.map(row => row.id), ['since-a', 'since-b'])
+    assert.equal(sinceRows[0].content, '长'.repeat(40))
+    assert.equal(sinceRows[0].fullContent, '长'.repeat(45) + '\n第二行')
+    assert.equal(sinceRows[1].content, '[图片]')
+    assert.deepEqual((await host.dispatch('messages.since', { since: sinceRows[1].occurredAt }) as { id: string }[]).map(row => row.id), ['since-c'])
+    await assert.rejects(() => host!.dispatch('messages.since', { since: 'invalid' }))
+    for (const row of fixtures) await host.app.database.remove('mobile_message' as never, { id: row.id } as never)
+
+    const pushes: string[] = []
+    const write = process.stdout.write.bind(process.stdout)
+    process.stdout.write = ((chunk: string | Uint8Array, ...args: any[]) => {
+      if (String(chunk).startsWith('HDS_MSG_PUSH ')) pushes.push(String(chunk))
+      return (write as any)(chunk, ...args)
+    }) as typeof process.stdout.write
+    try {
+      const [id] = await host.bot.sendMessage('private:local-user', '<img src="x"/>')
+      assert.equal(pushes.length, 1)
+      const pushed = JSON.parse(pushes[0].slice(13))
+      assert.equal(pushed.id, id); assert.equal(pushed.content, '[图片]')
+      const saved = (await host.app.database.get('mobile_message' as never, { id } as never))[0] as { occurredAt: Date }
+      assert.equal(pushed.occurredAt, saved.occurredAt.toISOString())
+      await assert.rejects(() => host!.bot.sendMessage('unauthorized', '无权限'))
+      assert.equal(pushes.length, 1, 'No stdout push without successful authorized persistence')
+    } finally { process.stdout.write = write }
     assert.match(logs.join('\n'), /模型调用开始/)
     assert.doesNotMatch(logs.join('\n'), /MARKER_PROFILE|EXAMPLE_MARKER|LORE_MARKER/)
     await host.stop(); host = undefined

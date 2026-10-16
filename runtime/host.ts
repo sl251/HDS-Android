@@ -17,6 +17,8 @@ import { imageStore } from './media'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, type MobileConfig } from './mobile-config'
 import { BackgroundBudget } from './background-budget'
 import { inspectPreset } from './preset'
+import { messagePush, serializeMessagePush, messagesSinceQuery, type PushRow } from './message-push'
+export { messagePush, serializeMessagePush, messagesSinceQuery } from './message-push'
 export { mobileSchema } from './mobile-config'
 export { normalizeMobileConfig, mapMobileConfig } from './mobile-config'
 export { mobilePreset, inspectPreset } from './preset'
@@ -46,7 +48,9 @@ export async function startHost(input: HostConfig) {
       if (!['private:local-user', 'local-user'].includes(channelId)) throw new Error('Local transport target is not authorized')
       const id = randomUUID()
       const text = h.parse(String(content)).map(element => element.type === 'text' ? element.attrs.content : element.toString()).join('')
-      await app.database.create('mobile_message' as never, { id, direction: 'character', content: text, images: [], occurredAt: new Date(), status: 'delivered' } as never)
+      const occurredAt = new Date()
+      await app.database.create('mobile_message' as never, { id, direction: 'character', content: text, images: [], occurredAt, status: 'delivered' } as never)
+      process.stdout.write(serializeMessagePush({ id, content: text, occurredAt }))
       return [id]
     }
     async createDirectChannel(userId: string) { return { id: `private:${userId}`, type: 1 } }
@@ -180,6 +184,20 @@ export async function startHost(input: HostConfig) {
     }
     if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (config as any)[section.key]?.[field.key]]))])), budget: budget.status() }
     if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
+    if (method === 'messages.since') {
+      const query = messagesSinceQuery(payload.since)
+      const limit = Math.max(1, Math.min(200, Math.floor(Number(payload.limit) || 200)))
+      const rows = await app.database.get('mobile_message' as never, query as never, { limit, sort: { occurredAt: 'asc', id: 'asc' } } as never) as PushRow[]
+      // A timestamp cursor must include ALL messages at the page boundary, even
+      // when several sends land in one millisecond. Otherwise strict > loses ties.
+      if (rows.length === limit) {
+        const boundary = rows[rows.length - 1].occurredAt
+        const ties = await app.database.get('mobile_message' as never, { direction: 'character', occurredAt: new Date(boundary) } as never, { sort: { id: 'asc' } } as never) as PushRow[]
+        const ids = new Set(rows.map(row => row.id))
+        rows.push(...ties.filter(row => !ids.has(row.id)))
+      }
+      return rows.map(messagePush)
+    }
     if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, images: messageImages((row as { images?: unknown }).images) }))
     if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, schedulingStatus: await app.interlude.adminSchedulingStatus(story.id), entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
     if (method === 'story.pause' || method === 'story.resume') {

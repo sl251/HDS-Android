@@ -17,6 +17,7 @@ import { BackgroundImage } from './BackgroundImage'
 import { LifeSettings } from './LifeSettings'
 import { MessageStatus, TypingBubble } from './MessageStatus'
 import { createReplyWatermarks } from './message-state'
+import { NotificationSettings } from './NotificationSettings'
 
 const bridge = registerPlugin<NativeBridge>('HdsRuntime')
 type Page = 'chat' | 'inbox' | 'cards' | 'story' | 'settings'
@@ -41,6 +42,7 @@ function App() {
   const [cards, setCards] = useState<SavedCard[]>([])
   const [selected, setSelected] = useState('')
   const selectedRef = useRef(selected)
+  const openNotification = useRef<(cardId: string) => Promise<void>>(async () => {})
   const replyWatermarks = useRef(createReplyWatermarks())
   const lastCharacterReplyTs = replyWatermarks.current.get(selected)
   const [settings, setSettings] = useState<ModelSettings>({ providers: [newProvider()], modelOptions: defaultOptions, userName: '我', userProfile: '', autoAdvance: false })
@@ -183,8 +185,12 @@ function App() {
       if (polling || stopped) return
       polling = true
       try {
-        const status = await bridge.status()
+        let status = await bridge.status()
         if (stopped) return
+        if (savedSettings.current) {
+          const launch = await bridge.notificationLaunch()
+          if (launch.cardId) { await openNotification.current(launch.cardId); status = await bridge.status() }
+        }
         setRuntime(status)
         if (status.state === 'healthy') {
           await refreshHistory()
@@ -272,8 +278,8 @@ function App() {
     launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status())
   })
   const switchCard = (id: string) => act(async () => {
-    if (id === selected) { setSwitcher(false); return }
-    const resume = runtimeRef.current?.state === 'healthy'
+    if (id === selectedRef.current) { setSwitcher(false); return }
+    const resume = (await bridge.status()).state === 'healthy'
     savePosition(); profileRevision.current++; selectedRef.current = ''
     try { await bridge.selectCard({ id }) } catch (error) { selectedRef.current = selected; throw error }
     profileRevision.current++
@@ -281,6 +287,18 @@ function App() {
     await refreshCards(); setRuntime(await bridge.status()); setSwitcher(false)
     if (resume) { await persistSettings(); focusAfterWake.current = true; launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status()) }
   })
+  openNotification.current = async (cardId: string) => {
+    if (!(await bridge.cards()).cards.some(card => card.id === cardId)) { setNotice('这个角色已不在角色库中。'); return }
+    await switchCard(cardId)
+    if (selectedRef.current !== cardId) return
+    // A notification explicitly asks for the latest reply, including when the
+    // same conversation was previously left scrolled into older history.
+    for (const key of positions.current.keys()) if (key.startsWith(`${cardId}:`)) positions.current.delete(key)
+    restored.current = ''; nearBottom.current = true; forceBottom.current = true; userMoved.current = false
+    setNewMessages(0); setSwitcher(false); updatePage('chat')
+    if ((await bridge.status()).state === 'healthy') await refreshHistory()
+    requestAnimationFrame(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  }
   useEffect(() => {
     document.documentElement.classList.toggle('native-insets', native)
     const element = navigation.current
@@ -407,6 +425,7 @@ function App() {
         <button className="space-link" onClick={() => setPage('cards')}><div><span className="eyebrow">PEOPLE & STORIES</span><h2>故事里的人</h2><p>{cards.length} 位角色 · {active?.card.name || '等待第一位主角'}</p></div><Icon name="arrow" /></button>
         <section><div className="section-title"><h2>故事的节奏</h2><span className="tag">{runtimeLabel}</span></div>{healthy ? <div className="actions"><button className="secondary" disabled={busy || sending} onClick={() => act(async () => { await bridge.stop(); setRuntime(await bridge.status()) }, '故事暂时歇息，经历都已留存。')}>让故事休息一下</button></div> : wakePanel}</section>
         <div className="save-status" role="status"><span>{native ? saveState : '界面预览 · 设置不会保存'}</span>{saveError && <><p className="error">{saveError}</p><button className="text-button" disabled={busy} onClick={() => void persistSettings().catch(() => {})}>重试保存</button></>}</div>
+        <NotificationSettings bridge={bridge} native={native} notify={setNotice} />
         <ModelCenter settings={settings} setSettings={setSettings} native={native} busy={busy || sending} bridge={bridge} act={act} notify={setNotice} />
         <section className="settings-group"><details><summary><span><b>故事与身份</b><small>你的称呼、人设与持续生活</small></span></summary><label>你的称呼<input value={settings.userName} onChange={event => setSettings({ ...settings, userName: event.target.value })} maxLength={128} /></label><label>你的故事人设<textarea rows={3} value={settings.userProfile} onChange={event => setSettings({ ...settings, userProfile: event.target.value })} maxLength={12000} placeholder="你在这个世界中的身份、与角色的关系…" /></label><label className="toggle"><input type="checkbox" checked={settings.autoAdvance} onChange={event => setSettings({ ...settings, autoAdvance: event.target.checked })} /><div><b>持续生活与主动联系</b><p>默认关闭。开启后 HDS 可在通知服务存活时自动调用模型，产生 API 费用。</p></div></label><p className="caption">离开输入框时自动保存。这里的人设用于新故事，已有故事会保留原来的设定。</p></details></section><LifeSettings value={settings.mobileConfig} change={mobileConfig => setSettings(previous => ({ ...previous, mobileConfig }))} bridge={bridge} healthy={healthy} native={native} notify={setNotice} /><AppearanceSettings appearance={appearance} native={native} busy={busy} act={act} /><StoryManagement bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />
         <section className="settings-group"><details><summary><span><b>核心维护与诊断</b><small>运行组件、设备信息与日志</small></span></summary><p className="caption">遇到运行问题时，可重新准备核心组件。角色与故事会保留。</p><button className="secondary" disabled={!native || busy || transitioning || healthy} onClick={() => act(async () => { await bridge.install(); setRuntime(await bridge.status()) })}>重新准备核心组件</button><h3>设备与诊断</h3><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || '—'} / rc51</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre role="log" aria-label="运行日志">{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></details></section>
