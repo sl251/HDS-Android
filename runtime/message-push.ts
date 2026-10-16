@@ -1,13 +1,13 @@
 import { h } from 'koishi'
 
-export type PushRow = { id: string; direction: string; content: string; occurredAt: Date | string; status?: string }
+export type PushRow = { id: string; direction: string; content: string; occurredAt: Date | string; status?: string; images?: unknown }
 // Reuse Koishi's parser so image URLs/markup never become notification body text.
-export function messagePush(row: Pick<PushRow, 'id' | 'content' | 'occurredAt'>) {
+export function messagePush(row: Pick<PushRow, 'id' | 'content' | 'occurredAt' | 'images'>) {
   const plain = h.parse(row.content).map(element => element.type === 'text' ? element.attrs.content : '').join('').trim()
-  const fullContent = plain || '[图片]'
+  const fullContent = plain || (Array.isArray(row.images) && row.images.length ? '[表情包]' : '[图片]')
   return { id: row.id, content: Array.from(fullContent.split(/\r?\n/)[0]).slice(0, 40).join(''), fullContent, occurredAt: new Date(row.occurredAt).toISOString() }
 }
-export function serializeMessagePush(row: Pick<PushRow, 'id' | 'content' | 'occurredAt'>) {
+export function serializeMessagePush(row: Pick<PushRow, 'id' | 'content' | 'occurredAt' | 'images'>) {
   return `HDS_MSG_PUSH ${JSON.stringify(messagePush(row))}\n`
 }
 export function messagesSinceQuery(since: unknown) {

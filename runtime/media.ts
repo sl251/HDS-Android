@@ -17,7 +17,24 @@ export function imageStore(directory: string) {
       if (!existsSync(path(id))) writeFileSync(path(id), bytes, { flag: 'wx', mode: 0o600 })
       return { id, dataUri }
     },
-    get(id: string) { return `data:image/jpeg;base64,${readFileSync(path(id)).toString('base64')}` },
+    // Trusted library export keeps original animation/transparency, separate from JPEG uploads.
+    registerSticker(bytes: Buffer) {
+      if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error('贴纸文件最大10MiB')
+      const extension = bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255])) ? 'jpg'
+        : bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'png'
+        : /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString()) ? 'gif'
+        : bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP' ? 'webp' : undefined
+      if (!extension) throw new Error('不支持的贴纸格式')
+      const id = createHash('sha256').update(bytes).digest('hex'), file = join(root, `${id}.${extension}`)
+      if (!existsSync(file)) writeFileSync(file, bytes, { flag: 'wx', mode: 0o600 })
+      return { id }
+    },
+    get(id: string) {
+      path(id) // Validate before any filesystem access.
+      const extension = ['jpg', 'png', 'gif', 'webp'].find(ext => existsSync(join(root, `${id}.${ext}`)))
+      if (!extension) throw new Error('图片暂时无法读取')
+      return `data:image/${extension === 'jpg' ? 'jpeg' : extension};base64,${readFileSync(join(root, `${id}.${extension}`)).toString('base64')}`
+    },
     requestId: () => randomUUID(),
   }
 }

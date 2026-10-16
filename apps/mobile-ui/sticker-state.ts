@@ -25,3 +25,6 @@ export function libraryBytes(library: StickerLibrary) {
 export function readLibrary(storage: Pick<Storage, 'getItem'>): StickerLibrary {
   try { const value = JSON.parse(storage.getItem('hds-stickers-v1') || 'null'); return value && Array.isArray(value.packs) && value.messages && typeof value.messages === 'object' ? value : emptyLibrary() } catch { return emptyLibrary() }
 }
+
+/** Send IDs only; native code resolves private paths and exports current packs at startup. */
+export const stickerSyncPacks = (library: StickerLibrary) => library.packs.map(pack => ({ id: pack.id, name: pack.name, ids: [...new Set(pack.stickers.map(asset => asset.id))] }))

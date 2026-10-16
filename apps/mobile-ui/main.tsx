@@ -23,7 +23,7 @@ import { createDraftStore, composerEnter, type Draft } from './composer-state'
 import { clipboardJpeg } from './clipboard-image'
 import { MessageContent } from './MessageContent'
 import { StickerDrawer, StickerManager, stickerSource } from './Stickers'
-import { readLibrary, stickerEntryVisible, stickerMessageKey, libraryBytes, useSticker, type StickerLibrary, type StickerAsset } from './sticker-state'
+import { readLibrary, stickerEntryVisible, stickerSyncPacks, stickerMessageKey, libraryBytes, useSticker, type StickerLibrary, type StickerAsset } from './sticker-state'
 
 const effectCaption = (key: keyof typeof settingEffects) => settingEffectLabels[settingEffects[key].timing]
 
@@ -37,10 +37,12 @@ function Icon({ name }: { name: Page | 'arrow' | 'plus' }) {
 }
 const MessageRow = React.memo(function MessageRow({ message, userName, characterName, lastCharacterReplyTs, onRetry, retryDisabled, sticker, entrance }: { sticker?: StickerAsset; entrance?: number; message: Message; userName: string; characterName: string; lastCharacterReplyTs: number; onRetry: (message: Message) => void; retryDisabled: boolean }) {
   const opening = message.status === 'card-opening'
-  return <article data-read-anchor={`message-${message.id}`} style={entrance === undefined ? undefined : { '--i': entrance } as React.CSSProperties} className={`message${sticker ? ' sticker-message' : ''}${entrance === undefined ? '' : ' message-enter'} ${message.direction === 'character' ? 'character-reply' : message.direction}`}>
+  const characterSticker = message.direction === 'character' && !message.content.trim() && messageImages(message.images).length > 0
+  const isSticker = !!sticker || characterSticker
+  return <article data-read-anchor={`message-${message.id}`} style={entrance === undefined ? undefined : { '--i': entrance } as React.CSSProperties} className={`message${isSticker ? ' sticker-message' : ''}${entrance === undefined ? '' : ' message-enter'} ${message.direction === 'character' ? 'character-reply' : message.direction}`}>
     {opening && <MessageStatus message={message} />}
     <div className="message-label">{message.direction === 'user' ? userName : characterName}<time>{new Date(message.occurredAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div>
-    <div className={sticker ? "sticker-body" : "bubble"}>{!sticker && (message.direction === 'character' ? <MessageContent message={message} /> : message.content)}{sticker ? <StoredImage id={messageImages(message.images)[0]} bridge={bridge} source={stickerSource(sticker)} /> : messageImages(message.images).map(id => <StoredImage key={id} id={id} bridge={bridge} />)}</div>
+    <div className={isSticker ? "sticker-body" : "bubble"}>{!isSticker && (message.direction === 'character' ? <MessageContent message={message} /> : message.content)}{sticker ? <StoredImage id={messageImages(message.images)[0]} bridge={bridge} source={stickerSource(sticker)} /> : messageImages(message.images).map(id => <StoredImage key={id} id={id} bridge={bridge} />)}</div>
     {!opening && <MessageStatus message={message} lastCharacterReplyTs={lastCharacterReplyTs} onRetry={() => onRetry(message)} disabled={retryDisabled} />}
   </article>
 })
@@ -316,14 +318,14 @@ function App() {
     if (!settingsRef.current.providers.some(row => row.enabled && row.useForMain && row.endpoint && row.model)) { setPage('settings'); setNotice('为故事选择一个模型，就可以开始了。'); return }
     await persistSettings()
     focusAfterWake.current = true
-    try { launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status()) }
+    try { launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.syncStickerLibrary({ packs: stickerSyncPacks(stickersRef.current) }); await bridge.start(); setRuntime(await bridge.status()) }
     catch (error) { focusAfterWake.current = false; throw error }
   })
   const restart = () => act(async () => {
     await persistSettings()
     await bridge.stop(); setRuntime(await bridge.status())
     focusAfterWake.current = true
-    launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status())
+    launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.syncStickerLibrary({ packs: stickerSyncPacks(stickersRef.current) }); await bridge.start(); setRuntime(await bridge.status())
   })
   const switchCard = (id: string) => act(async () => {
     if (id === selectedRef.current) { setSwitcher(false); return }
@@ -333,7 +335,7 @@ function App() {
     profileRevision.current++
     pending.current = null; setRetryTarget(null); setRequestState('idle'); setMessages([]); setStory(null)
     await refreshCards(); setRuntime(await bridge.status()); setSwitcher(false)
-    if (resume) { await persistSettings(); focusAfterWake.current = true; launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.start(); setRuntime(await bridge.status()) }
+    if (resume) { await persistSettings(); focusAfterWake.current = true; launchedSettings.current = JSON.stringify(settingsRef.current); await bridge.syncStickerLibrary({ packs: stickerSyncPacks(stickersRef.current) }); await bridge.start(); setRuntime(await bridge.status()) }
   })
   openNotification.current = async (cardId: string) => {
     if (!(await bridge.cards()).cards.some(card => card.id === cardId)) { setNotice('这个角色已不在角色库中。'); return }

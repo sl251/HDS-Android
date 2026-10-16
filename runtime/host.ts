@@ -14,6 +14,7 @@ import { messageImages, visionProjection, visionRouteReason, normalizeVisionProj
 import { personaDefaults, personaEditPatch } from './persona'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
+import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt } from './stickers'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, type MobileConfig } from './mobile-config'
 import { BackgroundBudget } from './background-budget'
 import { inspectPreset } from './preset'
@@ -39,6 +40,7 @@ export async function startHost(input: HostConfig) {
   app.model.extend('mobile_message', { id: 'string(64)', direction: 'string(16)', content: 'text', occurredAt: 'timestamp', status: 'string(32)', images: { type: 'json', initial: [] } }, { primary: 'id' })
   app.model.extend('mobile_request', { id: 'string(64)', content: 'text', status: 'string(32)', occurredAt: 'timestamp' }, { primary: 'id' })
   class LocalBot extends Bot {
+    private lastMessageTime = 0
     private disposed = false
     constructor(ctx: Context) { super(ctx, {}, 'mobile-local'); this.user = { id: 'local-role', name: input.card.name } }
     async start() { this.online() }
@@ -46,12 +48,32 @@ export async function startHost(input: HostConfig) {
     async sendMessage(channelId: string, content: unknown) {
       if (restoreHeld) throw new Error('恢复的故事需先明确恢复运行')
       if (!['private:local-user', 'local-user'].includes(channelId)) throw new Error('Local transport target is not authorized')
-      const id = randomUUID()
-      const text = h.parse(String(content)).map(element => element.type === 'text' ? element.attrs.content : element.toString()).join('')
-      const occurredAt = new Date()
-      await app.database.create('mobile_message' as never, { id, direction: 'character', content: text, images: [], occurredAt, status: 'delivered' } as never)
-      process.stdout.write(serializeMessagePush({ id, content: text, occurredAt }))
-      return [id]
+      const elements = h.parse(String(content))
+      const rows: { content: string; images: string[] }[] = []
+      let text = ''
+      const flush = () => { if (text) { rows.push({ content: text, images: [] }); text = '' } }
+      for (const element of elements) {
+        if (element.type !== 'img' && element.type !== 'image') {
+          text += element.type === 'text' ? element.attrs.content : element.toString()
+          continue
+        }
+        flush()
+        const file = await stickerFileForSource(String(element.attrs.src ?? ''), stickerConfig.directory, async assetId =>
+          (await app.database.get('interlude_sticker', { assetId, status: 'active' }))[0])
+        // Unknown media must never leak its URL/markup into a message or push.
+        rows.push({ content: '', images: file ? [media.registerSticker(readFileSync(file)).id] : [] })
+      }
+      flush()
+      if (!rows.length) rows.push({ content: '', images: [] })
+      const ids: string[] = []
+      for (const row of rows) {
+        const id = randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
+        this.lastMessageTime = occurredAt.getTime()
+        await app.database.create('mobile_message' as never, { id, direction: 'character', ...row, occurredAt, status: 'delivered' } as never)
+        process.stdout.write(serializeMessagePush({ id, ...row, occurredAt }))
+        ids.push(id)
+      }
+      return ids
     }
     async createDirectChannel(userId: string) { return { id: `private:${userId}`, type: 1 } }
   }
@@ -59,7 +81,9 @@ export async function startHost(input: HostConfig) {
   app.plugin(ctx => { bot = new LocalBot(ctx) })
   const mobile = normalizeMobileConfig(input.mobileConfig)
   const budget = new BackgroundBudget(join(input.qqDir ?? input.dataDir, 'background-budget.json'), mobile.backgroundLimit)
+  const stickerConfig = localStickerConfig(input.dataDir)
   const config = HDS.Config({
+    stickers: stickerConfig,
     ...mapMobileConfig(mobile, input.autoAdvance),
     storyDefaults: personaDefaults(input.card, input.userProfile),
     model: mobileModelConfig(input),
@@ -68,6 +92,7 @@ export async function startHost(input: HostConfig) {
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
   config.model.mobileBeforeRequest = budget.beforeRequest
+  config.model.mobileSystemPrompt = (prompt, request) => request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt)
   const activeVision = visionProjection(input)
   const media = imageStore(input.dataDir)
   let promptTrace: string[] = []

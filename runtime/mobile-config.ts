@@ -58,3 +58,9 @@ export function mapMobileConfig(value: MobileConfig | undefined, autoAdvance: bo
     qzone: { enabled: false }, browser: { enabled: false }, presetSync: { enabled: false },
   }
 }
+
+/** Reuse the App's visual route; never silently assign a text-only connection. */
+export function stickerVisionProviders<T extends { id?: string; enabled?: boolean; useForMain?: boolean; imageInput?: string }>(providers: T[], options: { visionEnabled?: boolean; visionProviderId?: string }) {
+  return providers.map(row => ({ ...row, useForStickers: options.visionEnabled === true && row.enabled === true && row.imageInput !== 'unsupported'
+    && (options.visionProviderId ? row.id === options.visionProviderId : row.useForMain === true) }))
+}

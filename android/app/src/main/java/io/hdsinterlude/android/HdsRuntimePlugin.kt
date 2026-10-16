@@ -106,6 +106,9 @@ class HdsRuntimePlugin : Plugin() {
         if (uris.isEmpty()) { call.reject("未返回可读取的文件"); return }
         run(call) { StickerStore(context).import(uris, tree) }
     }
+    @PluginMethod fun syncStickerLibrary(call: PluginCall) { run(call) {
+        StickerStore(context).saveLibrary(call.getArray("packs") ?: throw IllegalArgumentException("缺少表情包清单")); JSONObject()
+    } }
     @PluginMethod fun stickerImage(call: PluginCall) { run(call) { StickerStore(context).image(call.getString("id") ?: "") } }
     @PluginMethod fun pruneStickers(call: PluginCall) { run(call) {
         val values = call.getArray("keep") ?: throw IllegalArgumentException("缺少保留文件清单")
