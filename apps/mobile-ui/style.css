@@ -70,8 +70,8 @@ select{font:inherit;min-height:48px;border:1px solid var(--line);border-radius:6
 .wake-panel>div{flex:1;min-width:150px}.wake-panel b{font-size:13px;font-weight:500}.wake-panel p{font-size:12px;line-height:1.9;color:var(--muted);margin:8px 0 0}
 .wake-panel .error,.save-status .error{color:var(--danger,#923e32);width:100%;overflow-wrap:anywhere}
 .wake-button{border-radius:30px;flex-shrink:0;box-shadow:0 4px 18px #3b66591a}
-.wake-panel progress{width:100%;height:5px;accent-color:var(--accent)}.waking{animation:story-breathe 2.4s ease-in-out infinite}
-@keyframes story-breathe{50%{box-shadow:0 0 0 5px #73978218}}
+.wake-panel progress{width:100%;height:5px;accent-color:var(--accent)}
+
 .restart-banner{display:flex;align-items:center;gap:12px;padding:15px 16px;background:var(--accent-soft);border-radius:10px;margin-top:18px;font-size:12px}
 .restart-banner>div{flex:1}.restart-banner b,.restart-banner span{display:block}.restart-banner span{font-size:11px;line-height:1.8;color:var(--muted);margin-top:5px}.restart-banner button{color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:4px}
 .space-link{display:flex;align-items:center;justify-content:space-between;text-align:left;width:100%;padding:22px;background:var(--accent-soft);border:1px solid var(--line);border-radius:12px;margin:0 0 28px}.space-link h2{font-family:"Noto Serif CJK SC","Songti SC",serif;font-size:23px;margin:8px 0}.space-link p{font-size:12px;color:var(--muted);margin:0}
@@ -88,3 +88,21 @@ nav button.active::after{content:'';width:4px;height:4px;border-radius:50%;backg
 .tabs{position:sticky;top:var(--safe-top,0px);z-index:4;background:var(--paper);color:var(--ink)}
 
 .header-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0}.character-library{display:grid;place-items:center;width:40px;min-width:40px;padding:6px;color:var(--accent)}.header-actions .status{min-width:0;max-width:none}.settings-entry{display:flex;align-items:center;gap:12px;text-align:left;width:100%;padding:16px 0;color:var(--accent);border-bottom:1px solid var(--line)}.settings-entry>span:first-child{flex:1}.settings-entry small{display:block;font-size:11px;line-height:1.8;color:var(--muted);margin-top:6px}.settings-entry svg{flex:none;width:20px;height:20px}.settings-category .settings-group{box-shadow:none}
+
+/* M3 motion: three UI transitions plus image gestures; all motion is transform/opacity. */
+:root{--fast:120ms;--base:200ms;--slow:320ms;--ease:cubic-bezier(.2,0,0,1)}
+main[data-page=chat],main[data-page=story],main[data-page=settings]{animation:page-enter var(--base) var(--ease)}
+@keyframes page-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.message-enter{animation:message-enter var(--slow) var(--ease) both;animation-delay:calc(var(--i)*30ms)}
+@keyframes message-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.messages>.message,.timeline>article,.memory-drawer article{content-visibility:auto;contain-intrinsic-size:auto 140px}
+.delivery-morph{display:inline-grid;width:20px;height:14px;flex:none}.delivery-morph svg{grid-area:1/1;width:20px;height:14px;transition:opacity var(--base) var(--ease)}.delivery-morph .delivery-checks{opacity:.55}.delivery-morph .read-checks{opacity:0}.is-read .delivery-checks{opacity:0}.is-read .read-checks{opacity:1}
+.thinking{white-space:normal;border-bottom:1px solid var(--line);margin-bottom:8px}.thinking>button{display:block;min-height:36px;max-width:100%;font-size:11px;color:var(--muted);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.thinking-content{white-space:pre-wrap;font-size:12px;line-height:1.8;color:var(--muted);padding:8px 0;overflow-wrap:anywhere}
+.sticker-entry{flex:none;width:34px;min-height:44px;color:var(--accent);padding:4px}.sticker-entry svg{width:24px;height:24px}.composer textarea{min-width:0}
+.sticker-drawer{border:1px solid var(--line);background:rgba(var(--surface-rgb),.98);box-shadow:var(--glint),var(--shadow);border-radius:24px;padding:14px;margin-bottom:8px}.sticker-drawer .section-title{margin:0}.sticker-drawer .section-title button{font-size:24px;min-width:40px}.sticker-groups{max-height:34dvh;overflow-y:auto;overscroll-behavior:contain}.sticker-group{border-top:1px solid var(--line);padding:8px 0;margin-top:8px}.sticker-group h3{font-size:12px;overflow-wrap:anywhere}.sticker-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.sticker-grid>button,.sticker-grid>div{min-width:0;padding:4px;text-align:center}.sticker-grid img{display:block;width:100%;height:64px;object-fit:contain}.sticker-grid>div>button{font-size:11px}.sticker-manager .actions{gap:12px;flex-wrap:wrap}.sticker-manager .actions button{font-size:12px}.sticker-manager input{width:100%}
+.sticker-body{width:144px;max-width:100%;margin-left:auto}.message.sticker-message .message-image{width:144px;margin:0;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none}.message.sticker-message .message-image img{width:144px;max-height:160px;object-fit:contain}
+@media(max-width:360px){.composer{gap:2px}.attach-button{width:32px}.sticker-entry{width:30px}.composer .send{width:40px;height:40px}.composer textarea{font-size:13px}}
+/* The scrolling surface owns native long-image scrolling at 1x; only zoomed images pan. */
+.image-viewer{display:block;padding:0;animation:viewer-enter var(--base) var(--ease);transition:opacity var(--base) var(--ease);opacity:1}.image-viewer.closing{opacity:0}.image-viewer>button{z-index:2;top:calc(12px + var(--safe-top));right:12px;background:#09121fb0;border-radius:50%;position:absolute}.image-scroll{position:absolute;inset:0;overscroll-behavior:contain;overflow-x:hidden;scrollbar-width:thin}.image-stage{min-height:100%;display:grid;place-items:center;padding:64px 16px;transition:transform var(--base) var(--ease),opacity var(--base) var(--ease)}.image-stage img{display:block;max-width:100%;height:auto;user-select:none;transition:transform var(--base) var(--ease)}.image-viewer[data-gesturing=true] .image-stage,.image-viewer[data-gesturing=true] img{transition:none}
+@keyframes viewer-enter{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

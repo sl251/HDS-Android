@@ -92,6 +92,25 @@ class HdsRuntimePlugin : Plugin() {
             JSONObject().put("cancelled", false).put("images", images).put("errors", errors).put("truncated", uris.size > limit)
         }
     }
+    @PluginMethod fun pickStickers(call: PluginCall) {
+        val directory = call.getBoolean("directory", false) == true
+        val intent = if (directory) Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            else Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        startActivityForResult(call, intent, "stickersPicked")
+    }
+    @ActivityCallback private fun stickersPicked(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK) { resolve(call, JSONObject().put("cancelled", true)); return }
+        val tree = if (call.getBoolean("directory", false) == true) result.data?.data else null
+        val uris = pickedImageUris(result)
+        if (uris.isEmpty()) { call.reject("未返回可读取的文件"); return }
+        run(call) { StickerStore(context).import(uris, tree) }
+    }
+    @PluginMethod fun stickerImage(call: PluginCall) { run(call) { StickerStore(context).image(call.getString("id") ?: "") } }
+    @PluginMethod fun pruneStickers(call: PluginCall) { run(call) {
+        val values = call.getArray("keep") ?: throw IllegalArgumentException("缺少保留文件清单")
+        StickerStore(context).prune((0 until values.length()).map { values.getString(it) }.toSet()); JSONObject()
+    } }
     @PluginMethod fun exportStory(call: PluginCall) {
         startActivityForResult(call, Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, "HDS-story-${java.time.LocalDate.now()}.zip"), "storyDestination")
     }
