@@ -195,7 +195,14 @@ flowchart LR
 </details>
 
 <details>
-<summary><b>Q7: 语音功能怎么开？</b></summary>
+<summary><b>Q7: 表情包在哪设置（导入）？</b></summary>
+
+进入聊天页右上角 **设置 ->「表情包」**，支持多选图片或**整文件夹导入**（文件夹名自动作为表情包名），也可在管理页重命名/删除贴纸包。注意：**贴纸库为空时，输入框旁的表情笑脸入口是隐藏的**——导入第一张贴纸后才会出现。贴纸库全局共享：导入后角色会自动获得贴纸清单，无需逐角色配置。
+
+</details>
+
+<details>
+<summary><b>Q8: 语音功能怎么开？</b></summary>
 
 1. **获取 API Key**：前往 [小米 MiMo 开放平台](https://platform.xiaomimimo.com) 注册并在控制台创建 API Key（格式为 `sk-xxxxx`；TTS 端点 `api.xiaomimimo.com`）。
    - 说明：小米 MiMo 的这几个语音模型（`mimo-v2.5-tts` / `mimo-v2.5-voiceclone` / `mimo-v2.5-voicedesign`）目前**免费**开放使用；当前版本**仅适配了小米 MiMo 的 TTS**，其他厂商暂不支持。
