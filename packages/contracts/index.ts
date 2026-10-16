@@ -120,11 +120,11 @@ export function mergeMessages(previous: Message[], incoming: Message[]): Message
   })
   return next.length === previous.length && next.every((row, index) => row === previous[index]) ? previous : next
 }
-export function messageStatusLabel(message: Pick<Message, 'direction' | 'status'>): string {
+/** Read receipts are a local view; never add a read status to stored messages. */
+export function messageStatusLabel(message: Pick<Message, 'direction' | 'status'> & Partial<Pick<Message, 'occurredAt'>>, lastCharacterReplyTs = 0): string {
   if (message.status === 'card-opening') return '角色卡开场白 · 本地已展示'
-  if (message.direction === 'user' && message.status === 'accepted') return '核心已接收，角色尚未必回复'
-  if (message.direction === 'character' && message.status === 'delivered') return '已显示'
-  return message.status === 'failed' ? '发送失败' : ''
+  if (message.direction === 'user' && message.status === 'accepted') return lastCharacterReplyTs > Date.parse(message.occurredAt ?? '') ? '已读' : '已送达'
+  return message.status === 'failed' ? '未送达·点击重试' : ''
 }
 
 export type SchedulingStatus = { requestId: string; outcome: 'registered' | 'rejected'; reasonCode: string; intentId?: number; dueAt?: string }

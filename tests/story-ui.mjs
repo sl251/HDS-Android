@@ -44,7 +44,17 @@ try {
           if (options.method === 'messages.history') return { data: f.messages || [] }
           if (options.method === 'images.upload') return { data: { id: 'a'.repeat(64) } }
           if (options.method === 'images.get') return { data: { dataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/h9sAAAAASUVORK5CYII=' } }
-          if (options.method === 'messages.sendLocal') { (f.attempts ||= []).push(structuredClone(options.payload)); if (f.failSend) throw new Error('测试：图片发送失败'); f.sent = options.payload; f.messages = [{ id: options.payload.requestId, content: options.payload.content, images: options.payload.images, direction: 'user', occurredAt: new Date().toISOString(), status: 'accepted' }, { id: 'character-text-reply', content: '收到你的消息了。', images: {}, direction: 'character', occurredAt: new Date().toISOString(), status: 'delivered' }]; if (f.loseSendResult) throw new Error('测试：结果丢失'); return { data: { accepted: true } } }
+          if (options.method === 'messages.sendLocal') {
+            (f.attempts ||= []).push(structuredClone(options.payload))
+            if (f.sendDelay) await new Promise(resolve => setTimeout(resolve, f.sendDelay))
+            if (f.failSend) throw Object.assign(new Error('测试：图片发送失败'), { code: 'RPC_REJECTED' })
+            f.sent = options.payload
+            const ts = Date.now()
+            f.messages = [{ id: options.payload.requestId, content: options.payload.content, images: options.payload.images, direction: 'user', occurredAt: new Date(ts).toISOString(), status: 'accepted' }]
+            if (!f.noReply) f.messages.push({ id: 'character-text-reply', content: '收到你的消息了。', images: {}, direction: 'character', occurredAt: new Date(ts + 1).toISOString(), status: 'delivered' })
+            if (f.loseSendResult) throw new Error('测试：结果丢失')
+            return { data: { accepted: true } }
+          }
           if (options.method === 'maintenance.start') { f.job = options.payload; return { data: { status: 'running' } } }
           if (options.method === 'maintenance.status') return { data: { status: 'done', result: true } }
           if (options.method === 'memory.factSources') return { data: [{ content: '小林说他喜欢修理收音机。', occurredAt: new Date().toISOString() }] }
@@ -99,8 +109,8 @@ try {
   await name.fill('保留的草稿'); await name.blur()
   await page.getByText('测试：保存失败').waitFor()
   assert.equal(await name.inputValue(), '保留的草稿')
-  await page.evaluate(() => { window.__storyFixture.failSave = false })
-  await page.getByRole('button', { name: '重试保存', exact: true }).click()
+  // Clear the fixture failure at retry time; queued autosaves can otherwise remove the button first.
+  await page.getByRole('button', { name: '重试保存', exact: true }).evaluate(button => { window.__storyFixture.failSave = false; button.click() })
   await page.waitForFunction(() => window.__storyFixture.prefs.userName === '保留的草稿')
   await page.getByRole('button', { name: '立即重启生效', exact: true }).click()
   await page.waitForFunction(() => window.__storyFixture.calls.includes('stop'))
@@ -137,9 +147,26 @@ try {
   await page.screenshot({ path: 'artifacts/preview7-background-visible.png' })
   await page.screenshot({ path: 'artifacts/story-space.png', fullPage: true })
   await page.getByRole('button', { name: '故事', exact: true }).click()
+  await page.evaluate(() => { window.__storyFixture.sendDelay = 800; window.__storyFixture.noReply = true })
   await page.getByRole('textbox', { name: '消息内容' }).fill('纯文字发送回归')
   await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.getByRole('status', { name: '正在输入…', exact: true }).waitFor()
+  assert.equal(await page.locator('.typing-dots i').count(), 3)
+  await page.getByText('已送达', { exact: true }).waitFor()
+  assert.equal(await page.locator('.delivery-checks').count(), 1)
+  assert.equal(await page.locator('.message-status').evaluate(element => getComputedStyle(element).display), 'flex')
+  assert.equal(await page.locator('.typing-message').count(), 0)
+  await page.evaluate(() => {
+    const f = window.__storyFixture
+    f.sendDelay = 0; f.noReply = false
+    f.messages.push({ id: 'character-text-reply', content: '收到你的消息了。', images: {}, direction: 'character', occurredAt: new Date(Date.parse(f.messages[0].occurredAt) + 1).toISOString(), status: 'delivered' })
+  })
+  await page.getByText('已读', { exact: true }).waitFor()
   await page.getByText('收到你的消息了。', { exact: true }).waitFor()
+  assert.equal(await page.locator('.character-reply .message-status').count(), 0)
+  assert.equal(await page.getByText('已显示', { exact: true }).count(), 0)
+  assert.ok(await page.evaluate(() => Number(localStorage.getItem('hds-lastCharacterReplyTs-first')) > Date.parse(window.__storyFixture.messages[0].occurredAt)))
+  console.log('PASS Preview 9: in-flight three-dot typing bubble, delivered/read double checks, quiet character replies and local reply watermark.')
   assert.equal(await page.locator('nav').isVisible(), true)
   assert.equal(await page.locator('.message-image').count(), 0)
   const replyLayout = await page.getByText('收到你的消息了。', { exact: true }).evaluate(bubble => {
@@ -148,6 +175,14 @@ try {
   })
   assert.deepEqual(replyLayout, { display: 'block', border: '0px', background: 'rgba(0, 0, 0, 0)', bubbleBorder: '1px' }, 'Character replies must have one bubble, without the character-library card wrapper')
   await page.screenshot({ path: 'artifacts/preview7-1-chat.png' })
+
+  await page.evaluate(() => { window.__storyFixture.messages.push({ id: 'preview9-failed-001', direction: 'user', content: '重试历史消息', images: ['a'.repeat(64)], occurredAt: new Date().toISOString(), status: 'failed' }) })
+  await page.getByRole('textbox', { name: '消息内容' }).fill('保留现有输入')
+  await page.getByRole('button', { name: '未送达·点击重试', exact: true }).click()
+  await page.waitForFunction(() => window.__storyFixture.sent?.requestId === 'preview9-failed-001')
+  assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '保留现有输入')
+  assert.deepEqual(await page.evaluate(() => window.__storyFixture.sent.images), ['a'.repeat(64)])
+  console.log('PASS Preview 9: failed history messages retry through the send chain with the original requestId and images, preserving the composer.')
 
   await page.evaluate(() => { window.__storyFixture.attempts = [] })
   await page.getByRole('textbox', { name: '消息内容' }).fill('')
@@ -158,12 +193,13 @@ try {
   await page.getByText('测试：图片发送失败；草稿已保留，可以重试。', { exact: true }).waitFor()
   await page.getByAltText('待发送图片').waitFor()
   await page.evaluate(() => { window.__storyFixture.failSend = false })
-  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await page.getByRole('button', { name: '未送达·点击重试', exact: true }).click()
   await page.waitForFunction(() => window.__storyFixture.sent?.images?.length === 1)
   assert.equal(await page.evaluate(() => window.__storyFixture.sent.content), '')
   assert.deepEqual(await page.evaluate(() => window.__storyFixture.sent.images), ['a'.repeat(64)])
   const attempts = await page.evaluate(() => window.__storyFixture.attempts)
   assert.equal(attempts[0].requestId, attempts[1].requestId)
+  console.log('PASS Preview 9: failed draft retry button retains attachments and reuses the original requestId.')
   await page.getByText('收到你的消息了。', { exact: true }).waitFor()
   assert.equal(await page.locator('nav').isVisible(), true)
   await page.getByRole('button', { name: '查看消息图片', exact: true }).click()
@@ -196,12 +232,15 @@ try {
   await page.getByText('记忆维护已完成', { exact: true }).waitFor()
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByText('存档与故事管理', { exact: true }).click()
+  const replyWatermarkBeforeExport = await page.evaluate(() => localStorage.getItem('hds-lastCharacterReplyTs-first'))
   await page.getByRole('button', { name: '导出完整存档', exact: true }).click()
   await page.getByRole('button', { name: '取消', exact: true }).click()
   assert.equal(await page.evaluate(() => window.__storyFixture.calls.includes('exportStory')), false)
   await page.getByRole('button', { name: '导出完整存档', exact: true }).click()
   await page.getByRole('button', { name: '确认继续', exact: true }).click()
   await page.waitForFunction(() => window.__storyFixture.calls.includes('exportStory'))
+  await page.getByText('完整存档已导出；故事已休息，可随时唤醒。', { exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => localStorage.getItem('hds-lastCharacterReplyTs-first')), replyWatermarkBeforeExport, 'Export must preserve the reply watermark')
   await page.evaluate(() => { window.__storyFixture.status.state = 'healthy'; window.__storyFixture.messages = [] })
   await page.getByRole('button', { name: '故事', exact: true }).click()
   await page.getByRole('button', { name: '切换角色或故事', exact: true }).click()
