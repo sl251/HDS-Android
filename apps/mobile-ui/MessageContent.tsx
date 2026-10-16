@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import { splitThinking } from './composer-state'
 
-/** Remove unsupported media labels only; keep ordinary bracketed prose intact. */
-export const stripMediaMarkers = (text: string) => text.replace(/(?:\[|【)\s*(?:表情包?|贴纸|贴图|图片|图像|动图|gif|sticker|image|media|localMedia)(?:\s*[:：][^\]】\n]*|\s+[^\]】\n]*)?\s*(?:\]|】)/gi, '')
+import { stripMediaMarkers } from '../../packages/contracts/voice'
+export { stripMediaMarkers } from '../../packages/contracts/voice'
 
 export function MessageContent({ message }: { message: { content: string; reasoning_content?: string } }) {
   const [open, setOpen] = useState(false)

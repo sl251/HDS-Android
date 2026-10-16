@@ -64,6 +64,13 @@ class HdsStore(private val context: Context) {
         target.put("encryptedKey", Base64.encodeToString(cipher.doFinal(plain.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP))
         target.put("keyIv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
     }
+    @Synchronized fun voiceKey(): String = decrypt(privateSettings().optJSONObject("voiceCredential") ?: JSONObject())
+    @Synchronized fun saveVoiceKey(value: String) {
+        val source = privateSettings()
+        if (value.isBlank()) source.remove("voiceCredential")
+        else source.put("voiceCredential", JSONObject().also { encrypt(value.trim(), it) })
+        write(settingsFile, source)
+    }
     @Synchronized fun runtimeProviders(): JSONArray {
         val source = models.configuredRows(models.rows(privateSettings()))
         return JSONArray().also { result ->

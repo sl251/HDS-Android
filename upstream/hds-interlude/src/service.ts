@@ -3072,6 +3072,10 @@ export class InterludeService extends Service {
   }
 
   private privateChatCapabilities(session: Session | undefined): ChatActionCapabilities | undefined {
+    if (session?.platform === 'mobile-local') {
+      const voice = this.config.model.mobileVoiceCapabilities?.()
+      return voice?.enabled ? { platform: 'local', quoteReply: false, reactions: [], voice } : undefined
+    }
     const config = this.config.chatActions
     if (!config?.enabled || !session || !isOneBotPlatform(session.platform) || !config.platforms?.includes('qq')) return undefined
     const nativeFaces = config.nativeFaces === true ? normalizeAllowedNativeFaces(config.allowedNativeFaces) : []
@@ -4952,6 +4956,10 @@ export class InterludeService extends Service {
   }
 
   private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = []) {
+    if (!chatCapabilities && !groupContext && (participant?.platform ?? story.platform) === 'mobile-local') {
+      const voice = this.config.model.mobileVoiceCapabilities?.()
+      if (voice?.enabled) chatCapabilities = { platform: 'local', quoteReply: false, reactions: [], voice }
+    }
     if (this.longHorizonConfig.enabled) await this.ensureLongHorizonGuidanceLoaded(story.id)
     // 这里是主模型上下文的唯一入口。recentEntries 保留近距离质感，场景、弧线和
     // facts 负责把很长的过去压缩成连续性线索。参与者摘要让模型知道角色
@@ -5378,7 +5386,7 @@ export class InterludeService extends Service {
       this.mainModelLabel(), participant?.id || '全局', formatLogTime(from, story.setting.timezone), formatLogTime(now, story.setting.timezone), dueIntents.length)
     try {
       let earlyReplyCommitted = false
-      const canEarlyReply = onEarlyReply && !(phase === 'user-message' && participant && !groupContext && this.browserConfig.enabled && this.browserConfig.mode === 'allow-immediate')
+      const canEarlyReply = onEarlyReply && !chatCapabilities?.voice?.enabled && !(phase === 'user-message' && participant && !groupContext && this.browserConfig.enabled && this.browserConfig.mode === 'allow-immediate')
       const earlyReply = canEarlyReply ? async (reply: EarlyNarrativeReply) => {
         const committed = await onEarlyReply(reply)
         if (committed) earlyReplyCommitted = true
@@ -6081,6 +6089,10 @@ export class InterludeService extends Service {
     // promise 逃逸会变成 unhandledRejection，必须就地吸收。
     void this.longHorizonSweep(story, now).catch(error =>
       this.reportStandalone('warn', '长线扫描失败，保留既有剧本与投递 错误=%s', error))
+    // App presentation hint follows the final normalized text, without audio IO here.
+    if (typeof raw.voice?.willingness === 'number' && Number.isFinite(raw.voice.willingness) && raw.voice.willingness >= 0 && raw.voice.willingness <= 1) {
+      for (const message of prepared) message.voice = { willingness: raw.voice.willingness }
+    }
     return { messages: prepared, commit, scriptEntry }
   }
 
@@ -7488,7 +7500,9 @@ export class InterludeService extends Service {
           this.report('info', story, 'intent-due', '主角消息内容：%s', message.content.slice(0, this.config.logging.previewLength))
         }
         if (!explicitEndpointId && session && current?.id === target.id && sessionMatchesEndpoint) {
-          const receipt = await session.send(outgoingContent)
+          const receipt = session.platform === 'mobile-local'
+            ? await session.send(outgoingContent, { mobileVoice: message.voice } as any)
+            : await session.send(outgoingContent)
           if (Array.isArray(receipt) && !receipt.length) throw new Error('Private transport returned no message receipt.')
           // P2-5：即时会话投递成功同样刷新端点状态（与 bot/desktop 路径一致）。
           this.noteEndpointOutbound({ kind: 'participant-user', id: target.id }, true, 'session-delivered', address)
@@ -7543,7 +7557,9 @@ export class InterludeService extends Service {
           if (recordFailures) await this.recordOutgoingDeliveryFailure(story, target.id, message, 'bot-not-found', failureStatus)
           continue
         }
-        const receipt = await bot.sendMessage(privateChannelId, outgoingContent)
+        const receipt = bot.platform === 'mobile-local'
+          ? await bot.sendMessage(privateChannelId, outgoingContent, undefined, { mobileVoice: message.voice } as any)
+          : await bot.sendMessage(privateChannelId, outgoingContent)
         if (Array.isArray(receipt) && !receipt.length) throw new Error('Private transport returned no message receipt.')
         this.noteEndpointOutbound({ kind: 'participant-user', id: target.id }, true, endpoint ? 'endpoint-explicit' : 'private-delivered', address)
         delivered.push(message)
