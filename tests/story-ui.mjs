@@ -5,6 +5,10 @@ const browser = await chromium.launch(process.env.HDS_BROWSER ? { executablePath
 await mkdir('artifacts', { recursive: true })
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
+  const openCategory = async category => {
+    const details = page.locator(`[data-settings-category="${category}"] > details`)
+    if (!await details.evaluate(element => element.open)) await details.locator(':scope > summary').click()
+  }
   const errors = []; page.on('pageerror', error => errors.push(error.message))
   const background = `data:image/jpeg;base64,${(await readFile('fixtures/images/vision-fixture.jpg')).toString('base64')}`
   await page.addInitScript(value => { window.__backgroundFixture = value }, background)
@@ -44,6 +48,8 @@ try {
         if (method === 'selectCard') { f.status.state = 'stopped'; f.status.running = false; f.prefs.activeCard = options.id; return {} }
         if (method === 'cancelInstall') { f.status.state = 'stopped'; f.status.running = false; return {} }
         if (method === 'rpc') {
+          if (options.method === 'qq.status') return { data: { phase: 'stopped', installed: false, running: false, loggedIn: false, online: false, progress: '', error: '', account: '', nickname: '', qr: '', policy: { enabled: false, users: [], groups: [] }, logs: [] } }
+          if (options.method === 'qq.conversations') return { data: f.conversations || [{ id: 'private:10001', name: '外部朋友', last: '有空聊聊', time: Date.now(), unread: 3 }, { id: 'group:10002', name: '外部群聊', last: '晚上好', time: Date.now(), unread: 2 }] }
           if (options.method === 'config.status') return { data: { budget: { used: 5, limit: 120, exhausted: false } } }
           if (options.method === 'preset.syncStatus') return { data: options.payload?.currentVision ? { visionRestartRequired: false, activeVision: { enabled: true, candidates: [{ enabled: true, imageInput: 'supported' }] } } : { restartRequired: true } }
           if (options.method === 'preset.sync') return { data: { config: { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }, title: '生活预设 fixture', code: 'ABCDEFGH', revision: 1, fingerprint: 'fixture', removed: ['model'], changes: [{ section: 'agency', field: 'enabled', after: true }] } }
@@ -72,7 +78,7 @@ try {
   })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
   await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
-  assert.deepEqual(await page.locator('nav button').allTextContents(), ['故事','见闻','信箱','空间'])
+  assert.deepEqual(await page.locator('nav button').allTextContents(), ['故事','见闻','空间'])
   await page.screenshot({ path: 'artifacts/story-resting.png', fullPage: true })
   await page.getByRole('textbox', { name: '消息内容' }).fill('等你醒来')
   await page.getByRole('button', { name: '点击唤醒', exact: true }).click()
@@ -88,6 +94,39 @@ try {
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '消息内容')
   assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '等你醒来')
   await page.getByRole('button', { name: '空间', exact: true }).click()
+  assert.deepEqual(await page.locator('.settings-category > details > summary b').allTextContents(), ['A 个性化', 'B 智能', 'C 数据'])
+  assert.equal(await page.locator('.settings-category > details[open]').count(), 0)
+  assert.equal(await page.getByText('故事的节奏', { exact: true }).isVisible(), true)
+  assert.equal(await page.locator('.save-status').isVisible(), true)
+  assert.equal(await page.getByText('模型与识图', { exact: true }).isVisible(), false)
+  assert.equal(await page.getByRole('button', { name: '信箱 · QQ 与外部消息' }).isVisible(), false)
+  await page.screenshot({ path: 'artifacts/preview9-settings-categories.png', fullPage: true })
+  await openCategory('personal')
+  const inboxEntry = page.getByRole('button', { name: /^信箱 · QQ 与外部消息/ })
+  await inboxEntry.getByLabel('5 条未读', { exact: true }).waitFor()
+  await inboxEntry.click()
+  await page.locator('.inbox-page').waitFor()
+  assert.equal(await page.locator('nav button.active').textContent(), '空间')
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await openCategory('personal')
+  await page.evaluate(() => { window.__storyFixture.conversations = [] })
+  await page.waitForFunction(() => !document.querySelector('.settings-entry .letter-unread'))
+  await page.locator('header').getByRole('button', { name: '故事里的人', exact: true }).click()
+  await page.getByRole('button', { name: '导入角色卡', exact: true }).waitFor()
+  assert.equal(await page.locator('nav button.active').textContent(), '空间')
+  assert.equal(await page.locator('nav button[aria-current="page"]').textContent(), '空间')
+  await page.getByRole('button', { name: '返回空间', exact: true }).click()
+  await page.getByText('A 个性化', { exact: true }).waitFor()
+  await openCategory('personal')
+  await openCategory('intelligence')
+  await page.getByText('故事管理', { exact: true }).click()
+  await page.getByRole('button', { name: '从当前人设重新开始', exact: true }).click()
+  await page.getByRole('dialog', { name: '故事管理确认' }).waitFor()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.__storyFixture.calls.includes('resetStory')), false)
+  assert.equal(await page.locator('[data-settings-category="intelligence"]').getByRole('button', { name: '导出完整存档', exact: true }).count(), 0)
+  assert.equal(await page.locator('[data-settings-category="data"]').getByRole('button', { name: '从当前人设重新开始', exact: true }).count(), 0)
+  console.log('PASS M2: three navigation buttons, collapsed A/B/C groups, inbox badge and navigation, header character library and return to settings, story/archive action placement.')
   await page.getByText('消息与提醒', { exact: true }).click()
   const notifications = page.getByRole('checkbox', { name: '角色消息通知', exact: true })
   assert.equal(await notifications.isChecked(), false)
@@ -140,6 +179,7 @@ try {
   await page.getByRole('button', { name: '立即重启生效', exact: true }).click()
   await page.evaluate(() => { window.__storyFixture.status.state = 'healthy' })
   await page.waitForFunction(() => !document.querySelector('.restart-banner'))
+  await openCategory('personal')
   await page.getByText('界面与阅读', { exact: true }).click()
   await page.getByText('字体与字号', { exact: true }).click()
   await page.getByLabel('界面字体', { exact: true }).selectOption('serif')
@@ -247,7 +287,8 @@ try {
   await page.waitForFunction(() => window.__storyFixture.job.kind === 'fact-forget')
   await page.getByText('记忆维护已完成', { exact: true }).waitFor()
   await page.getByRole('button', { name: '空间', exact: true }).click()
-  await page.getByText('存档与故事管理', { exact: true }).click()
+  await openCategory('data')
+  await page.getByText('备份与恢复', { exact: true }).click()
   const replyWatermarkBeforeExport = await page.evaluate(() => localStorage.getItem('hds-lastCharacterReplyTs-first'))
   await page.getByRole('button', { name: '导出完整存档', exact: true }).click()
   await page.getByRole('button', { name: '取消', exact: true }).click()
@@ -265,17 +306,28 @@ try {
   assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '')
   for (const width of [320,390,740]) {
     await page.setViewportSize({ width, height: 844 })
-    for (const tab of ['故事','见闻','信箱','空间']) {
+    for (const tab of ['故事','见闻','空间']) {
       await page.getByRole('button', { name: tab, exact: true }).click()
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${tab} @ ${width}`)
     }
+    for (const category of ['personal', 'intelligence', 'data']) await openCategory(category)
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Expanded settings @ ${width}`)
+    await page.getByRole('button', { name: /^信箱 · QQ 与外部消息/ }).click()
+    await page.locator('.inbox-page').waitFor()
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Inbox @ ${width}`)
+    await page.locator('header').getByRole('button', { name: '故事里的人', exact: true }).click()
+    await page.getByRole('button', { name: '导入角色卡', exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Character library @ ${width}`)
+    await page.getByRole('button', { name: '返回空间', exact: true }).click()
   }
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ colorScheme: 'light' })
+  await openCategory('personal')
   await page.getByText('界面与阅读', { exact: true }).click()
   await page.getByText('主题与恢复默认', { exact: true }).click()
   await page.getByRole('combobox', { name: /^主题/ }).selectOption('dark')
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+  await openCategory('data')
   await page.getByText('核心维护与诊断', { exact: true }).click()
   await page.getByText('查看运行日志', { exact: true }).click()
   const log = page.getByRole('log', { name: '运行日志' })
@@ -303,6 +355,7 @@ try {
   assert.ok((await page.locator('.custom-background').getAttribute('src')).endsWith('?v=2'))
   await page.evaluate(() => { window.__storyFixture.status.state = 'healthy'; window.__storyFixture.status.running = true })
   await page.getByRole('button', { name: '空间', exact: true }).click()
+  await openCategory('personal')
   await page.getByText('生活节奏与表达', { exact: true }).click()
   await page.getByLabel('24 小时后台模型请求上限', { exact: true }).fill('45')
   await page.getByText('弹性推进', { exact: true }).click()

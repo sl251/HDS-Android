@@ -120,6 +120,27 @@ class CharacterNotificationsTest {
         assertEquals(message.occurredAt, CharacterNotifications(app).cursor("card"))
         assertTrue(notifications.cursor("other-card") < message.occurredAt)
     }
+    @Test fun seenIdsRetainLatest500AcrossReloadAndTrimLegacySets() {
+        val prefs = app.getSharedPreferences("character-notifications", Context.MODE_PRIVATE)
+        // Upgrade from the old unbounded, unordered StringSet, including duplicate arrival.
+        prefs.edit().putStringSet("seen-card", (0..700).map { "legacy-$it" }.toSet()).commit()
+        assertFalse(notifications.receive("card", "星禾", message("legacy-700"), true))
+        assertEquals(500, prefs.getStringSet("seen-card", emptySet())!!.size)
+        for (index in 0..550) {
+            assertFalse(CharacterNotifications(app).receive("card", "星禾", message("recent-$index"), true))
+        }
+        val expected = (51..550).map { "recent-$it" }.toSet()
+        assertEquals(expected, prefs.getStringSet("seen-card", emptySet()))
+        val order = org.json.JSONArray(prefs.getString("seen-order-card", "[]"))
+        assertEquals(500, order.length())
+        assertEquals("recent-51", order.getString(0))
+        assertEquals("recent-550", order.getString(499))
+        notifications.setEnabled(true)
+        assertFalse(CharacterNotifications(app).receive("card", "星禾", message("recent-550"), false))
+        assertEquals(expected, prefs.getStringSet("seen-card", emptySet()))
+        assertEquals(0, shadowOf(manager).allNotifications.size)
+        assertEquals(emptySet<String>(), prefs.getStringSet("seen-other", emptySet()))
+    }
     @Test fun optInPermissionGlobalAndChannelDenialsSkipWithoutCrash() {
         assertFalse(notifications.enabled())
         assertFalse(notifications.receive("card", "星禾", message("disabled"), false))

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { createRoot } from 'react-dom/client'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { fromBase64, parseCard, type Card } from '../../packages/card-format'
-import type { SchedulingStatus, Message, ModelSettings, NativeBridge, RuntimeStatus, SavedCard } from '../../packages/contracts'
+import type { QQConversation, SchedulingStatus, Message, ModelSettings, NativeBridge, RuntimeStatus, SavedCard } from '../../packages/contracts'
 import { messageImages, imageEntryReason, visionProjection, visionRouteReason, refreshCoordinator, mergeMessages, localRequestFailure } from '../../packages/contracts'
 import './style.css'
 import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
@@ -18,13 +18,16 @@ import { LifeSettings } from './LifeSettings'
 import { MessageStatus, TypingBubble } from './MessageStatus'
 import { createReplyWatermarks } from './message-state'
 import { NotificationSettings } from './NotificationSettings'
+import { settingEffects, settingEffectLabels } from './setting-effects'
+
+const effectCaption = (key: keyof typeof settingEffects) => settingEffectLabels[settingEffects[key].timing]
 
 const bridge = registerPlugin<NativeBridge>('HdsRuntime')
 type Page = 'chat' | 'inbox' | 'cards' | 'story' | 'settings'
 const labels: Record<Page, string> = { chat: '故事', inbox: '信箱', cards: '角色', story: '见闻', settings: '空间' }
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
 function Icon({ name }: { name: Page | 'arrow' | 'plus' }) {
-  const paths = { inbox: 'M3 5h18v14H3V5Zm0 0 9 8 9-8', chat: 'M5 4h14v12H9l-4 4V4Z', cards: 'M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM5 20v-2a7 7 0 0 1 14 0v2', story: 'M5 5h14M5 12h10M5 19h14', settings: 'M4 7h16M4 17h16M9 4v6M15 14v6', arrow: 'M5 12h14M13 6l6 6-6 6', plus: 'M12 5v14M5 12h14' }
+  const paths = { inbox: 'M3 5h18v14H3V5Zm0 0 9 8 9-8', chat: 'M5 4h14v12H9l-4 4V4Z', cards: 'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM3 20v-2a7 7 0 0 1 14 0v2M17 4a3 3 0 0 1 0 6M21 20v-2a7 7 0 0 0-4-6', story: 'M5 5h14M5 12h10M5 19h14', settings: 'M4 7h16M4 17h16M9 4v6M15 14v6', arrow: 'M5 12h14M13 6l6 6-6 6', plus: 'M12 5v14M5 12h14' }
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>
 }
 const MessageRow = React.memo(function MessageRow({ message, userName, characterName, lastCharacterReplyTs, onRetry, retryDisabled }: { message: Message; userName: string; characterName: string; lastCharacterReplyTs: number; onRetry: (message: Message) => void; retryDisabled: boolean }) {
@@ -38,6 +41,7 @@ const MessageRow = React.memo(function MessageRow({ message, userName, character
 })
 function App() {
   const [page, updatePage] = useState<Page>('chat')
+  const [inboxUnread, setInboxUnread] = useState(0)
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
   const [cards, setCards] = useState<SavedCard[]>([])
   const [selected, setSelected] = useState('')
@@ -213,6 +217,21 @@ function App() {
     void refresh(); const timer = setInterval(() => void refresh(), 5000)
     return () => { cancelled = true; clearInterval(timer) }
   }, [page, runtime?.state, selected])
+  useEffect(() => {
+    if (!native || page !== 'settings' || runtime?.state !== 'healthy') { setInboxUnread(0); return }
+    let cancelled = false, running = false
+    const poll = async () => {
+      if (running) return
+      running = true
+      try {
+        const result = await bridge.rpc({ method: 'qq.conversations' })
+        if (!cancelled) setInboxUnread((result.data as QQConversation[]).reduce((total, row) => total + row.unread, 0))
+      } catch { if (!cancelled) setInboxUnread(0) }
+      finally { running = false }
+    }
+    void poll(); const timer = setInterval(() => void poll(), 2000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [native, page, runtime?.state])
   const persistSettings = () => {
     const next = saveQueue.current.catch(() => {}).then(async () => {
       if (!native || !settingsReady) return
@@ -391,7 +410,7 @@ function App() {
   return <>
     {appearance.value.backgroundData && <BackgroundImage source={appearance.value.backgroundData} opacity={appearance.value.backgroundOpacity} blur={appearance.value.backgroundBlur} failed={() => setNotice('背景图片无法显示，请在界面设置中重新选择图片。')} />}
     <div className="app">
-    <header><div className="wordmark">HDS<span>INTERLUDE</span></div><button className={`status ${runtime?.state === 'healthy' ? 'online' : ''}`} disabled={busy || transitioning || (native && !settingsReady)} onClick={() => healthy ? setPage('chat') : native ? void wake() : setPage('settings')}><i />{runtimeLabel}</button></header>
+    <header><div className="wordmark">HDS<span>INTERLUDE</span></div><div className="header-actions"><button className="character-library" aria-label="故事里的人" title="故事里的人" onClick={() => setPage('cards')}><Icon name="cards" /></button><button className={`status ${runtime?.state === 'healthy' ? 'online' : ''}`} disabled={busy || transitioning || (native && !settingsReady)} onClick={() => healthy ? setPage('chat') : native ? void wake() : setPage('settings')}><i />{runtimeLabel}</button></div></header>
     <main onBlurCapture={() => { void persistSettings().catch(() => {}) }}>
       {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
       {restartNeeded && <div className="restart-banner" role="status"><div><b>新配置已就绪</b><span>重启后生效，剧情与记忆会保留。</span></div><button disabled={busy || sending || transitioning} onClick={restart}>立即重启生效</button></div>}
@@ -421,17 +440,31 @@ function App() {
         </>}
       </>}
       {page === 'settings' && <>
-        <div className="page-heading"><div><div className="eyebrow">YOUR OWN LITTLE WORLD</div><h1>你的小小世界<span>。</span></h1><p>安放故事里的人，也安排这个世界的节奏。</p></div><span className="chapter">04 / 空间</span></div>
-        <button className="space-link" onClick={() => setPage('cards')}><div><span className="eyebrow">PEOPLE & STORIES</span><h2>故事里的人</h2><p>{cards.length} 位角色 · {active?.card.name || '等待第一位主角'}</p></div><Icon name="arrow" /></button>
+        <div className="page-heading"><div><div className="eyebrow">YOUR OWN LITTLE WORLD</div><h1>你的小小世界<span>。</span></h1><p>安放故事里的人，也安排这个世界的节奏。</p></div><span className="chapter">03 / 空间</span></div>
         <section><div className="section-title"><h2>故事的节奏</h2><span className="tag">{runtimeLabel}</span></div>{healthy ? <div className="actions"><button className="secondary" disabled={busy || sending} onClick={() => act(async () => { await bridge.stop(); setRuntime(await bridge.status()) }, '故事暂时歇息，经历都已留存。')}>让故事休息一下</button></div> : wakePanel}</section>
         <div className="save-status" role="status"><span>{native ? saveState : '界面预览 · 设置不会保存'}</span>{saveError && <><p className="error">{saveError}</p><button className="text-button" disabled={busy} onClick={() => void persistSettings().catch(() => {})}>重试保存</button></>}</div>
-        <NotificationSettings bridge={bridge} native={native} notify={setNotice} />
-        <ModelCenter settings={settings} setSettings={setSettings} native={native} busy={busy || sending} bridge={bridge} act={act} notify={setNotice} />
-        <section className="settings-group"><details><summary><span><b>故事与身份</b><small>你的称呼、人设与持续生活</small></span></summary><label>你的称呼<input value={settings.userName} onChange={event => setSettings({ ...settings, userName: event.target.value })} maxLength={128} /></label><label>你的故事人设<textarea rows={3} value={settings.userProfile} onChange={event => setSettings({ ...settings, userProfile: event.target.value })} maxLength={12000} placeholder="你在这个世界中的身份、与角色的关系…" /></label><label className="toggle"><input type="checkbox" checked={settings.autoAdvance} onChange={event => setSettings({ ...settings, autoAdvance: event.target.checked })} /><div><b>持续生活与主动联系</b><p>默认关闭。开启后 HDS 可在通知服务存活时自动调用模型，产生 API 费用。</p></div></label><p className="caption">离开输入框时自动保存。这里的人设用于新故事，已有故事会保留原来的设定。</p></details></section><LifeSettings value={settings.mobileConfig} change={mobileConfig => setSettings(previous => ({ ...previous, mobileConfig }))} bridge={bridge} healthy={healthy} native={native} notify={setNotice} /><AppearanceSettings appearance={appearance} native={native} busy={busy} act={act} /><StoryManagement bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />
-        <section className="settings-group"><details><summary><span><b>核心维护与诊断</b><small>运行组件、设备信息与日志</small></span></summary><p className="caption">遇到运行问题时，可重新准备核心组件。角色与故事会保留。</p><button className="secondary" disabled={!native || busy || transitioning || healthy} onClick={() => act(async () => { await bridge.install(); setRuntime(await bridge.status()) })}>重新准备核心组件</button><h3>设备与诊断</h3><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || '—'} / rc51</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre role="log" aria-label="运行日志">{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></details></section>
+        <section className="settings-group settings-category" data-settings-category="personal"><details><summary><span><b>A 个性化</b><small>外观、陪伴节奏与消息提醒</small></span></summary>
+          <button className="settings-entry" onClick={() => setPage('inbox')}><span>信箱 · QQ 与外部消息</span>{inboxUnread > 0 && <span className="letter-unread" aria-label={`${inboxUnread} 条未读`}>{inboxUnread}</span>}<Icon name="arrow" /></button>
+          <p className="caption">外观 · {effectCaption('appearance')}；消息与提醒 · {effectCaption('notifications')}（需系统允许通知）。</p>
+          <AppearanceSettings appearance={appearance} native={native} busy={busy} act={act} />
+          <p className="caption">陪伴节奏 · {effectCaption('life')}，加载后影响后续回复与调度。</p>
+          <LifeSettings value={settings.mobileConfig} change={mobileConfig => setSettings(previous => ({ ...previous, mobileConfig }))} bridge={bridge} healthy={healthy} native={native} notify={setNotice} />
+          <NotificationSettings bridge={bridge} native={native} notify={setNotice} />
+        </details></section>
+        <section className="settings-group settings-category" data-settings-category="intelligence"><details><summary><span><b>B 智能</b><small>模型、故事身份与记忆</small></span></summary>
+          <p className="caption">模型与识图 · {effectCaption('models')}。</p>
+          <ModelCenter settings={settings} setSettings={setSettings} native={native} busy={busy || sending} bridge={bridge} act={act} notify={setNotice} />
+          <section className="settings-group"><details><summary><span><b>故事与身份</b><small>你的称呼、人设与持续生活 · {effectCaption('identity')}</small></span></summary><label>你的称呼<input value={settings.userName} onChange={event => setSettings({ ...settings, userName: event.target.value })} maxLength={128} /></label><label>你的故事人设<textarea rows={3} value={settings.userProfile} onChange={event => setSettings({ ...settings, userProfile: event.target.value })} maxLength={12000} placeholder="你在这个世界中的身份、与角色的关系…" /></label><label className="toggle"><input type="checkbox" checked={settings.autoAdvance} onChange={event => setSettings({ ...settings, autoAdvance: event.target.checked })} /><div><b>持续生活与主动联系</b><p>默认关闭。开启后 HDS 可在通知服务存活时自动调用模型，产生 API 费用。</p></div></label><p className="caption">离开输入框时自动保存。这里的人设用于新故事，已有故事会保留原来的设定。</p></details></section>
+          <button className="settings-entry" onClick={() => { setDetail('memory'); setPage('story') }}><span>记忆与故事<small>记忆维护完成后 · {effectCaption('memory')}</small></span><Icon name="arrow" /></button>
+          <StoryManagement scope="story" bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />
+        </details></section>
+        <section className="settings-group settings-category" data-settings-category="data"><details><summary><span><b>C 数据</b><small>备份导出、恢复与核心诊断</small></span></summary>
+          <StoryManagement scope="backup" bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />
+          <section className="settings-group"><details><summary><span><b>核心维护与诊断</b><small>运行组件、设备信息与日志</small></span></summary><p className="caption">遇到运行问题时，可重新准备核心组件。角色与故事会保留。</p><button className="secondary" disabled={!native || busy || transitioning || healthy} onClick={() => act(async () => { await bridge.install(); setRuntime(await bridge.status()) })}>重新准备核心组件</button><h3>设备与诊断</h3><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || '—'} / rc51</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre role="log" aria-label="运行日志">{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></details></section>
+        </details></section>
       </>}
     </main>
-    <nav ref={navigation} aria-label="主导航">{(['chat', 'story', 'inbox', 'settings'] as Page[]).map(key => <button key={key} className={key === page || (key === 'settings' && page === 'cards') ? 'active' : ''} onClick={() => setPage(key)} aria-current={key === page ? 'page' : undefined}><Icon name={key} /><span>{labels[key]}</span></button>)}</nav>
+    <nav ref={navigation} aria-label="主导航">{(['chat', 'story', 'settings'] as Page[]).map(key => <button key={key} className={key === page || (key === 'settings' && (page === 'cards' || page === 'inbox')) ? 'active' : ''} onClick={() => setPage(key)} aria-current={key === page || (key === 'settings' && (page === 'cards' || page === 'inbox')) ? 'page' : undefined}><Icon name={key} /><span>{labels[key]}</span></button>)}</nav>
     {switcher && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="选择角色或故事"><div className="section-title"><h2>下一页，和谁一起？</h2><button autoFocus aria-label="关闭角色选择" onClick={() => setSwitcher(false)}>×</button></div><p className="caption">每个人的经历独立留存，切换后可以继续上次的故事。</p>{cards.map(saved => <button className="story-choice" disabled={busy || sending || transitioning} key={saved.id} onClick={() => switchCard(saved.id)}><span>{saved.card.name}</span><small>{saved.id === selected ? '当前故事' : '继续故事 →'}</small></button>)}<button className="secondary wide" onClick={() => { setSwitcher(false); setPage('cards') }}>导入、创建与管理角色</button></section></div>}
     {editingCard && <CardEditor key={editingCard.id} saved={editingCard} busy={busy} close={() => setEditingCard(null)} save={async card => { setBusy(true); try { await bridge.updateCard({ id: editingCard.id, card }); setEditingCard(null); await refreshCards(); setNotice('人设已修改，剧情与记忆保留。重新启动 HDS 后生效。') } finally { setBusy(false) } }} />}
     {deleteTarget && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="删除角色确认"><h2>删除「{deleteTarget.card.name}」？</h2><p>将从角色库移除。已有剧情、记忆与原文件仍保留在本机，重新导入原文件可恢复。当前角色运行时会先停止 HDS。</p><div className="actions"><button className="secondary" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button><button className="primary" disabled={busy} onClick={() => void act(async () => { const id = deleteTarget.id; await bridge.deleteCard({ id }); setDeleteTarget(null); if (selected === id) { setMessages([]); setStory(null) } await refreshCards() }, '角色已从库中移除，历史保留。')}>确认删除</button></div></section></div>}
