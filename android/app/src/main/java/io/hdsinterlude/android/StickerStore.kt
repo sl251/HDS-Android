@@ -65,6 +65,63 @@ class StickerStore(private val context: Context) {
         return JSONObject().put("cancelled", false).put("name", name).put("assets", assets).put("skipped", skipped)
     }
 
+    /** Metadata only: WebView owns pack edits; message-only originals are not part of the catalog. */
+    fun saveLibrary(packs: JSONArray) {
+        val clean = JSONArray()
+        for (index in 0 until packs.length()) {
+            val pack = packs.getJSONObject(index)
+            val ids = pack.getJSONArray("ids")
+            require((0 until ids.length()).all { Regex("[a-f0-9]{64}").matches(ids.getString(it)) }) { "无效贴纸编号" }
+            clean.put(JSONObject().put("id", pack.getString("id")).put("name", pack.getString("name")).put("ids", ids))
+        }
+        val file = File(root.parentFile, "sticker-library.json")
+        val temporary = File(root.parentFile, "sticker-library.json.tmp")
+        temporary.writeText(clean.toString())
+        check(temporary.renameTo(file)) { "表情包清单保存失败" }
+    }
+
+    /** Called with the runtime stopped. Replace only the disposable export, never originals/history. */
+    fun exportTo(dataDir: File): Int {
+        val manifest = File(root.parentFile, "sticker-library.json")
+        val packs = if (manifest.exists()) JSONArray(manifest.readText()) else JSONArray()
+        val staging = File(dataDir, ".stickers-next")
+        val previous = File(dataDir, ".stickers-previous")
+        val destination = File(dataDir, "stickers")
+        // Recover an interrupted swap before preparing the next snapshot.
+        if (!destination.exists() && previous.exists()) check(previous.renameTo(destination))
+        staging.deleteRecursively(); check(staging.mkdirs())
+        var count = 0
+        val groups = mutableSetOf<String>()
+        try {
+            for (index in 0 until packs.length()) {
+                val pack = packs.getJSONObject(index)
+                val name = pack.getString("name").map { if (it == '/' || it == '\\' || it == ':' || it.isISOControl()) '_' else it }.joinToString("").trim().take(80).ifEmpty { "我的表情" }
+                val base = if (name == "." || name == "..") "我的表情" else name
+                var group = base
+                var suffix = 2
+                while (!groups.add(group)) { group = "$base (${suffix++})" }
+                val ids = pack.getJSONArray("ids")
+                for (asset in 0 until ids.length()) {
+                    val id = ids.getString(asset)
+                    require(Regex("[a-f0-9]{64}").matches(id)) { "无效贴纸编号" }
+                    val source = root.listFiles()?.firstOrNull { filename.matches(it.name) && it.name.startsWith("$id.") }
+                        ?: throw IllegalArgumentException("表情包原件已移除，请重新导入")
+                    val folder = File(staging, group).apply { mkdirs() }
+                    source.copyTo(File(folder, source.name), overwrite = true)
+                    count++
+                }
+            }
+            previous.deleteRecursively()
+            if (destination.exists()) check(destination.renameTo(previous)) { "表情包旧快照移动失败" }
+            if (!staging.renameTo(destination)) {
+                previous.renameTo(destination)
+                error("表情包同步失败")
+            }
+            previous.deleteRecursively()
+            return count
+        } finally { staging.deleteRecursively() }
+    }
+
     fun image(id: String): JSONObject {
         require(Regex("[a-f0-9]{64}").matches(id)) { "无效贴纸编号" }
         val file = root.listFiles()?.firstOrNull { filename.matches(it.name) && it.name.startsWith("$id.") } ?: throw IllegalArgumentException("贴纸文件已移除")

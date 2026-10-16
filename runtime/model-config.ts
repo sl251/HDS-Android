@@ -1,4 +1,5 @@
 import type { ModelOptions, ModelProvider } from '../packages/contracts'
+import { stickerVisionProviders } from './mobile-config'
 import type { ModelConfig, ProviderConfig } from '../upstream/hds-interlude/src/narrator'
 
 type Input = { providers?: (ModelProvider & { mode?: ProviderConfig['mode'] })[]; modelOptions?: Partial<ModelOptions>; endpoint: string; model: string; apiKey?: string }
@@ -19,7 +20,7 @@ export function mobileModelConfig(input: Input): Partial<ModelConfig> & { provid
   const visionId = options.visionProviderId || ''
   if (options.visionEnabled && visionId && !providers.some(row => row.id === visionId && row.enabled)) throw new Error('识图连接已移除或停用，请重新选择')
   return {
-    providers: providers.map(row => ({ ...row, useForVision: !!visionId && row.id === visionId })),
+    providers: stickerVisionProviders(providers.map(row => ({ ...row, useForVision: !!visionId && row.id === visionId })), options),
     vision: { enabled: options.visionEnabled === true, mode: visionId ? 'sidecar' : 'native', detail: 'auto', maxImageDimension: 1024 },
     mainTemperature: options.mainTemperature ?? 0.8,
     mainMaxTokens: options.mainMaxTokens ?? 4096,

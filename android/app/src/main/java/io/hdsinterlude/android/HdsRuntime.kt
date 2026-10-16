@@ -268,6 +268,8 @@ class HdsRuntime private constructor(private val context: Context) {
         cleanStop = false
         backgroundBudget = JSONObject(); serviceHealthFailed = false
         val profile = store.profile()
+        val stickerCount = StickerStore(context).exportTo(profile)
+        log("表情包启动同步：$stickerCount 张")
         val qqData = File(store.base, "qq").apply { mkdirs() }
         File(rootfs, "qq-data").mkdirs()
         val nativeDir = context.applicationInfo.nativeLibraryDir
@@ -404,7 +406,7 @@ class HdsRuntime private constructor(private val context: Context) {
             connection.outputStream.use { it.write(JSONObject().put("method", method).put("payload", payload).toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.let { String(readLimited(it, 4 * 1024 * 1024), Charsets.UTF_8) } ?: "{}"
+            val body = stream?.let { String(readLimited(it, if (method == "images.get") 14 * 1024 * 1024 else 4 * 1024 * 1024), Charsets.UTF_8) } ?: "{}"
             val result = JSONObject(body)
             require(status in 200..299) { result.optString("error", "本机请求失败：$status") }
             return result

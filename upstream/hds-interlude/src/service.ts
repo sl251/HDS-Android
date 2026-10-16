@@ -3697,7 +3697,7 @@ export class InterludeService extends Service {
 
   private async stickerCatalogForSession(session: Session | undefined, turnQueryEmbedding?: number[]): Promise<StickerCatalogEntry[]> {
     const config = this.stickerConfig
-    if (!config.enabled || !session || !isOneBotPlatform(session.platform)) return []
+    if (!config.enabled || !session || (!isOneBotPlatform(session.platform) && session.platform !== 'mobile-local')) return []
     const assets = await this.rankStickerAssets(turnQueryEmbedding)
     return assets.map(asset => ({
       assetId: asset.assetId, group: asset.group, description: asset.description, aliases: Array.isArray(asset.aliases) ? asset.aliases : [], animated: asset.animated,

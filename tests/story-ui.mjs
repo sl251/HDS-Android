@@ -24,13 +24,14 @@ try {
     window.androidBridge = {}
     window.Capacitor = {
       convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
         if (method === 'notificationSettings') return f.notifications || { enabled: false, permission: 'prompt', available: false }
         if (method === 'setMessageNotifications') { f.notifications = { enabled: options.enabled, permission: 'denied', available: false }; return f.notifications }
         if (method === 'openNotificationSettings') { f.openedNotificationSettings = true; return {} }
         if (method === 'notificationLaunch') { const cardId = f.launchCardId; delete f.launchCardId; return { cardId } }
+        if (method === 'syncStickerLibrary') { f.stickerSync = options.packs; return {} }
         if (method === 'pickStickers') { f.importDirectory = options.directory; return f.nextStickerImport || { cancelled: true } }
         if (method === 'stickerImage') return { dataUri: window.__backgroundFixture }
         if (method === 'pruneStickers') { f.pruned = options.keep; return {} }
@@ -575,6 +576,38 @@ try {
   assert.equal(await page.evaluate(() => localStorage.getItem('hds-draft-first')), null)
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('hds-draft-second')).content), '第二位的草稿')
   console.log('PASS M3: CJK/229 composition gate, Enter/Shift+Enter, text/image paste, per-card text+attachment drafts and restart, empty/filled sticker entry, SAF/default pack name, multi-select feedback/dedup, rename/delete confirmation/individual delete, instant send/collapse/disabled guard and same-ID failed retry, GIF without bubble, recents, persisted message marker and successful draft clear.')
+  // M4 character stickers use runtime media IDs without the user's local message map.
+  await page.evaluate(() => localStorage.removeItem('hds-stickers-v1'))
+  await page.reload()
+  await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: '打开表情包', exact: true }).count(), 0)
+  await page.evaluate(dataUri => {
+    const f = window.__storyFixture
+    f.imageData = dataUri
+    f.messages = [
+      { id: 'm4-text', direction: 'character', content: '今天很开心。[表情包]【贴纸】[图片: unknown]', images: [], occurredAt: '2026-10-16T10:00:01Z', status: 'delivered' },
+      { id: 'm4-after', direction: 'character', content: '', images: ['d'.repeat(64)], occurredAt: '2026-10-16T10:00:02Z', status: 'delivered' },
+      { id: 'm4-standalone', direction: 'character', content: '', images: ['e'.repeat(64)], occurredAt: '2026-10-16T10:00:03Z', status: 'delivered' },
+      { id: 'm4-user', direction: 'user', content: '[图片] 这是我的原话', images: [], occurredAt: '2026-10-16T10:00:04Z', status: 'accepted' },
+    ]
+    Object.assign(f.status, { state: 'healthy', running: true })
+  }, `data:image/gif;base64,${stickerFixture.toString('base64')}`)
+  await page.locator('[data-read-anchor="message-m4-standalone"] img').waitFor()
+  assert.deepEqual(await page.locator('.messages > article').evaluateAll(rows => rows.map(row => row.dataset.readAnchor)), ['message-m4-text', 'message-m4-after', 'message-m4-standalone', 'message-m4-user'])
+  assert.equal(await page.locator('.character-reply.sticker-message').count(), 2)
+  assert.equal(await page.locator('.character-reply.sticker-message .bubble').count(), 0)
+  assert.equal(await page.locator('[data-read-anchor="message-m4-text"] .bubble').textContent(), '今天很开心。')
+  assert.equal(await page.locator('[data-read-anchor="message-m4-user"] .bubble').textContent(), '[图片] 这是我的原话')
+  for (const image of await page.locator('.character-reply.sticker-message img').all()) {
+    assert.ok((await image.getAttribute('src')).startsWith('data:image/gif;base64,'))
+    await image.evaluate(element => element.decode())
+  }
+  for (const width of [320, 740, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+  }
+  await page.screenshot({ path: 'artifacts/preview9-m4-character-stickers.png' })
+  console.log('PASS M4: empty library hides entry; character standalone/after-text GIFs hydrate via media RPC without user mappings, keep sequence and render without bubbles; unknown markers stripped only from character prose; 320/390/740 px layouts.')
   // Long-image scrolling, pinch, pan, dismiss, focus and reduced motion are DOM-observable.
   await page.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 300; canvas.height = 2400
