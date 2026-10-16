@@ -106,3 +106,14 @@ main[data-page=chat],main[data-page=story],main[data-page=settings]{animation:pa
 .image-viewer{display:block;padding:0;animation:viewer-enter var(--base) var(--ease);transition:opacity var(--base) var(--ease);opacity:1}.image-viewer.closing{opacity:0}.image-viewer>button{z-index:2;top:calc(12px + var(--safe-top));right:12px;background:#09121fb0;border-radius:50%;position:absolute}.image-scroll{position:absolute;inset:0;overscroll-behavior:contain;overflow-x:hidden;scrollbar-width:thin}.image-stage{min-height:100%;display:grid;place-items:center;padding:64px 16px;transition:transform var(--base) var(--ease),opacity var(--base) var(--ease)}.image-stage img{display:block;max-width:100%;height:auto;user-select:none;transition:transform var(--base) var(--ease)}.image-viewer[data-gesturing=true] .image-stage,.image-viewer[data-gesturing=true] img{transition:none}
 @keyframes viewer-enter{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:scale(1)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Voice remains one message, with an on-demand transcript. */
+.voice-message { min-width: 160px; max-width: 100%; display: grid; gap: 8px; }
+.voice-play { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; background: transparent; color: inherit; border: 0; padding: 6px 0; }
+.voice-play > span:first-child { letter-spacing: 3px; }
+.voice-transcript { padding-top: 10px; border-top: 1px solid var(--line, #8884); white-space: pre-wrap; overflow-wrap: anywhere; }
+.voice-transcript-toggle { font-size: 11px; justify-self: start; }
+.voice-sample { display: block; width: 100%; margin: 16px 0; }
+.voice-library article { padding: 16px 0; border-top: 1px solid var(--line, #8884); overflow-wrap: anywhere; }
+.voice-library article > small { display: block; opacity: .65; }
+.voice-settings input[type=number] { max-width: 100%; }

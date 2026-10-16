@@ -262,16 +262,19 @@ class HdsRuntime private constructor(private val context: Context) {
         require(prefs.optString("endpoint").isNotBlank() && prefs.optString("model").isNotBlank()) { "请先保存模型设置" }
         if (!installed()) { startupFailure = ""; installAsync(startAfterInstall = true); return }
         cancelRequested = false; startupFailure = ""; state = "starting"; error = ""; progress = "启动手机内的 HDS 核心"
-        executor.execute { try { startNow() } catch (failure: Throwable) { process?.destroy(); process = null; fail("HDS 启动失败", failure); HdsService.stop(context) } }
+        executor.execute { try { startNow() } catch (failure: Throwable) { voiceBridge?.close(); voiceBridge = null; process?.destroy(); process = null; fail("HDS 启动失败", failure); HdsService.stop(context) } }
     }
+    @Volatile private var voiceBridge: VoiceBridge? = null
     private fun startNow() {
         cleanStop = false
         backgroundBudget = JSONObject(); serviceHealthFailed = false
         val profile = store.profile()
         val stickerCount = StickerStore(context).exportTo(profile)
         log("表情包启动同步：$stickerCount 张")
+        val voiceDir = VoiceStore(context).base
         val qqData = File(store.base, "qq").apply { mkdirs() }
         File(rootfs, "qq-data").mkdirs()
+        File(rootfs, "hds-voice").mkdirs()
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val temporary = File(context.cacheDir, "hds-proot").apply { mkdirs() }
         File(rootfs, "tmp").mkdirs()
@@ -282,7 +285,7 @@ class HdsRuntime private constructor(private val context: Context) {
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
         val args = listOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,
             "-b", "/dev", "-b", "/dev/pts", "-b", "/proc", "-b", "/sys",
-            "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data", "-b", "${qqData.absolutePath}:/qq-data")
+            "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data", "-b", "${qqData.absolutePath}:/qq-data", "-b", "${voiceDir.absolutePath}:/hds-voice")
         val attempts = JSONArray()
         launchDiagnostic = JSONObject().put("attempts", attempts)
         val disableSeccomp = ProotLaunch.selectProfile { disabled ->
@@ -309,6 +312,9 @@ class HdsRuntime private constructor(private val context: Context) {
         val prefs = store.publicSettings()
         val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data").put("qqDir", "/qq-data")
         val cardId = prefs.getString("activeCard")
+        voiceBridge?.close()
+        val voice = VoiceBridge(context, token, cardId); voiceBridge = voice
+        configuration.put("voiceBridge", JSONObject().put("url", voice.url).put("token", token).put("cardId", cardId).put("directory", "/hds-voice"))
         val cardName = configuration.getJSONObject("card").getString("name")
         runningCardId = cardId; runningCardName = cardName
         val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach {
@@ -340,7 +346,7 @@ class HdsRuntime private constructor(private val context: Context) {
         }
         Thread({
             val code = child.waitFor()
-            if (process === child && state != "stopping") { process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); HdsService.stop(context) }
+            if (process === child && state != "stopping") { voiceBridge?.close(); voiceBridge = null; process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); HdsService.stop(context) }
         }, "hds-exit").start()
     }
     private fun probeGuest(args: List<String>, nativeDir: String, temporary: File, disableSeccomp: Boolean): ProotLaunch.ProbeResult {
@@ -383,7 +389,7 @@ class HdsRuntime private constructor(private val context: Context) {
     fun stopBlocking() { cancelRequested = true; executor.submit { stopNow(true) }.get(345, TimeUnit.SECONDS) }
     private fun stopNow(preserveStory: Boolean = false) {
         val child = process
-        if (child == null) { if (state !in listOf("installing", "failed")) state = "stopped"; return }
+        if (child == null) { voiceBridge?.close(); voiceBridge = null; if (state !in listOf("installing", "failed")) state = "stopped"; return }
         state = "stopping"; progress = "等待 HDS 停止并保存数据库"
         try { child.outputStream.write("STOP\n".toByteArray()); child.outputStream.flush() } catch (_: java.io.IOException) { }
         if (preserveStory) {
@@ -393,6 +399,7 @@ class HdsRuntime private constructor(private val context: Context) {
         }
         if (!child.waitFor(15, TimeUnit.SECONDS)) { child.destroy(); if (!child.waitFor(5, TimeUnit.SECONDS)) child.destroyForcibly() }
         require(child.waitFor(5, TimeUnit.SECONDS)) { "核心未能停止；请暂勿切换角色" }
+        voiceBridge?.close(); voiceBridge = null
         process = null; token = ""; secrets = emptyList(); port = 0; state = "stopped"; progress = "HDS 已停止，剧情保留在本机"; error = ""
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {

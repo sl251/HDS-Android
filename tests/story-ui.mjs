@@ -1,10 +1,18 @@
 import { chromium } from 'playwright-core'
 import assert from 'node:assert/strict'
-import { mkdir, readFile } from 'node:fs/promises'
-const browser = await chromium.launch(process.env.HDS_BROWSER ? { executablePath: process.env.HDS_BROWSER, headless: true } : { channel: 'msedge', headless: true })
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+let debugPage
+const debugMessages = []
+const browserArgs = process.env.HDS_BROWSER_LOW_RESOURCES === '1' ? ['--single-process', '--no-zygote', '--disable-gpu'] : []
+const browser = await chromium.launch(process.env.HDS_BROWSER ? { executablePath: process.env.HDS_BROWSER, headless: true, args: browserArgs } : { channel: 'msedge', headless: true, args: browserArgs })
 await mkdir('artifacts', { recursive: true })
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
+  debugPage = page
+  page.on('console', message => { if (message.type() === 'error') debugMessages.push({ message: message.text(), location: message.location() }) })
+  page.on('response', response => { if (response.status() >= 400) debugMessages.push(`${response.status()} ${response.url()}`) })
+  page.on('requestfailed', request => debugMessages.push(`${request.url()}: ${request.failure()?.errorText}`))
+  page.on('pageerror', error => debugMessages.push(error.stack || error.message))
   page.setDefaultTimeout(30000)
   const openCategory = async category => {
     const details = page.locator(`[data-settings-category="${category}"] > details`)
@@ -698,4 +706,11 @@ try {
 
   assert.deepEqual(errors, [])
   if (!process.env.HDS_M3_ONLY) console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
+} catch (error) {
+  if (debugPage) {
+    console.error('Browser diagnostics:', JSON.stringify(debugMessages))
+    await debugPage.screenshot({ path: 'artifacts/m5/existing-ui-failure.png', fullPage: true }).catch(() => {})
+    await writeFile('artifacts/m5/existing-ui-failure.txt', await debugPage.evaluate(() => JSON.stringify({ url: location.href, resources: performance.getEntriesByType('resource').map(entry => ({ name: entry.name, status: entry.responseStatus })), html: document.documentElement.outerHTML.slice(0, 12000), fixture: window.__storyFixture, text: document.body.innerText }, null, 2)).catch(failure => String(failure))).catch(() => {})
+  }
+  throw error
 } finally { await browser.close() }

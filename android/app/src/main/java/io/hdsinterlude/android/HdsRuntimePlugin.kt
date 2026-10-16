@@ -27,7 +27,7 @@ internal fun pickedImageUris(result: ActivityResult): List<android.net.Uri> {
     return uris.toList()
 }
 
-@CapacitorPlugin(name = "HdsRuntime", permissions = [Permission(alias = "notifications", strings = [android.Manifest.permission.POST_NOTIFICATIONS])])
+@CapacitorPlugin(name = "HdsRuntime", permissions = [Permission(alias = "microphone", strings = [android.Manifest.permission.RECORD_AUDIO]), Permission(alias = "notifications", strings = [android.Manifest.permission.POST_NOTIFICATIONS])])
 class HdsRuntimePlugin : Plugin() {
     private val io = Executors.newSingleThreadExecutor()
     private fun runtime() = HdsRuntime.get(context)
@@ -56,6 +56,34 @@ class HdsRuntimePlugin : Plugin() {
             resolve(call, JSONObject().apply { if (cardId != null) put("cardId", cardId) })
         }
     }
+    private val voiceRecorder by lazy { VoiceRecorder(context) }
+    @PluginMethod fun voiceState(call: PluginCall) { run(call) { VoiceStore(context).state() } }
+    @PluginMethod fun saveVoiceSettings(call: PluginCall) { run(call) { VoiceStore(context).saveSettings(call.data) } }
+    @PluginMethod fun saveVoice(call: PluginCall) { run(call) { VoiceStore(context).saveVoice(call.data) } }
+    @PluginMethod fun deleteVoice(call: PluginCall) { run(call) { VoiceStore(context).deleteVoice(call.getString("id") ?: "") } }
+    @PluginMethod fun voiceAudio(call: PluginCall) { run(call) { VoiceStore(context).audio(call.getString("audioId") ?: "") } }
+    @PluginMethod fun previewVoice(call: PluginCall) { run(call) {
+        VoiceStore(context).synthesize(JSONObject(call.data.toString()).put("preview", true).put("text", "你好，今天也想和你一起，把日子慢慢过好。"))
+    } }
+    @PluginMethod fun pickVoiceAudio(call: PluginCall) {
+        startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/wav", "audio/x-wav", "audio/mpeg")), "voicePicked")
+    }
+    @ActivityCallback private fun voicePicked(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        run(call) { VoiceStore(context).import(result.data!!.data!!).put("cancelled", false) }
+    }
+    @PluginMethod fun startVoiceRecording(call: PluginCall) {
+        if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissionForAlias("microphone", call, "voicePermissionResult")
+        else run(call) { voiceRecorder.start(); JSONObject() }
+    }
+    @PermissionCallback private fun voicePermissionResult(call: PluginCall) {
+        if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { call.reject("请允许麦克风权限后录音"); return }
+        run(call) { voiceRecorder.start(); JSONObject() }
+    }
+    @PluginMethod fun stopVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.stop() } }
+    @PluginMethod fun cancelVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.cancel(); JSONObject() } }
+    override fun handleOnDestroy() { voiceRecorder.cancel(); super.handleOnDestroy() }
     @PluginMethod fun status(call: PluginCall) { resolve(call, runtime().status()) }
     @PluginMethod fun settings(call: PluginCall) { run(call) { runtime().store.publicSettings() } }
     @PluginMethod fun appearance(call: PluginCall) { run(call) { AppearanceStore(context).read() } }

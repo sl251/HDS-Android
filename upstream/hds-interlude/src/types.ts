@@ -549,6 +549,8 @@ export interface IntentUpdateDraft {
   resolution?: string
 }
 export interface OutgoingMessageDraft {
+  /** Optional local transport presentation; never used by QQ. */
+  voice?: { willingness: number }
   participantId: string
   content: string
   /** Optional typ-0 correlation copied into persisted delayed/split intents. */
@@ -650,6 +652,7 @@ export type NativeFaceSemantic = 'smile' | 'laugh' | 'sweat' | 'awkward' | 'hear
 /** Capabilities are transient and appear in a prompt only after both Console
  * configuration and a live platform connector allow them. */
 export interface ChatActionCapabilities {
+  voice?: { enabled: boolean; threshold?: number }
   platform: 'qq' | 'wechat' | 'local'
   quoteReply: boolean
   reactions: ChatReactionName[]
@@ -777,6 +780,8 @@ export interface NarrativeDecision {
   messageReactions?: MessageReactionDraft[]
   /** Exact local sticker selected from the transient catalog for this live turn. */
   localMedia?: LocalMediaDraft
+  /** Optional presentation of the final reply text, interpreted only by the App. */
+  voice?: { willingness: number }
   /** One optional semantic QQ native-face expression for the current live reply. */
   nativeFace?: NativeFaceDraft
 }

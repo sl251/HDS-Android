@@ -1,4 +1,4 @@
-import { Context, Bot, h } from 'koishi'
+import { Context, Bot, h, type SendOptions } from 'koishi'
 import { HTTP } from '@cordisjs/plugin-http'
 import { SQLiteDriver } from '@minatojs/driver-sqlite'
 import { createServer } from 'node:http'
@@ -16,6 +16,8 @@ import { QQRuntime } from './qq'
 import { imageStore } from './media'
 import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt } from './stickers'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, type MobileConfig } from './mobile-config'
+import { localVoiceCapability, localVoiceDelivery, type VoiceBridgeConfig } from './voice'
+import { messageAudio } from '../packages/contracts/voice'
 import { BackgroundBudget } from './background-budget'
 import { inspectPreset } from './preset'
 import { messagePush, serializeMessagePush, messagesSinceQuery, type PushRow } from './message-push'
@@ -24,7 +26,7 @@ export { mobileSchema } from './mobile-config'
 export { normalizeMobileConfig, mapMobileConfig } from './mobile-config'
 export { mobilePreset, inspectPreset } from './preset'
 
-export type HostConfig = { mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
+export type HostConfig = { voiceBridge?: VoiceBridgeConfig; mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
 export async function startHost(input: HostConfig) {
   if (!input.card?.name || !input.model || !input.endpoint || !input.token || input.token.length < 32) throw new Error('Missing valid host configuration')
   const endpoint = new URL(input.endpoint)
@@ -37,7 +39,7 @@ export async function startHost(input: HostConfig) {
   app.baseDir = input.dataDir
   app.plugin(HTTP)
   app.plugin(SQLiteDriver, { path: join(input.dataDir, 'hds.sqlite') })
-  app.model.extend('mobile_message', { id: 'string(64)', direction: 'string(16)', content: 'text', occurredAt: 'timestamp', status: 'string(32)', images: { type: 'json', initial: [] } }, { primary: 'id' })
+  app.model.extend('mobile_message', { id: 'string(64)', direction: 'string(16)', content: 'text', occurredAt: 'timestamp', status: 'string(32)', images: { type: 'json', initial: [] }, audio: { type: 'json', initial: {} } }, { primary: 'id' })
   app.model.extend('mobile_request', { id: 'string(64)', content: 'text', status: 'string(32)', occurredAt: 'timestamp' }, { primary: 'id' })
   class LocalBot extends Bot {
     private lastMessageTime = 0
@@ -45,11 +47,11 @@ export async function startHost(input: HostConfig) {
     constructor(ctx: Context) { super(ctx, {}, 'mobile-local'); this.user = { id: 'local-role', name: input.card.name } }
     async start() { this.online() }
     dispose() { if (this.disposed) return; super.dispose(); this.disposed = true }
-    async sendMessage(channelId: string, content: unknown) {
+    async sendMessage(channelId: string, content: unknown, _referrer?: unknown, options?: SendOptions & { mobileVoice?: { willingness: number } }) {
       if (restoreHeld) throw new Error('恢复的故事需先明确恢复运行')
       if (!['private:local-user', 'local-user'].includes(channelId)) throw new Error('Local transport target is not authorized')
       const elements = h.parse(String(content))
-      const rows: { content: string; images: string[] }[] = []
+      const rows: { content: string; images: string[]; audio?: { audioId: string; duration: number } }[] = []
       let text = ''
       const flush = () => { if (text) { rows.push({ content: text, images: [] }); text = '' } }
       for (const element of elements) {
@@ -67,6 +69,8 @@ export async function startHost(input: HostConfig) {
       if (!rows.length) rows.push({ content: '', images: [] })
       const ids: string[] = []
       for (const row of rows) {
+        if (row.content.trim()) row.audio = await localVoiceDelivery(input.voiceBridge, row.content, options?.mobileVoice?.willingness,
+          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000))
         const id = randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
         this.lastMessageTime = occurredAt.getTime()
         await app.database.create('mobile_message' as never, { id, direction: 'character', ...row, occurredAt, status: 'delivered' } as never)
@@ -91,6 +95,7 @@ export async function startHost(input: HostConfig) {
     qzone: { enabled: false }, browser: { enabled: false },
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
+  config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
   config.model.mobileBeforeRequest = budget.beforeRequest
   config.model.mobileSystemPrompt = (prompt, request) => request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt)
   const activeVision = visionProjection(input)
@@ -115,7 +120,7 @@ export async function startHost(input: HostConfig) {
     const value = bot.session({ type: 'message', timestamp: Date.now(), user: { id: 'local-user', name: input.userName || '我' }, channel: { id: 'private:local-user', type: 1 }, message: { id, elements: [h.text(content), ...images.map(image => h.image(image))] } })
     // Management RPC calls the HDS service directly, so the local adapter supplies
     // the same receipt-producing send operation normally attached by Koishi middleware.
-    return Object.assign(value, { username: input.userName || '我', send: (fragment: unknown) => bot.sendMessage('private:local-user', fragment) })
+    return Object.assign(value, { username: input.userName || '我', send: (fragment: unknown, options?: SendOptions) => bot.sendMessage('private:local-user', fragment, undefined, options) })
   }
   // A dedicated profile owns this database; no QQ identity is fabricated.
   const current = session()
@@ -223,7 +228,7 @@ export async function startHost(input: HostConfig) {
       }
       return rows.map(messagePush)
     }
-    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, images: messageImages((row as { images?: unknown }).images) }))
+    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, occurredAt: new Date((row as { occurredAt: Date | string }).occurredAt).toISOString(), images: messageImages((row as { images?: unknown }).images), audio: messageAudio((row as { audio?: unknown }).audio) }))
     if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, schedulingStatus: await app.interlude.adminSchedulingStatus(story.id), entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
     if (method === 'story.pause' || method === 'story.resume') {
       const paused = method.endsWith('pause')

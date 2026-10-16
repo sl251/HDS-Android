@@ -1,3 +1,5 @@
+import { messageAudio, type MessageAudio, type VoiceState, type VoiceBinding, type Voice } from './voice'
+export * from './voice'
 import type { Card } from '../card-format'
 export type SavedCard = { id: string; card: Card; importedAt: string }
 export type RuntimeStatus = { state: string; installed: boolean; environmentState: 'missing' | 'ready' | 'update-required' | 'repair-required'; running: boolean; cleanupPending: boolean; progress: string; error: string; diagnostic: Record<string, unknown>; logs: string[]; device: { model: string; android: string; sdk: number; abi: string; pageSize: number; availableBytes: number; build: string; webview: string }; version: string; hds: string }
@@ -16,7 +18,7 @@ export type ModelOptions = {
 export type MobileConfig = { sections?: Record<string, Record<string, unknown>>; backgroundLimit?: number }
 export type ModelSettings = { mobileConfig?: MobileConfig; providers: ModelProvider[]; modelOptions: ModelOptions; userName: string; userProfile: string; autoAdvance: boolean }
 export type ImageAttachment = { id: string; dataUri: string }
-export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string; images?: string[] }
+export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string; images?: string[]; audio?: MessageAudio }
 /** SQLite JSON columns from older records may contain {} instead of an array. */
 export function messageImages(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -30,6 +32,17 @@ export type QQConversation = { id: string; name: string; last: string; time: num
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
 export type MessageNotificationSettings = { enabled: boolean; permission: 'prompt' | 'granted' | 'denied'; available: boolean }
 export type NativeBridge = {
+  voiceState(): Promise<VoiceState>;
+  saveVoiceSettings(options: { dailyLimit?: number; cooldown?: number; defaultVoiceId?: string; apiKey?: string; clearKey?: boolean; cardId?: string; binding?: VoiceBinding }): Promise<VoiceState>;
+  saveVoice(options: Partial<Voice> & { name: string }): Promise<VoiceState>;
+  deleteVoice(options: { id: string }): Promise<VoiceState>;
+  voiceAudio(options: { audioId: string }): Promise<{ dataUri: string }>;
+  previewVoice(options: { voiceId?: string; draft?: Pick<Voice, 'type' | 'value'> }): Promise<Partial<MessageAudio>>;
+  pickVoiceAudio(): Promise<Partial<MessageAudio> & { cancelled?: boolean }>;
+  startVoiceRecording(): Promise<void>;
+  stopVoiceRecording(): Promise<MessageAudio>;
+  cancelVoiceRecording(): Promise<void>;
+
   notificationSettings(): Promise<MessageNotificationSettings>;
   setMessageNotifications(options: { enabled: boolean }): Promise<MessageNotificationSettings>;
   openNotificationSettings(): Promise<void>;
@@ -123,9 +136,9 @@ export function refreshCoordinator<T>(read: (revision: number) => Promise<T>, ap
 export function mergeMessages(previous: Message[], incoming: Message[]): Message[] {
   const old = new Map(previous.map(row => [row.id, row]))
   const next = incoming.map(row => {
-    const normalized = { ...row, images: messageImages(row.images) }
+    const normalized = { ...row, images: messageImages(row.images), audio: messageAudio(row.audio) }
     const before = old.get(row.id)
-    return before && before.content === normalized.content && before.status === normalized.status && before.direction === normalized.direction && before.occurredAt === normalized.occurredAt && JSON.stringify(messageImages(before.images)) === JSON.stringify(normalized.images) ? before : normalized
+    return before && JSON.stringify(messageAudio(before.audio)) === JSON.stringify(normalized.audio) && before.content === normalized.content && before.status === normalized.status && before.direction === normalized.direction && before.occurredAt === normalized.occurredAt && JSON.stringify(messageImages(before.images)) === JSON.stringify(normalized.images) ? before : normalized
   })
   return next.length === previous.length && next.every((row, index) => row === previous[index]) ? previous : next
 }
