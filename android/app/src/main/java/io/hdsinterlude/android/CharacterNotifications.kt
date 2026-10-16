@@ -14,6 +14,7 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.time.Instant
@@ -29,6 +30,7 @@ class CharacterNotifications(private val context: Context) {
     companion object {
         const val CHANNEL = "character-messages"
         const val CARD_EXTRA = "cardId"
+        private const val MAX_SEEN = 500
         private val lock = Any()
         fun notificationId(id: String): Int {
             val value = 1000 + id.hashCode()
@@ -74,10 +76,24 @@ class CharacterNotifications(private val context: Context) {
     /** Called sequentially on service IO for both stdout and catch-up. Mark even
      * suppressed messages consumed so a later background poll cannot alert them. */
     fun receive(cardId: String, name: String, message: CharacterMessage, foregroundAtArrival: Boolean, avatar: () -> Bitmap? = { null }, time: LocalTime = LocalTime.now()): Boolean = synchronized(lock) {
-        val seen = prefs.getStringSet("seen-$cardId", emptySet())!!.toMutableSet()
-        if (!seen.add(message.id)) return false
+        val seen = prefs.getStringSet("seen-$cardId", emptySet())!!
+        val duplicate = message.id in seen
+        if (duplicate && seen.size <= MAX_SEEN) return false
+        // StringSet does not preserve order across process restarts. Keep a bounded
+        // insertion-order companion; legacy sets have no recoverable arrival order.
+        val order = JSONArray(prefs.getString("seen-order-$cardId", "[]"))
+        val ordered = linkedSetOf<String>()
+        for (index in 0 until order.length()) {
+            val id = order.getString(index)
+            if (id in seen) ordered.add(id)
+        }
+        val legacy = (seen - ordered).sorted()
+        val recent = (legacy + ordered + if (duplicate) emptyList() else listOf(message.id)).takeLast(MAX_SEEN)
         val latest = maxOf(watermark(cardId), message.occurredAt)
-        prefs.edit().putStringSet("seen-$cardId", seen).putString("latest-$cardId", latest.toString()).commit()
+        prefs.edit().putStringSet("seen-$cardId", recent.toSet())
+            .putString("seen-order-$cardId", JSONArray(recent).toString())
+            .putString("latest-$cardId", latest.toString()).commit()
+        if (duplicate) return false
         if (!enabled() || message.occurredAt <= baseline() || foregroundAtArrival || AppVisibility.visible) return false
         try {
             createChannel()
