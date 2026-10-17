@@ -15,7 +15,7 @@ import { StoredImage } from './StoredImage'
 import { MemoryTools, type Fact } from './MemoryTools'
 import { StoryManagement } from './StoryManagement'
 import { BackgroundImage } from './BackgroundImage'
-import { LifeSettings } from './LifeSettings'
+import { LifeSettings, storyFields, type PresetPreview } from './LifeSettings'
 import { MessageStatus, TypingBubble } from './MessageStatus'
 import { createReplyWatermarks } from './message-state'
 import { NotificationSettings } from './NotificationSettings'
@@ -108,6 +108,10 @@ function App() {
   const [newName, setNewName] = useState('')
   const [newProfile, setNewProfile] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [importCodeOpen, setImportCodeOpen] = useState(false)
+  const [importCode, setImportCode] = useState('')
+  const [codePreview, setCodePreview] = useState<(PresetPreview & { current: string; storyRevision: number }) | null>(null)
+  const [codeError, setCodeError] = useState('')
   const [detail, updateDetail] = useState<'story' | 'memory' | 'mind'>('story')
   const [switcher, setSwitcher] = useState(false)
   const [saveState, setSaveState] = useState('设置自动保存')
@@ -157,6 +161,7 @@ function App() {
   const openSpace = (next: typeof spacePage) => { savePosition(); setSpacePage(next); updatePage('settings') }
   useEffect(() => {
     const handleBack = () => {
+      if (importCodeOpen) { if (!busy) setImportCodeOpen(false); return true }
       if (settingEditor) { setSettingEditor(false); return true }
       if (page === 'inbox') {
         if (inboxBack.current?.()) return true
@@ -406,6 +411,34 @@ function App() {
     await bridge.selectCard({ id: saved.id })
     setPreview(null); await storyChanged()
   }, '角色已加入你的空间，随时可以开始故事。')
+  const syncImportCode = async (apply: boolean) => {
+    if (busy || !native || !settingsReady || runtimeRef.current?.state !== 'healthy' || !selectedRef.current || !importCode.trim() || (apply && !codePreview)) return
+    setBusy(true); setCodeError('')
+    const revision = profileRevision.current
+    const current = settingsRef.current.mobileConfig ?? {}
+    const version = JSON.stringify(current)
+    const ensureCurrent = () => {
+      if (revision !== profileRevision.current || runtimeRef.current?.state !== 'healthy') throw new Error('当前故事或运行状态已变化，请重新检查。')
+      if (JSON.stringify(settingsRef.current.mobileConfig ?? {}) !== version) throw new Error('生活设置已修改，请重新检查；你的修改已保留。')
+    }
+    try {
+      if (apply && codePreview?.storyRevision !== revision) throw new Error('当前故事已变化，请重新检查。')
+      if (apply && codePreview?.current !== version) throw new Error('生活设置已修改，请重新检查；你的修改已保留。')
+      const result = await bridge.rpc({ method: 'preset.sync', payload: { code: importCode.trim(), current, ...(apply && codePreview ? { fingerprint: codePreview.fingerprint } : {}) } })
+      const next = result.data as PresetPreview
+      ensureCurrent()
+      if (apply) {
+        if (next.storyPatch) { await bridge.rpc({ method: 'story.applySetting', payload: next.storyPatch }); ensureCurrent() }
+        const updated = { ...settingsRef.current, mobileConfig: next.config }
+        settingsRef.current = updated; setSettings(updated)
+        await persistSettings()
+        if (next.storyPatch) await refreshStory()
+        setCodePreview(null); setImportCodeOpen(false); setImportCode('')
+        setNotice(next.storyPatch ? '人设已同步到当前故事，生活设置已更新，重启后生效。' : '生活设置已更新，重启后生效。')
+      } else setCodePreview({ ...next, current: version, storyRevision: revision })
+    } catch (error) { setCodePreview(null); setCodeError(errorText(error)) }
+    finally { setBusy(false) }
+  }
   const send = async (retry?: Message, sticker?: { packId: string; asset: StickerAsset }) => {
     const content = sticker ? '' : retry ? retry.content : draft.trim()
     const imageIds = sticker ? [] : retry ? messageImages(retry.images) : attachments.map(image => image.id)
@@ -520,7 +553,7 @@ function App() {
       </>}
       {page === 'cards' && <>
         <div className="page-heading"><div><div className="eyebrow">CHARACTER LIBRARY</div><h1>故事里的人<span>。</span></h1><p>人设是起点，经历让她成为自己。</p></div><button className="text-button" onClick={() => setPage('chat')}>返回故事</button></div>
-        <div className="actions"><button className="primary" disabled={!native || busy} onClick={importCard}><Icon name="plus" />导入角色卡</button><button className="secondary" disabled={!native || busy} onClick={() => setCreateOpen(true)}>手动创建</button></div>
+        <div className="actions"><button className="primary" disabled={!native || busy} onClick={importCard}><Icon name="plus" />导入角色卡</button><button className="secondary" disabled={!native || busy} onClick={() => setCreateOpen(true)}>手动创建</button><button className="secondary" disabled={!native || busy} onClick={() => { setCodePreview(null); setCodeError(''); setImportCodeOpen(true) }}>用导入码导入</button></div>
         <p className="caption">JSON / PNG / YAML · 酒馆 V1–V3 · typ0 / HDS koishi.yml<br />CHARX、压缩 PNG 元数据和第三方扩展暂不支持执行。</p>
         <div className="card-list">{cards.map((saved, index) => <article className={`character ${saved.id === selected ? 'chosen' : ''}`} key={saved.id}><div className="character-number">{String(index + 1).padStart(2, '0')}</div><div className="character-body"><div className="character-title"><h2>{saved.card.name}</h2>{saved.id === selected && <span className="tag">当前角色</span>}</div><p>{saved.card.description || saved.card.personality || '尚未填写角色描述'}</p><span className="caption">{saved.card.format.toUpperCase()} · {saved.card.lorebook ? '含世界书' : '独立人设'} · {new Date(saved.importedAt).toLocaleDateString('zh-CN')}</span><div className="card-actions"><button disabled={busy || sending || transitioning || saved.id === selected} onClick={() => switchCard(saved.id)}>{saved.id === selected ? '正在使用' : '使用这个角色'}</button><button onClick={() => setPreview({ card: saved.card, base64: '' })}>查看人设</button><button disabled={busy} onClick={() => setEditingCard(saved)}>编辑</button><button disabled={busy} className="danger" onClick={() => setDeleteTarget(saved)}>删除</button></div></div></article>)}</div>
         {!cards.length && <div className="quiet-empty">角色库还很安静。<br />为第一段故事选一个主角吧。</div>}
@@ -572,6 +605,19 @@ function App() {
     {deleteTarget && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="删除角色确认"><h2>删除「{deleteTarget.card.name}」？</h2><p>将从角色库移除。已有剧情、记忆与原文件仍保留在本机，重新导入原文件可恢复。当前角色运行时会先停止 HDS。</p><div className="actions"><button className="secondary" disabled={busy} onClick={() => setDeleteTarget(null)}>取消</button><button className="primary" disabled={busy} onClick={() => void act(async () => { const id = deleteTarget.id; await bridge.deleteCard({ id }); setDeleteTarget(null); if (selected === id) { setMessages([]); setStory(null) } await refreshCards() }, '角色已从库中移除，历史保留。')}>确认删除</button></div></section></div>}
     {importChoices.length > 0 && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="选择 HDS 人设"><div className="section-title"><h2>文件包含多个人设</h2><button aria-label="取消导入" onClick={() => setImportChoices([])}>×</button></div><p className="caption">选择要导入的 HDS 实例。</p>{importChoices.map((choice, index) => <button key={index} className="secondary wide" onClick={() => { setPreview(choice); setImportChoices([]) }}>{index + 1}. {choice.card.name}</button>)}</section></div>}
     {preview && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="角色卡预览"><div className="section-title"><span className="eyebrow">CHARACTER / {preview.card.format.toUpperCase()}</span><button aria-label="关闭" onClick={() => setPreview(null)}>×</button></div><h1>{preview.card.name}</h1><p className="preview-text">{preview.card.description}</p>{preview.card.personality && <><h3>性格</h3><p className="preview-text">{preview.card.personality}</p></>}{preview.card.firstMessage && <><h3>开场白</h3><p className="preview-text">{preview.card.firstMessage}</p></>}<h3>兼容说明</h3><ul>{preview.card.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>{preview.base64 && <button className="primary wide" disabled={busy} onClick={savePreview}>保存并使用这个角色<Icon name="arrow" /></button>}</section></div>}
+    {importCodeOpen && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="用导入码同步" aria-describedby="import-code-caption" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); if (!busy) setImportCodeOpen(false) } }}><div className="section-title"><h2>用导入码同步</h2><button autoFocus aria-label="关闭导入码" disabled={busy} onClick={() => setImportCodeOpen(false)}>×</button></div>
+      <p id="import-code-caption" className="caption">输入 typ0.space 导入码，同步人设与生活配置到当前故事。{characterName && <>当前故事：{characterName}。</>}人设将同步到当前故事，生活设置保存后重启生效。</p>
+      <label>typ0.space 导入码<input value={importCode} disabled={busy} maxLength={24} placeholder="8 位分享码" onChange={event => { setImportCode(event.target.value); setCodePreview(null); setCodeError('') }} /></label>
+      {(!healthy || !selected) && <p className="caption">请先选择角色并唤醒故事，再检查导入码。</p>}
+      {codeError && <p className="error" role="alert">{codeError}</p>}
+      <div className="actions"><button className="secondary" disabled={busy || !native || !settingsReady || !healthy || !selected || !importCode.trim()} onClick={() => void syncImportCode(false)}>检查</button></div>
+      {codePreview && <div><h3>{codePreview.title} · 修订 {codePreview.revision}</h3>
+        {codePreview.changes.length ? <ul>{codePreview.changes.map(row => <li key={`${row.section}.${row.field}`}>{row.section}.{row.field}: {JSON.stringify(row.before) ?? '默认'} → {JSON.stringify(row.after)}</li>)}</ul> : <p className="caption">生活配置没有差异。</p>}
+        {codePreview.storyPatch && <><h3>将同步的人设</h3><ul>{Object.entries(storyFields(codePreview.storyPatch)).filter(([, value]) => Array.isArray(value) ? value.length > 0 : typeof value === 'string' && !!value.trim()).map(([label, value]) => <li key={label}>{label}：{JSON.stringify(value)}</li>)}</ul></>}
+        {codePreview.removed.length > 0 && <p className="caption">部分字段移动端不支持，已忽略：{codePreview.removed.join('、')}</p>}
+        <button className="primary wide" disabled={busy || !native || !settingsReady || !healthy || !selected} onClick={() => void syncImportCode(true)}>应用到当前故事</button>
+      </div>}
+    </section></div>}
     {createOpen && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="创建角色"><div className="section-title"><h2>写下一个人</h2><button aria-label="关闭" onClick={() => setCreateOpen(false)}>×</button></div><label>角色名称<input value={newName} onChange={event => setNewName(event.target.value)} maxLength={128} /></label><label>角色描述<textarea rows={6} value={newProfile} onChange={event => setNewProfile(event.target.value)} maxLength={262144} placeholder="身份、性格、说话方式与生活背景…" /></label><button className="primary wide" disabled={!newName.trim() || !newProfile.trim()} onClick={() => { const raw = JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: { name: newName.trim(), description: newProfile, personality: '', scenario: '', first_mes: '', mes_example: '', extensions: {} } }); const bytes = new TextEncoder().encode(raw); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); setPreview({ card: parseCard(bytes), base64: btoa(binary) }); setCreateOpen(false); setNewName(''); setNewProfile('') }}>预览角色<Icon name="arrow" /></button></section></div>}
   </div></>
 }

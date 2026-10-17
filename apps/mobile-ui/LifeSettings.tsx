@@ -15,8 +15,8 @@ const compactFields: Record<string, string> = {
   latitude: '纬度', longitude: '经度', autoFromLocation: '从故事地点自动定位', skipFantasyWorld: '架空世界跳过天气',
 }
 type StoryPatch = { character?: { name?: string; profile?: string }; user?: { profile?: string }; [field: string]: unknown }
-type Preview = { config: MobileConfig; code: string; title: string; revision: number; fingerprint: string; removed: string[]; storyPatch?: StoryPatch; changes: { section: string; field: string; before: unknown; after: unknown }[] }
-const storyFields = (setting?: StoryPatch): Record<string, unknown> => ({
+export type PresetPreview = { config: MobileConfig; code: string; title: string; revision: number; fingerprint: string; removed: string[]; storyPatch?: StoryPatch; changes: { section: string; field: string; before: unknown; after: unknown }[] }
+export const storyFields = (setting?: StoryPatch): Record<string, unknown> => ({
   '角色名': setting?.character?.name, '角色人设': setting?.character?.profile, '用户人设': setting?.user?.profile,
   '世界': setting?.world, '关系': setting?.relationship, '视角': setting?.perspective, '视角列表': setting?.perspectives,
   '补充事实': setting?.supplementaryFacts, '配角': setting?.supportingCast, '地点': setting?.location, '文风': setting?.style, '时区': setting?.timezone,
@@ -36,7 +36,7 @@ function NumericField({ value, array, min, max, step, change, label }: { value: 
 export function LifeSettings({ value = {}, change, bridge, healthy, native, notify, area }: { area?: 'daily' | 'world' | 'system'; value?: MobileConfig; change: (value: MobileConfig) => void; bridge: NativeBridge; healthy: boolean; native: boolean; notify: (text: string) => void }) {
   const [budget, setBudget] = useState<Budget | null>(null)
   const [code, setCode] = useState('')
-  const [preview, setPreview] = useState<Preview | null>(null)
+  const [preview, setPreview] = useState<PresetPreview | null>(null)
   const [importPersona, setImportPersona] = useState(true)
   const [storyBefore, setStoryBefore] = useState<Record<string, unknown>>({})
   const [working, setWorking] = useState(false)
@@ -55,7 +55,7 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
     const startedWith = JSON.stringify(value)
     try {
       const result = await bridge.rpc({ method: 'preset.sync', payload: { code, current: value, ...(apply && preview ? { fingerprint: preview.fingerprint } : {}) } })
-      const next = result.data as Preview
+      const next = result.data as PresetPreview
       let before: Record<string, unknown> = {}
       if (!apply && next.storyPatch) {
         const snapshot = await bridge.rpc({ method: 'story.snapshot' })
