@@ -116,12 +116,12 @@ jobs:
           ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease :app:assembleDebugAndroidTest
       - name: Package verification and release materials
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.8-arm64.apk
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.9.2-arm64.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs artifacts/*.apk > artifacts/apk-signature.txt
           cp runtime/generated/runtime-manifest.json artifacts/
           cp docs/TEST-ON-PHONE.md artifacts/
           cp fixtures/cards/*.json fixtures/cards/*.yml artifacts/
-          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.8-source.tar.gz
+          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.9.2-source.tar.gz
           cd artifacts
           sha256sum *.apk *.tar.gz > SHA256SUMS.txt
       - name: Upload preview and build evidence
