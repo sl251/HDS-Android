@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { MobileConfig, NativeBridge } from '../../packages/contracts'
 import { createSavedCharacterExport, saveCharacterExport, type CharacterExport, type ExportFormat } from './character-export'
 
@@ -15,6 +15,12 @@ export function CharacterExportModal({ bridge, native, cardId, ready, name, conf
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const lock = useRef(false)
+  // Disabled buttons can lose focus while the system picker is open.
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); if (!busy && !lock.current) close() } }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [busy, close])
   const content = useRef<HTMLTextAreaElement>(null)
   const current = useRef({ config, revision })
   current.current = { config, revision }

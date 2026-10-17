@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { inspectSharedCharacter, type CharacterImport, type SharedCharacter } from './character-import'
 
 export function CharacterImportModal({ busy, working, save, close }: { busy: boolean; working: (value: boolean) => void; save: (input: CharacterImport) => Promise<void>; close: () => void }) {
@@ -6,6 +6,11 @@ export function CharacterImportModal({ busy, working, save, close }: { busy: boo
   const [preview, setPreview] = useState<SharedCharacter | null>(null)
   const [error, setError] = useState('')
   const lock = useRef(false)
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); if (!busy && !lock.current) close() } }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [busy, close])
   const inspect = async (commit: boolean) => {
     if (busy || lock.current || !code.trim() || (commit && !preview)) return
     lock.current = true; working(true); setError('')
