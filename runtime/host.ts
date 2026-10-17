@@ -15,7 +15,7 @@ import { messageImages, visionProjection, visionRouteReason, normalizeVisionProj
 import { personaDefaults, personaEditPatch } from './persona'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
-import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt } from './stickers'
+import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt, exclusiveMediaPrompt, oneBotStickerDelivery } from './stickers'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProviders, type MobileConfig } from './mobile-config'
 import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
@@ -103,21 +103,20 @@ export async function startHost(input: HostConfig) {
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
   config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
+  ;(config.model as any).mobileStickerDelivery = oneBotStickerDelivery
   const voiceTasks = new Set<Promise<unknown>>()
   const drainVoice = async () => { while (voiceTasks.size) await Promise.allSettled([...voiceTasks]) }
   ;(config.model as any).mobileOneBotVoiceDelivery = async (bot: Bot, channelId: string, content: string, willingness: unknown, sendText: () => Promise<unknown>) => {
-    const receipt = await sendText()
-    if (bot?.platform !== 'onebot' || !input.voiceBridge) return receipt
+    if (bot?.platform !== 'onebot' || !input.voiceBridge) return sendText()
     const task = oneBotVoiceDelivery(input.voiceBridge, bot, channelId, content, willingness,
-      `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), async () => receipt)
+      `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), sendText)
     voiceTasks.add(task)
-    void task.finally(() => voiceTasks.delete(task)).catch(() => undefined)
-    // Commit the text receipt immediately. Slow optional audio must not leave
-    // the upstream ledger pending for its delivery-repair sweep to resend.
-    return receipt
+    // Keep the upstream delivery executor occupied until the chosen transport
+    // settles; its existing execution key prevents concurrent repair sends.
+    try { return await task } finally { voiceTasks.delete(task) }
   }
   config.model.mobileBeforeRequest = budget.beforeRequest
-  config.model.mobileSystemPrompt = (prompt, request) => request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt)
+  config.model.mobileSystemPrompt = (prompt, request) => exclusiveMediaPrompt(request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt))
   const activeVision = visionProjection(input)
   const media = imageStore(input.dataDir)
   let promptTrace: string[] = []

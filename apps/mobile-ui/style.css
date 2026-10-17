@@ -153,3 +153,27 @@ nav .nav-unread { background:#c23e43; color:white; border-radius:9px; transform:
 .config-fields>label { min-width:0; margin:10px 0; font-size:12px; }
 .config-fields>fieldset { grid-column:1/-1; }
 .config-fields input, .config-fields select { min-width:0; min-height:44px; }
+
+/* Keep writing space separate from attachment actions on narrow phones. */
+.composer-wrap form.composer{display:grid;grid-template-columns:44px 44px minmax(0,1fr);gap:4px 8px;padding:10px 12px;border-radius:24px}
+.composer-wrap .composer textarea{grid-column:1/-1;grid-row:1;padding:10px 4px;min-height:48px;width:100%}
+.composer-wrap .composer .attach-button{grid-column:1;grid-row:2}
+.composer-wrap .composer .sticker-entry{grid-column:2;grid-row:2}
+.composer-wrap .composer .attach-button,.composer-wrap .composer .sticker-entry{width:44px;min-height:44px;border-radius:14px}
+.composer-wrap .composer .send{grid-column:3;grid-row:2;justify-self:end;width:48px;height:44px;border-radius:16px}
+.composer-wrap .composer button:focus-visible,.sticker-manager button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.sticker-manager .sticker-import-panel{padding:16px;background:var(--accent-soft);border-radius:18px;margin-top:18px}
+.sticker-manager .sticker-import-panel h3{margin:0;font-size:14px}
+.sticker-manager .sticker-import-panel label{margin:12px 0}
+.sticker-manager .media-import-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}
+.sticker-manager .media-import-actions button{min-height:48px;padding:10px 12px;font-size:12px}
+.sticker-manager .media-setup{border-left:3px solid var(--accent);padding:10px 14px;background:var(--accent-soft);border-radius:0 12px 12px 0;font-size:13px;line-height:1.8}
+.sticker-manager .media-setup p{margin:0 0 10px}
+.sticker-manager .sticker-group{padding:18px 0 8px}
+.sticker-manager .sticker-group>.actions{gap:8px;margin-bottom:14px}
+.sticker-manager .sticker-group>.actions button{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:12px}
+.sticker-manager .sticker-group>.actions .danger{margin-left:auto}
+.sticker-manager .sticker-grid>div>button{min-height:44px;width:100%;margin-top:4px}
+.voice-workbench .actions{display:flex;flex-wrap:wrap;gap:10px}
+.voice-workbench .actions button{min-height:44px;padding:10px 14px}
+@media(max-width:360px){.sticker-manager .media-import-actions{grid-template-columns:1fr}.sticker-manager .sticker-group>.actions .danger{margin-left:0}}

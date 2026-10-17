@@ -1,10 +1,16 @@
 import { createServer } from 'node:http'
 import { build } from 'esbuild'
 import { chromium } from 'playwright-core'
+import { readFileSync } from 'node:fs'
 
-export async function characterFixture() {
-  const bundle = await build({ entryPoints: ['apps/mobile-ui/main.tsx'], bundle: true, write: false, format: 'esm', platform: 'browser', loader: { '.css': 'empty' }, tsconfig: 'tsconfig.json' })
-  const server = createServer((req, res) => { res.setHeader('Content-Type', req.url === '/app.js' ? 'application/javascript' : 'text/html; charset=utf-8'); res.end(req.url === '/app.js' ? bundle.outputFiles[0].text : '<div id="root"></div><script type="module" src="/app.js"></script>') })
+export async function characterFixture(styles = false) {
+  const bundle = await build({ entryPoints: ['apps/mobile-ui/main.tsx'], outfile: 'app.js', bundle: true, write: false, format: 'esm', platform: 'browser', loader: styles ? {} : { '.css': 'empty' }, tsconfig: 'tsconfig.json' })
+  const server = createServer((req, res) => {
+    if (req.url === '/fixture.gif') { res.setHeader('Content-Type', 'image/gif'); res.end(readFileSync('fixtures/images/sticker-fixture.gif')); return }
+    const file = bundle.outputFiles.find(file => file.path.replaceAll('\\', '/').endsWith(req.url))
+    res.setHeader('Content-Type', req.url === '/app.js' ? 'application/javascript' : req.url === '/app.css' ? 'text/css' : 'text/html; charset=utf-8')
+    res.end(file?.text ?? (req.url === '/app.css' ? '' : '<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"><div id="root"></div><script type="module" src="/app.js"></script>'))
+  })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const browser = await chromium.launch({ ...(process.env.HDS_BROWSER ? { executablePath: process.env.HDS_BROWSER } : {}), headless: true })
   const page = await browser.newPage()
@@ -28,7 +34,7 @@ export async function characterFixture() {
       if (method === 'status') return { state: 'stopped', installed: true, environmentState: 'ready', running: false, logs: [], device: {} }
       if (method === 'appearance') return { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 92, backgroundBlur: 0, theme: 'light' }
       if (method === 'notificationSettings') return { enabled: false, permission: 'prompt', available: false }
-      if (method === 'voiceState') return { voices: [], characters: {} }
+      if (method === 'voiceState') return { voices: [], characters: {}, defaultVoiceId: '', dailyLimit: 50000, cooldown: 5, usedTokens: 0, credentialPresent: false }
       if (method === 'rpc') throw new Error('请先启动 HDS')
       return {}
     } }

@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises'
 // Host-owned build overlay against the already replayed rc56 mobile delta.
 // Never writes upstream/. Each edit must match exactly once (or be applied).
 export function withOneBotVoice(source) {
+  source = source.replace(/\r\n/g, '\n')
   const edits = [
+    ["const canEarlyReply = onEarlyReply && !chatCapabilities?.voice?.enabled", "const canEarlyReply = onEarlyReply && !stickerCatalog.length && !chatCapabilities?.voice?.enabled"],
+    ["session.bot.sendMessage(channelId, h('img', { src: fileSrc }))", "((this.config.model as any).mobileStickerDelivery?.(session.bot, channelId, fileSrc, !!groupId, () => session.bot.sendMessage(channelId, h('img', { src: fileSrc }))) ?? session.bot.sendMessage(channelId, h('img', { src: fileSrc })))"],
+    ["session.bot.sendMessage(channelId, h('img', { src }))", "((this.config.model as any).mobileStickerDelivery?.(session.bot, channelId, src, !!groupId, () => session.bot.sendMessage(channelId, h('img', { src }))) ?? session.bot.sendMessage(channelId, h('img', { src })))"],
     ["    let immediateObservations: WebObservation[] = []", `    // QQ voice reuses mobile capabilities before early-reply eligibility.
     if (!groupContext && (participant?.platform ?? story.platform) === 'onebot') {
       const voice = this.config.model.mobileVoiceCapabilities?.()
@@ -26,6 +30,19 @@ export function withOneBotVoice(source) {
     if (source.split(after).length === 2) continue
     if (source.split(before).length !== 2) throw new Error(`OneBot voice overlay unknown/ambiguous anchor #${index + 1}`)
     source = source.replace(before, () => after)
+  }
+  const before = '      const sticker = this.resolveSticker(decision.localMedia, stickerCatalog)'
+  const after = before + `
+      // A catalog-backed sticker is a complete reply, never a text/voice attachment.
+      if (sticker) {
+        decision.localMedia = { ...decision.localMedia!, placement: 'standalone' }
+        if (decision.interaction) decision.interaction.reply = { mode: 'none' }
+        if (decision.groupReply) decision.groupReply = { mode: 'none' }
+        decision.voice = undefined
+      }`
+  if (source.split(after).length !== 3) {
+    if (source.split(before).length !== 3) throw new Error('Media selection overlay unknown/ambiguous anchor')
+    source = source.replaceAll(before, after)
   }
   return source
 }

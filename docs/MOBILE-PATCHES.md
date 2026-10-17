@@ -72,3 +72,11 @@ rc56 行为关注点：Urge 采用五档节奏与对话密度的乘法调度、�
 `runtime/voice.ts::oneBotVoiceDelivery` 调用与本地完全相同的 `localVoiceDelivery`：Android `VoiceStore` 继续统一执行角色阈值、跨通道每角色回复冷却、全局自然日日 token 账本，不增加配置或重复计费重试。通过 `/hds-voice/<audioId>.wav` 读取已校验 ID 的普通文件（最多 10 MiB），交由受 10 秒期限约束的 Worker 使用 `silk-wasm@3.7.1` 编码为腾讯 SILK；不调用 ffmpeg、shell 或 native addon。Koishi 将音频 data URI 编码为独立的 OneBot `record` / `base64://` 段，私聊与群聊共用实现。语音发送另有 15 秒等待上限，合成/读取/编码/record 失败均保留文字回执，不重发正文、不向用户输出错误。编码失败时已发生的原生 TTS 用量与冷却保持记账。
 
 重新构建 host 后还需使用更新的 `runtime/profile/package-lock.json` 重建 guest 才能在 Android 获得新依赖；仅替换旧 guest 的 host 文件时依赖缺失会降级文字。验收与设备验证边界见 `artifacts/preview9.1-m3/ACCEPTANCE.md`。
+
+## 表情包与语音互斥投递修正
+
+本次继续在 `scripts/mobile-onebot-voice.mjs` 的宿主构建覆盖层实现，不修改 `upstream/`。有可用表情库时关闭文字早发；命中有效表情后将决策归一为独立表情，移除附带文字回复与语音意愿。宿主提示同步说明文字、语音、表情三选一。OneBot 表情通过 internal JSON 接口发送 `image`、`sub_type: 1` 与 `summary: '[表情包]'`，避免 Koishi 元素属性转换成 `subType`。
+
+此修正取代上一节的“先确认文字，再补发语音”行为：QQ 先完成合成与编码，语音成功时以其回执完成投递；合成、读取或编码失败，以及 OneBot 明确非零 retcode 拒绝时回退文字。语音超时、网络错误或空回执按结果未知处理，不追加文字。宿主等待所选媒介投递结束，沿用上游执行键防止并发补偿发送，关停继续排空已登记任务。原生额度、冷却及角色意愿门禁保持生效。
+
+回归入口为 `tests/media-controls.test.ts`、`tests/preview91-m3.test.ts`、`tests/m4.test.ts` 与 `tests/media-controls-ui.mjs`；Android 表情导入门禁、AtomicFile 清单及共享存储锁由 `StickerImportPolicyTest`、`StickerStoreTest` 验证。真实手机 QQ 收发仍待验收。
