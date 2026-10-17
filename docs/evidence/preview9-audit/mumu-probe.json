@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "device": "local MuMu, NOT a target phone",
+  "android": "15",
+  "abiList": "x86_64,arm64-v8a,x86",
+  "nativeBridge": "libnb.so",
+  "kernel": "Linux 6.1.90-perf+, uname reports aarch64",
+  "pageSize": 4096,
+  "webView": "com.android.webview 110.0.5481.154.1",
+  "installedVersionName": "0.1.0-preview.9.2.1",
+  "installedVersionCode": 22,
+  "installedApkSha256": "915774c12dfe0fc82ed86b9a280f600232ed2cd3cafe20f26c6485ba5a2cfdd6",
+  "applicationUidProbe": "NOT RUN: run-as reports package not debuggable",
+  "lastSuccessfulStage": "read-only environment and installed APK identification",
+  "prootNodeSqliteQQ": "NOT RUN",
+  "compatibility": "NOT VERIFIED",
+  "dataChanged": false,
+  "appLaunched": false,
+  "nextStep": "Use an authorized instrumented candidate to run probes under the application UID. Shell/root success would not establish release APK compatibility."
+}

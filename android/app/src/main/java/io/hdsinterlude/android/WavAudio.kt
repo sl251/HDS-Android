@@ -47,26 +47,30 @@ object WavAudio {
         return w.data.size.toDouble() / (w.rate * w.channels * 2)
     }
     fun normalizeWav(bytes: ByteArray, clipSeconds: Int? = null): ByteArray {
-        val w = wave(bytes); val b = ByteBuffer.wrap(w.data).order(ByteOrder.LITTLE_ENDIAN)
+        return normalizePcm(wave(bytes), clipSeconds)
+    }
+    private fun normalizePcm(w: Wave, clipSeconds: Int?): ByteArray {
+        require(w.data.isNotEmpty() && w.data.size % (w.channels * w.bits / 8) == 0) { "解码后的 PCM 数据不完整" }
+        val b = ByteBuffer.wrap(w.data).order(ByteOrder.LITTLE_ENDIAN)
         require(clipSeconds == null || clipSeconds in 1..180) { "裁剪时长无效" }
         val sourceFrames = w.data.size / (w.channels * w.bits / 8)
         require(clipSeconds != null || sourceFrames.toDouble() / w.rate <= 180) { "参考音频超过 180 秒，请勾选裁剪后重新导入" }
         val frames = minOf(sourceFrames, (clipSeconds ?: 180) * w.rate)
-        val mono = FloatArray(frames)
-        for (frame in 0 until frames) {
+        fun mono(frame: Int): Double {
             var sum = 0.0
-            repeat(w.channels) {
-                val v = if (w.encoding == 3) b.float.toDouble().also { require(it.isFinite()) { "WAV 包含无效浮点采样" } }
-                    else when (w.bits) { 16 -> b.short / 32768.0; 24 -> { val lo = b.get().toInt() and 255; val mid = b.get().toInt() and 255; val hi = b.get().toInt(); (lo or (mid shl 8) or (hi shl 16)) / 8388608.0 }; else -> b.int / 2147483648.0 }
+            repeat(w.channels) { channel ->
+                val offset = (frame * w.channels + channel) * w.bits / 8
+                val v = if (w.encoding == 3) b.getFloat(offset).toDouble().also { require(it.isFinite()) { "WAV 包含无效浮点采样" } }
+                    else when (w.bits) { 16 -> b.getShort(offset) / 32768.0; 24 -> { val lo = b.get(offset).toInt() and 255; val mid = b.get(offset + 1).toInt() and 255; val hi = b.get(offset + 2).toInt(); (lo or (mid shl 8) or (hi shl 16)) / 8388608.0 }; else -> b.getInt(offset) / 2147483648.0 }
                 sum += v.coerceIn(-1.0, 1.0)
             }
-            mono[frame] = (sum / w.channels).toFloat()
+            return sum / w.channels
         }
         val length = maxOf(1, (frames.toLong() * 24000 / w.rate).toInt())
         val out = ByteBuffer.allocate(length * 2).order(ByteOrder.LITTLE_ENDIAN)
         for (i in 0 until length) {
             val position = i.toDouble() * w.rate / 24000; val left = position.toInt().coerceAtMost(frames - 1); val right = minOf(left + 1, frames - 1)
-            val value = mono[left] + (mono[right] - mono[left]) * (position - left)
+            val from = mono(left); val value = from + (mono(right) - from) * (position - left)
             out.putShort(kotlin.math.round(value * 32768).toInt().coerceIn(-32768, 32767).toShort())
         }
         return pcm(out.array(), 24000, 1)
@@ -112,13 +116,13 @@ object WavAudio {
                     require(rate in 8000..192000 && channels in 1..8) { "音频采样参数不支持" }
                     val clipBytes = rate.toLong() * channels * 2 * (clipSeconds ?: 180)
                     val size = if (clipSeconds != null) minOf(info.size.toLong(), maxOf(0L, clipBytes - out.size())).toInt() else info.size
-                    require(out.size().toLong() + size <= 64L * 1024 * 1024 && out.size().toLong() + size <= clipBytes) { "参考音频解码超过 64 MiB 或 180 秒，请勾选裁剪后重新导入" }
+                    require(out.size().toLong() + size <= 32L * 1024 * 1024 && out.size().toLong() + size <= clipBytes) { "参考音频解码超过 32 MiB 或 180 秒，请勾选裁剪后重新导入" }
                     val chunk = ByteArray(size); b.get(chunk); out.write(chunk); decoder.releaseOutputBuffer(index, false)
                     if (clipSeconds != null && out.size().toLong() >= clipBytes) break
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
                 }
             }
-            return normalizeWav(pcm(out.toByteArray(), rate, channels), clipSeconds)
+            return normalizePcm(Wave(1, channels, rate, 16, out.toByteArray()), clipSeconds)
         } finally { try { codec?.stop() } catch (_: Exception) {}; codec?.release(); extractor.release(); file.delete() }
     }
 }

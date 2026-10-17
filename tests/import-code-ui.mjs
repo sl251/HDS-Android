@@ -13,10 +13,10 @@ const server = createServer((request, response) => {
   response.end(request.url === '/app.js' ? bundle.outputFiles[0].text : '<div id="root"></div><script type="module" src="/app.js"></script>')
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-let browser
+let browser, page
 try {
   browser = await chromium.launch({ executablePath: process.env.HDS_BROWSER || '/root/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome', headless: true })
-  const page = await browser.newPage()
+  page = await browser.newPage()
   const errors = []
   page.on('pageerror', error => { errors.push(error.message); console.error(error.message) })
   await page.addInitScript(({ share, fingerprint }) => {
@@ -36,8 +36,8 @@ try {
           if (fixture.hold) await new Promise(resolve => { fixture.release = resolve })
           return { status: 200, data: fixture.share, headers: {}, url: options.url }
         }
-        if (method === 'settings') return fixture.settings
-        if (method === 'saveSettings') { fixture.saved.push(options); Object.assign(fixture.settings, options); return {} }
+        if (method === 'settings') return structuredClone(fixture.settings)
+        if (method === 'saveSettings') { fixture.saved.push(structuredClone(options)); Object.assign(fixture.settings, structuredClone(options)); return {} }
         if (method === 'cards') return { cards: ['first', 'second'].map(id => ({ id, card })) }
         if (method === 'selectCard') { fixture.settings.activeCard = options.id; return {} }
         if (method === 'status') return fixture.status
@@ -109,6 +109,9 @@ try {
   await dialog.getByRole('alert').getByText('当前故事或运行状态已变化，请重新检查。').waitFor()
   assert.deepEqual(errors, [])
   console.log('PASS import code App UI: selected/resting gates, hostless preview, wake/apply, cached revision invalidation, revision captured before fetch.')
+} catch (error) {
+  console.error('Import fixture dialog:', await page?.locator('.modal').innerText().catch(() => 'unavailable'))
+  throw error
 } finally {
   await browser?.close()
   await new Promise(resolve => server.close(resolve))

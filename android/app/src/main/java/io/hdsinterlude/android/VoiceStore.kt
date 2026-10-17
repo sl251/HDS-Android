@@ -100,6 +100,7 @@ class VoiceStore(private val context: Context, private val today: () -> String =
         return file
     }
     fun putAudio(bytes: ByteArray): JSONObject {
+        require(bytes.size <= MAX_AUDIO) { "音频超过 10 MiB" }
         val duration = WavAudio.duration(bytes)
         require(bytes.size <= MAX_AUDIO && duration > 0 && duration <= 180) { "音频应在 180 秒、10 MiB 以内" }
         val id = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
