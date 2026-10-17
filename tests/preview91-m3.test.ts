@@ -72,7 +72,7 @@ test('M3 optional synthesis/encoding/record failures preserve text receipts; fai
       const file = join(directory, `${id}.wav`)
       rmSync(file, { force: true })
       if (value === 'corrupt') writeFileSync(file, 'bad WAV')
-      if (value === 'symlink') { writeFileSync(join(directory, 'elsewhere.wav'), wav()); symlinkSync(join(directory, 'elsewhere.wav'), file) }
+      if (value === 'symlink') { writeFileSync(join(directory, 'elsewhere.wav'), wav()); try { symlinkSync(join(directory, 'elsewhere.wav'), file) } catch (e) { if (process.platform === 'win32' && (e as NodeJS.ErrnoException).code === 'EPERM') continue; throw e } }
       if (value === 'valid') writeFileSync(file, wav())
       assert.deepEqual(await deliver(), ['text-receipt'])
     }
@@ -85,12 +85,13 @@ test('M3 optional synthesis/encoding/record failures preserve text receipts; fai
   } finally { await new Promise<void>(resolve => api.close(() => resolve())); rmSync(directory, { recursive: true, force: true }) }
 })
 
-test('M3 real HDS + OneBot private/group record delivery, final willingness, shared bridge gates and text fallback', { timeout: 90000 }, async () => {
+test('M3 real HDS + OneBot private/group record delivery, final willingness, shared bridge gates and text fallback', { timeout: 150000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'hds-m3-'))
   const voiceDir = join(directory, 'voice'); mkdirSync(voiceDir)
   const bytes = wav(), audioId = createHash('sha256').update(bytes).digest('hex')
   writeFileSync(join(voiceDir, `${audioId}.wav`), bytes)
   let enabled = true, willingness: unknown = .95, bridgeMode = 'normal', rejectRecord = false, groupTurn = false
+  let quoteGroup = false, splitGroup = false
   let releaseSlow: (() => void) | undefined
   let replies = 0, lastVoice = -1000, used = 0, cooldown = 0, dailyLimit = 1000, receiptId = 70000
   const synthesis: any[] = [], models: any[] = [], delivered: any[] = []
@@ -111,8 +112,9 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
       res.end(JSON.stringify({ audioId, duration: 1 })); return
     }
     models.push(body)
+    const messageRef = String(body.messages.at(-1)?.content).match(/"messageRef"\s*:\s*"([^"]+)"/)?.[1]
     const decision = { script: '星禾拿起手机，开心地回复朋友。', ...(groupTurn
-      ? { groupReply: { mode: 'immediate', content: '大家今天真开心。' }, interaction: { seen: true, reply: { mode: 'none' } } }
+      ? { groupReply: { mode: 'immediate', content: splitGroup ? '第一段。<sep/>第二段。' : '大家今天真开心。', ...(quoteGroup && messageRef ? { replyTo: messageRef } : {}) }, interaction: { seen: true, reply: { mode: 'none' } } }
       : { interaction: { seen: true, reply: { mode: 'immediate', content: '今天真开心。' } } }), voice: { willingness } }
     if (body.stream) { res.setHeader('Content-Type', 'text/event-stream'); res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(decision) } }] })}\n\ndata: [DONE]\n\n`) }
     else res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] }))
@@ -149,10 +151,10 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
     Object.assign(host.qq!, { fork })
     await waitFor(() => !!socket && host!.app.bots.some(bot => bot.platform === 'onebot' && bot.status === 1))
     let messageId = 1000
-    const incoming = (group = false) => {
+    const incoming = (group = false, mention = true) => {
       groupTurn = group
       socket.send(JSON.stringify({ post_type: 'message', message_type: group ? 'group' : 'private', sub_type: group ? 'normal' : 'friend', self_id: 55555, user_id: 12345, ...(group ? { group_id: 88888 } : {}), message_id: ++messageId, time: Math.floor(Date.now() / 1000),
-        message: [...(group ? [{ type: 'at', data: { qq: '55555' } }] : []), { type: 'text', data: { text: `今天开心吗？${messageId}` } }], sender: { user_id: 12345, nickname: '朋友', role: 'member' } }))
+        message: [...(group && mention ? [{ type: 'at', data: { qq: '55555' } }] : []), { type: 'text', data: { text: `今天开心吗？${messageId}` } }], sender: { user_id: 12345, nickname: '朋友', role: 'member' } }))
     }
     const records = () => delivered.filter(row => row.params.message.some((segment: any) => segment.type === 'record'))
     const texts = () => delivered.filter(row => row.params.message.some((segment: any) => segment.type === 'text'))
@@ -176,6 +178,25 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
       assert.equal(JSON.stringify(models).includes('m3-private-bridge-token'), false)
       assert.equal(texts().length, before + 1, 'One text plus one record for each reply')
     }
+    // Rules allow this fixture's non-mention messages. Production rules are unchanged.
+    await host.dispatch('qq.policy', { enabled: true, users: ['12345'], groups: [{ ...newQQGroup(), groupId: '88888', responseMode: 'always', cooldownSeconds: 0, debounceSeconds: 0 }] })
+    const service = host.app.interlude as any
+    Object.assign(service.config.chatActions, { enabled: true, quoteReply: true, platforms: ['qq'] })
+    for (const variant of ['ordinary', 'quote', 'split']) {
+      quoteGroup = variant === 'quote'; splitGroup = variant === 'split'
+      const beforeText = texts().length, beforeRecords = records().length
+      incoming(true, false); await waitFor(() => texts().length >= beforeText + (splitGroup ? 2 : 1)); await settled()
+      assert.equal(records().length, beforeRecords + (splitGroup ? 2 : 1), `${variant}: each allowed segment keeps the final voice decision`)
+      if (quoteGroup) assert.ok(texts().slice(beforeText).some(row => row.params.message.some((segment: any) => segment.type === 'reply')), 'The real quoted transport must be an element array')
+      assert.equal(synthesis.at(-1).text, splitGroup ? '第二段。' : '大家今天真开心。')
+    }
+    quoteGroup = splitGroup = false
+    const proactiveStory = (await host.app.database.get('interlude_story', {}))[0]
+    const beforeProactive = records().length
+    await service.sendOutgoingMessages(proactiveStory, [{ participantId: 'group:88888', content: '无会话的主动群消息。', voice: { willingness: .95 } }])
+    await host.drainVoice()
+    assert.equal(records().length, beforeProactive + 1, 'Sessionless outreach uses the registered group endpoint')
+    assert.equal(records().at(-1).action, 'send_group_msg'); assert.equal(String(records().at(-1).params.group_id), '88888')
     // The background/private-bot path must settle text while Android is still
     // synthesizing, so pending-delivery recovery cannot mistake audio for text.
     bridgeMode = 'slow'

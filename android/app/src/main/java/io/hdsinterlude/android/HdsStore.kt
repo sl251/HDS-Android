@@ -123,6 +123,9 @@ class HdsStore(private val context: Context) {
         source.put("autoAdvance", input.optBoolean("autoAdvance", false))
         write(settingsFile, source)
     }
+    @Synchronized fun saveMobileConfig(config: JSONObject) {
+        val source = privateSettings(); source.put("mobileConfig", mobileSettings.normalize(config)); write(settingsFile, source)
+    }
     @Synchronized fun listCards(): JSONArray {
         val values = JSONArray()
         cards.listFiles { file -> file.name.endsWith(".json") }?.sortedBy { it.name }?.forEach { file -> val saved = read(file); if (!saved.optBoolean("deleted")) values.put(saved) }

@@ -51,6 +51,7 @@ try {
             if (options.payload.fingerprint !== fixture.fingerprint) throw new Error('预设版本已变化，请重新检查差异')
             return { data: { config: { sections: { agency: { enabled: true } } }, storyPatch: { character: { name: '星禾', profile: '修理师' } } } }
           }
+          if (options.method === 'preset.commit') { fixture.settings.mobileConfig = { sections: { agency: { enabled: true } } }; return { data: { config: fixture.settings.mobileConfig, state: 'committed' } } }
           if (options.method === 'messages.history' || options.method === 'qq.conversations') return { data: [] }
           return { data: {} }
         }
@@ -84,7 +85,7 @@ try {
   await apply.click()
   await dialog.waitFor({ state: 'detached' })
   assert.equal(await page.evaluate(() => fixture.calls.find(call => call.options?.method === 'preset.sync').options.payload.fingerprint), fingerprint)
-  assert.equal(await page.evaluate(() => fixture.calls.filter(call => call.options?.method === 'story.applySetting').length), 1)
+  assert.equal(await page.evaluate(() => fixture.calls.filter(call => call.options?.method === 'preset.commit').length), 1)
 
   // A different story changes profileRevision after the preview was cached.
   await load('first'); await preview()

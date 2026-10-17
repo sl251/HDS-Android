@@ -30,14 +30,16 @@ export function prepareOutgoingDelivery(message: OutgoingMessageDraft, bubbles: 
 
 export function scriptEventPayload(message: OutgoingMessageDraft, bubbleIndex = 0) {
   return {
+    ...(message.voice ? { voice: message.voice } : {}),
     ...(message.traceId ? { traceId: message.traceId } : {}),
     ...(message.processingId ? { processingId: message.processingId } : {}),
     ...(message.scriptEvent ? { scriptEvent: { ...message.scriptEvent, bubbleIndex } } : {}),
   }
 }
 
-export function restoreDesktopContext(value: unknown): Pick<OutgoingMessageDraft, 'traceId' | 'processingId'> {
-  return persistedDesktopProcessingContext(value)
+export function restoreDesktopContext(value: unknown): Pick<OutgoingMessageDraft, 'traceId' | 'processingId' | 'voice'> {
+  const willingness = isRecord(value) && isRecord(value.voice) ? value.voice.willingness : undefined
+  return { ...persistedDesktopProcessingContext(value), ...(typeof willingness === 'number' && Number.isFinite(willingness) && willingness >= 0 && willingness <= 1 ? { voice: { willingness } } : {}) }
 }
 
 export function restoreMessageEvent(value: unknown, content: string): ScriptMessageEventReference | undefined {
@@ -63,6 +65,7 @@ export function restoreMessageEvent(value: unknown, content: string): ScriptMess
 
 export function deliveryEntryMetadata(message: OutgoingMessageDraft, extra: Record<string, unknown> = {}) {
   return {
+    ...(message.voice ? { voice: message.voice } : {}),
     visible: true,
     interaction: message.interaction ?? null,
     ...(message.scriptEvent

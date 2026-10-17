@@ -8,6 +8,7 @@ export function scriptEntryDraftForCommit(
   interaction: NarrativeInteraction | null,
   timelinePlan?: TimelinePlan,
   lifeHandoff?: LifeHandoff,
+  voice?: { willingness: number },
 ): ScriptEntryDraft {
   const hasGroupEvent = commit.events.some(event => event.kind === 'group-message')
   const hasPrivateEvent = commit.events.some(event => event.kind === 'outgoing-message')
@@ -25,6 +26,7 @@ export function scriptEntryDraftForCommit(
     content: commit.prose,
     occurredAt: commit.window.to,
     metadata: {
+      ...(voice ? { voice } : {}),
       ...(conversationKind ? { conversationKind } : {}),
       phase: commit.phase,
       narrativeAuthority: 'original-v2',

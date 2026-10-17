@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "source": "1aeae87d42ab55a63ccc5d27b68f1b55969f0c88",
+  "branch": "codex/preview9-audit-fixes",
+  "taskArchiveSha256": "a7da10459c36c88a9ba42ac215138c6427bf457879534bf99cd397fe8f06faf0",
+  "candidate": {
+    "version": "0.1.0-preview.9.2.2",
+    "versionCode": 23,
+    "core": "1.0.1-rc57",
+    "contract": 2
+  },
+  "userApk": "NOT PROVIDED",
+  "phoneLogs": "NOT PROVIDED",
+  "realMimo": "NOT RUN",
+  "realQQ": "NOT RUN",
+  "phoneBackground": "NOT RUN",
+  "cleanDeviceRestore": "NOT RUN",
+  "mumu": "NOT RUN"
+}

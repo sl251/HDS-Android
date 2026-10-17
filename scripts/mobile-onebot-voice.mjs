@@ -3,24 +3,33 @@ import { readFile } from 'node:fs/promises'
 // Host-owned build overlay against the already replayed rc56 mobile delta.
 // Never writes upstream/. Each edit must match exactly once (or be applied).
 export function withOneBotVoice(source) {
+  source = source.replace(/\r\n/g, '\n')
   const edits = [
+    ["    const endpointRows: EndpointRow[] = Array.isArray(this.endpointRows) ? this.endpointRows : []", `    const endpointRows: EndpointRow[] = Array.isArray(this.endpointRows) ? this.endpointRows : []
+    // A shared mobile story owns a local endpoint. Sessionless group outreach
+    // must select the registered target group, never the local-story fallback.
+    if (!session && !endpointId) {
+      const groupEndpoints = endpointRows.filter(row => row.ownerKind === 'group'
+        && normalizeGroupId(row.groupId ?? row.ownerId) === targetGroupId && row.platform === 'onebot')
+      if (groupEndpoints.length === 1) endpointId = groupEndpoints[0].id
+    }`],
     ["    let immediateObservations: WebObservation[] = []", `    // QQ voice reuses mobile capabilities before early-reply eligibility.
-    if (!groupContext && (participant?.platform ?? story.platform) === 'onebot') {
+    if (groupContext || (participant?.platform ?? story.platform) === 'onebot' || (participant?.platform ?? story.platform) === 'mobile-local') {
       const voice = this.config.model.mobileVoiceCapabilities?.()
       if (voice?.enabled) chatCapabilities = { ...(chatCapabilities ?? { platform: 'qq', quoteReply: false, reactions: [] }), voice }
     }
     let immediateObservations: WebObservation[] = []`],
     ["      const chatCapabilities = this.groupChatCapabilities(session, groupContext.messages)", `      let chatCapabilities = this.groupChatCapabilities(session, groupContext.messages)
-      if (session?.platform === 'onebot') {
+      if (!session || session.platform === 'onebot') {
         const voice = this.config.model.mobileVoiceCapabilities?.()
         if (voice?.enabled) chatCapabilities = { ...(chatCapabilities ?? { platform: 'qq', quoteReply: false, reactions: [] }), voice }
       }`],
-    ["await withTransportTimeout(session.send(outgoingContent), 'private-session-send')", "await ((this.config.model as any).mobileOneBotVoiceDelivery?.(session.bot, session.channelId, outgoingContent, message.voice?.willingness, () => withTransportTimeout(session.send(outgoingContent), 'private-session-send')) ?? withTransportTimeout(session.send(outgoingContent), 'private-session-send'))"],
-    ["await withTransportTimeout(bot.sendMessage(privateChannelId, outgoingContent), 'private-bot-send')", "await ((this.config.model as any).mobileOneBotVoiceDelivery?.(bot, privateChannelId, outgoingContent, message.voice?.willingness, () => withTransportTimeout(bot.sendMessage(privateChannelId, outgoingContent), 'private-bot-send')) ?? withTransportTimeout(bot.sendMessage(privateChannelId, outgoingContent), 'private-bot-send'))"],
+    ["await withTransportTimeout(session.send(outgoingContent), 'private-session-send')", "await (this.config.model.mobileOneBotVoiceDelivery?.(session.bot, session.channelId, outgoingContent, message.voice?.willingness, () => withTransportTimeout(session.send(outgoingContent), 'private-session-send')) ?? withTransportTimeout(session.send(outgoingContent), 'private-session-send'))"],
+    ["await withTransportTimeout(bot.sendMessage(privateChannelId, outgoingContent), 'private-bot-send')", "await (this.config.model.mobileOneBotVoiceDelivery?.(bot, privateChannelId, outgoingContent, message.voice?.willingness, () => withTransportTimeout(bot.sendMessage(privateChannelId, outgoingContent), 'private-bot-send')) ?? withTransportTimeout(bot.sendMessage(privateChannelId, outgoingContent), 'private-bot-send'))"],
     ["onDelivered: (index: number, content: string) => void }) {", "onDelivered: (index: number, content: string) => void }, voice?: { willingness: number }) {"],
     ["this.sendGroupMessage(snapshot.story, channelId, result.content, result.chatActions.replyTo?.messageId, session)", "this.sendGroupMessage(snapshot.story, channelId, result.content, result.chatActions.replyTo?.messageId, session, undefined, undefined, undefined, decision.voice)"],
     ["      } })\n      : { deliveredSegments: [], complete: false, segmentOutcomes:", "      } }, message.voice)\n      : { deliveredSegments: [], complete: false, segmentOutcomes:"],
-    ["await withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send')", "await ((this.config.model as any).mobileOneBotVoiceDelivery?.(bot, transportGroupId, outgoing, voice?.willingness, () => withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send')) ?? withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send'))"],
+    ["await withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send')", "await (this.config.model.mobileOneBotVoiceDelivery?.(bot, transportGroupId, segment, voice?.willingness, () => withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send')) ?? withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send'))"],
   ]
   for (const [index, [before, after]] of edits.entries()) {
     if (source.split(after).length === 2) continue

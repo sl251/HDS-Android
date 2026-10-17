@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseJsonCard } from '../packages/card-format'
+import { settingRevision } from '../runtime/story-setting'
 
 const { mobilePreset, inspectPreset, startHost } = createRequire(import.meta.url)('../runtime/generated/host.cjs') as typeof import('../runtime/host')
 
@@ -53,14 +54,20 @@ test('story.applySetting persists share persona to the current story and preserv
     assert.deepEqual((await snapshot()).setting, before.setting, 'Preview must not write persona')
     const checked = await host.dispatch('preset.sync', { code: 'ABCDEFGH', current: {}, fingerprint: preview.fingerprint }) as ReturnType<typeof mobilePreset>
     assert.deepEqual((await snapshot()).setting, before.setting, 'Life sync alone must not write persona')
-    await host.dispatch('story.applySetting', checked.storyPatch!)
+    const apply = async (patch: Record<string, unknown>, operationId: string) => { const current = await snapshot(); return host!.dispatch('story.applySetting', { operationId, patch, expectedStoryId: current.id, expectedRevision: settingRevision(current.setting) }) }
+    await apply(checked.storyPatch!, 'fixture-persona-first')
+    const afterFirst = await snapshot()
+    await host.dispatch('story.applySetting', { operationId: 'fixture-persona-first', patch: checked.storyPatch!, expectedStoryId: before.id, expectedRevision: settingRevision(before.setting) })
+    assert.deepEqual((await snapshot()).setting, afterFirst.setting, 'Lost receipts may be retried with the same operation')
+    await assert.rejects(() => host!.dispatch('story.applySetting', { operationId: 'fixture-stale-revision', patch: { world: 'stale' }, expectedStoryId: before.id, expectedRevision: settingRevision(before.setting) }), /已修改/)
+    await assert.rejects(() => host!.dispatch('story.applySetting', { operationId: 'fixture-wrong-story', patch: { world: 'wrong' }, expectedStoryId: 'other-story', expectedRevision: settingRevision(afterFirst.setting) }), /故事已改变/)
     const after = await snapshot()
     assert.equal(after.id, before.id)
     assert.deepEqual(after.setting.character, { ...before.setting.character, name: '星禾' })
     assert.deepEqual(after.setting.user, before.setting.user)
     for (const field of ['world', 'relationship', 'perspective'] as const) assert.equal(after.setting[field], checked.storyPatch![field])
     assert.deepEqual(await host.dispatch('messages.history', {}), history)
-    await host.dispatch('story.applySetting', { relationship: '新的关系' })
+    await apply({ relationship: '新的关系' }, 'fixture-persona-second')
     assert.equal((await snapshot()).setting.world, '海边', 'Successive partial patches retain previously imported fields')
     await host.stop(); host = await startHost(config)
     assert.equal((await snapshot()).setting.character.name, '星禾')

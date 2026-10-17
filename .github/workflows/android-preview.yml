@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['android/**', 'apps/**', 'packages/**', 'runtime/**', 'third_party/**', 'scripts/build-mobile-host.mjs', 'scripts/build-runtime.py', 'tests/**', 'package*.json', 'capacitor.config.ts', 'vite.config.ts', 'tsconfig.json', 'index.html', '.github/workflows/android-preview.yml']
+    paths: ['android/**', 'apps/**', 'packages/**', 'build-info.json', 'runtime/**', 'third_party/**', 'scripts/**', 'scripts/build-runtime.py', 'tests/**', 'package*.json', 'capacitor.config.ts', 'vite.config.ts', 'tsconfig.json', 'index.html', '.github/workflows/android-preview.yml']
 permissions:
   contents: read
 concurrency:
@@ -116,12 +116,13 @@ jobs:
           ./gradlew --no-daemon lintRelease testReleaseUnitTest assembleRelease :app:assembleDebugAndroidTest
       - name: Package verification and release materials
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-0.1.0-preview.9.2.1-arm64.apk
+          HDS_VERSION=$(node -p "require('./build-info.json').version")
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/HDS-Android-$HDS_VERSION-arm64.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs artifacts/*.apk > artifacts/apk-signature.txt
           cp runtime/generated/runtime-manifest.json artifacts/
           cp docs/TEST-ON-PHONE.md artifacts/
           cp fixtures/cards/*.json fixtures/cards/*.yml artifacts/
-          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-0.1.0-preview.9.2.1-source.tar.gz
+          git archive --format=tar HEAD | gzip -n > artifacts/HDS-Android-$HDS_VERSION-source.tar.gz
           cd artifacts
           sha256sum *.apk *.tar.gz > SHA256SUMS.txt
       - name: Upload preview and build evidence

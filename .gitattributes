@@ -5,5 +5,12 @@
 *.sh text eol=lf
 *.ps1 text eol=crlf
 *.mjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.kt text eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol
+*.yml text eol=lf
+.gitattributes text eol=lf
 # Preserve raw command output, including whitespace in assertion diagnostics.
 *.log text eol=lf whitespace=-blank-at-eol

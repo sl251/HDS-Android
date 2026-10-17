@@ -26,7 +26,7 @@ export async function stickerFileForSource(src: string, directory: string, looku
       file = src.startsWith('file:') ? fileURLToPath(src) : resolve(directory, src)
     }
     const root = realpathSync(directory), actual = realpathSync(file), inside = relative(root, actual)
-    if (!inside || inside === '..' || inside.startsWith('../') || isAbsolute(inside) || !/\.(gif|png|webp|jpe?g)$/i.test(actual)) return undefined
+    if (!inside || inside === '..' || /^\.\.[\\/]/.test(inside) || isAbsolute(inside) || !/\.(gif|png|webp|jpe?g)$/i.test(actual)) return undefined
     return actual
   } catch { return undefined }
 }

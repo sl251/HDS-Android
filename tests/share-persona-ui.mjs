@@ -12,7 +12,7 @@ const bundle = await build({
     const fixture = window.fixture = { calls: [], saved: [], notices: [], failApply: false, failFingerprint: false,
       patch: { character: { name: '星禾', profile: '修理师' }, world: '海边', relationship: '老朋友', perspective: '乐观', perspectives: ['珍惜日常'], location: '' },
       setting: { character: { name: '原角色', profile: '原人设' }, world: '原世界', relationship: '原关系', perspective: '原视角' } }
-    const bridge = { rpc: async request => {
+    const bridge = { settings: async () => ({ activeCard: 'fixture-card' }), rpc: async request => {
       fixture.calls.push(structuredClone(request))
       if (request.method === 'config.status') return { data: {} }
       if (request.method === 'preset.sync') {
@@ -24,6 +24,11 @@ const bundle = await build({
         if (fixture.failApply) throw new Error('人设写入失败')
         fixture.setting = { ...fixture.setting, ...structuredClone(request.payload) }
         return { data: fixture.setting }
+      }
+      if (request.method === 'preset.commit') {
+        if (fixture.failApply) throw new Error('人设写入失败')
+        if (request.payload.importPersona && fixture.patch) fixture.setting = { ...fixture.setting, ...structuredClone(fixture.patch) }
+        return { data: { config: { sections: { agency: { enabled: true } } }, state: 'committed' } }
       }
       return { data: {} }
     } }
@@ -64,7 +69,7 @@ try {
   await apply()
   await page.waitForFunction(() => fixture.saved.length === 1)
   assert.equal(await page.evaluate(() => fixture.setting.character.name), '星禾')
-  assert.deepEqual(await page.evaluate(() => fixture.calls.filter(call => call.method.startsWith('preset.') || call.method === 'story.applySetting').map(call => [call.method, call.payload.fingerprint])), [['preset.sync', undefined], ['preset.sync', 'checked-revision'], ['story.applySetting', undefined]])
+  assert.deepEqual(await page.evaluate(() => fixture.calls.filter(call => ['preset.sync', 'preset.commit'].includes(call.method)).map(call => [call.method, call.payload.fingerprint])), [['preset.sync', undefined], ['preset.sync', 'checked-revision'], ['preset.commit', 'checked-revision']])
 
   await page.evaluate(() => { fixture.patch.character.name = '不应导入'; fixture.calls = [] })
   await check()

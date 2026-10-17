@@ -84,6 +84,7 @@ try {
             return { data: { config: { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }, title: '生活预设 fixture', code: 'ABCDEFGH', revision: 1, fingerprint: 'fixture', removed: ['model'], changes: [{ section: 'agency', field: 'enabled', before: false, after: true }], ...(f.presetPatch ? { storyPatch: structuredClone(f.presetPatch) } : {}) } }
           }
           if (options.method === 'story.applySetting') { if (f.failSettingApply) throw new Error('测试：人设写入失败'); (f.appliedSettings ||= []).push(structuredClone(options.payload)); return { data: options.payload } }
+          if (options.method === 'preset.commit') { if (f.failSettingApply) throw new Error('测试：人设写入失败'); if (f.presetPatch) (f.appliedSettings ||= []).push(structuredClone(f.presetPatch)); const config = { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }; f.settings.mobileConfig = config; return { data: { config, state: 'committed' } } }
           if (options.method === 'messages.history') return { data: f.messages || [] }
           if (options.method === 'images.upload') { (f.uploaded ||= []).push(options.payload.dataUri); return { data: { id: 'a'.repeat(64) } } }
           if (options.method === 'images.get' && f.imageData) return { data: { dataUri: f.imageData } }

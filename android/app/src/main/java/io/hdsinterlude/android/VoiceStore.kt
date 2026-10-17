@@ -10,9 +10,9 @@ import java.io.File
 import java.time.LocalDate
 import java.security.MessageDigest
 
-/** Shared by foreground previews and background replies. One lock covers quota + network + commit. */
+/** Reserve and commit under the shared lock; provider IO never holds it. */
 class VoiceStore(private val context: Context, private val today: () -> String = { LocalDate.now().toString() }, private val credential: () -> String = { HdsStore(context).voiceKey() }) {
-    companion object { internal val lock = Any(); const val MAX_AUDIO = 10 * 1024 * 1024 }
+    companion object { internal val lock = Any(); private val active = HashSet<String>(); const val MAX_AUDIO = 10 * 1024 * 1024 }
     val base = File(context.noBackupFilesDir, "hds/voice").apply { mkdirs() }
     private fun read(name: String) = File(base, name).let { if (it.exists()) JSONObject(AtomicFile(it).openRead().bufferedReader().use { r -> r.readText() }) else JSONObject() }
     private fun write(name: String, value: JSONObject) {
@@ -27,8 +27,13 @@ class VoiceStore(private val context: Context, private val today: () -> String =
         if (!has("characters")) put("characters", JSONObject())
     } }
     private fun usage(): JSONObject = read("usage.json").apply {
-        if (optString("day") != today()) { put("day", today()); put("tokens", 0); put("notified", false) }
+        if (optString("day") != today()) { put("day", today()); put("tokens", 0); put("notified", false); put("requests", JSONObject()) }
         if (!has("characters")) put("characters", JSONObject())
+        if (!has("requests")) put("requests", JSONObject())
+        val requests = getJSONObject("requests")
+        requests.keys().forEach { id -> val r = requests.getJSONObject(id); if (r.optString("state") == "reserved" && !active.contains(base.absolutePath + id)) r.put("state", "unknown") }
+        val pendingCards = requests.keys().asSequence().map { requests.getJSONObject(it) }.filter { it.optString("state") == "reserved" }.map { it.optString("cardId") }.toSet()
+        getJSONObject("characters").keys().forEach { id -> if (id !in pendingCards) getJSONObject("characters").getJSONObject(id).put("pending", false) }
     }
     fun state(): JSONObject = synchronized(lock) {
         val c = config(); val u = usage(); val limit = c.getInt("dailyLimit")
@@ -36,7 +41,11 @@ class VoiceStore(private val context: Context, private val today: () -> String =
             c.put("notice", "今日语音用量已达上限，语音暂停至明天；文字回复继续。")
             u.put("notified", true); write("usage.json", u)
         }
-        c.put("usedTokens", u.optLong("tokens")).put("day", u.getString("day"))
+        val requests = u.getJSONObject("requests")
+        var reserved = 0L; var unknown = 0L
+        requests.keys().forEach { id -> val r = requests.getJSONObject(id); when (r.optString("state")) { "reserved" -> reserved += r.optLong("tokens"); "unknown" -> unknown += r.optLong("tokens") } }
+        c.put("usedTokens", u.optLong("tokens")).put("reservedTokens", reserved).put("unknownTokens", unknown)
+            .put("confirmedTokens", maxOf(0, u.optLong("tokens") - reserved - unknown)).put("lastResult", u.optJSONObject("lastResult")) .put("day", u.getString("day"))
             .put("credentialPresent", credential().isNotEmpty())
     }
     fun saveSettings(input: JSONObject): JSONObject = synchronized(lock) {
@@ -72,7 +81,7 @@ class VoiceStore(private val context: Context, private val today: () -> String =
             else require(value.isNotBlank() && value.length <= 2000) { "请输入音色描述（最多 2000 字）" }
             JSONObject().put("id", id).put("type", type).put("value", value)
         }
-        row.put("name", name)
+        row.put("name", name); if (!row.has("verified")) row.put("verified", false)
         val next = JSONArray(); for (i in 0 until rows.length()) if (rows.getJSONObject(i).getString("id") != id) next.put(rows.getJSONObject(i))
         next.put(row); c.put("voices", next); write("settings.json", c); state()
     }
@@ -104,34 +113,75 @@ class VoiceStore(private val context: Context, private val today: () -> String =
     }
     fun audio(id: String): JSONObject = JSONObject().put("dataUri", "data:audio/wav;base64," + Base64.encodeToString(audioFile(id).inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP))
 
-    fun synthesize(input: JSONObject, client: MimoTtsClient = MimoTtsClient()): JSONObject = synchronized(lock) {
+    fun synthesize(input: JSONObject, client: MimoTtsClient = MimoTtsClient()): JSONObject {
+        val requestId = input.optString("requestId").ifEmpty { java.util.UUID.randomUUID().toString() }
+        require(requestId.matches(Regex("[a-zA-Z0-9-]{8,64}"))) { "语音请求编号无效" }
+        fun outcome(status: String, reason: String) = JSONObject().put("requestId", requestId).put("status", status).put("stage", "synthesis").put("reason", reason)
+        lateinit var selected: JSONObject; lateinit var key: String; lateinit var value: String; lateinit var text: String
+        var reservation = 0L; var requestDay = ""; var replyNumber = 0L
+        val signature = MessageDigest.getInstance("SHA-256").digest(input.toString().toByteArray()).joinToString("") { "%02x".format(it) }
+        synchronized(lock) {
         val c = config(); val u = usage(); val preview = input.optBoolean("preview"); val cardId = input.optString("cardId")
+        val requests = u.getJSONObject("requests"); val previous = requests.optJSONObject(requestId)
+        if (previous != null) {
+            require(previous.optString("signature") == signature) { "语音请求编号已用于其他内容" }
+            return previous.optJSONObject("result") ?: outcome("unknown", "in_progress_or_interrupted")
+        }
+        fun skip(reason: String): JSONObject { val result = outcome("skipped", reason); u.put("lastResult", result); write("usage.json", u); return result }
+        if (active.size >= 2) return skip("queue_full")
+        if (requests.length() >= 2048) return skip("request_limit")
         val binding = c.getJSONObject("characters").optJSONObject(cardId) ?: JSONObject()
         val counts = u.getJSONObject("characters"); val count = counts.optJSONObject(cardId) ?: JSONObject().put("replies", 0).put("lastVoice", -1000000)
         if (!preview) { count.put("replies", count.optLong("replies") + 1); counts.put(cardId, count); write("usage.json", u) }
         val willingness = input.optDouble("willingness", -1.0)
         val cooldown = c.getInt("cooldown")
-        if (!preview && (!binding.optBoolean("enabled") || !willingness.isFinite() || willingness < binding.optDouble("threshold", .7) || willingness > 1 || cooldown > 0 && count.optLong("replies") - count.optLong("lastVoice") < cooldown)) return JSONObject()
+        if (!preview && !binding.optBoolean("enabled")) return skip("disabled")
+        if (!preview && (!willingness.isFinite() || willingness < binding.optDouble("threshold", .7) || willingness > 1)) return skip("threshold")
+        if (!preview && (count.optBoolean("pending") || cooldown > 0 && count.optLong("replies") - count.optLong("lastVoice") < cooldown)) return skip("cooldown")
         val limit = c.getInt("dailyLimit"); val used = u.optLong("tokens")
-        if (limit > 0 && used >= limit) return JSONObject()
-        val text = input.optString("text").trim(); if (text.isEmpty() || text.length > 12000) return JSONObject()
+        if (limit > 0 && used >= limit) return skip("quota")
+        text = input.optString("text").trim(); if (text.isEmpty() || text.length > 12000) return outcome("failed", "invalid_text")
         val voice = if (preview) input.optJSONObject("draft")?.let { draft ->
             val type = draft.optString("type"); val value = draft.optString("value")
             require(type in listOf("reference", "design") && value.isNotBlank() && value.length <= 2000) { "请先填写音色描述或导入音频" }; draft
         } ?: findVoice(c, input.optString("voiceId")) else findVoice(c, binding.optString("voiceId"))
-        val selected = voice ?: findVoice(c, c.getString("defaultVoiceId")) ?: findVoice(c, "builtin")!!
-        val key = credential(); if (key.isBlank()) return JSONObject()
-        val model = when (selected.getString("type")) { "design" -> "mimo-v2.5-tts-voicedesign"; "reference" -> "mimo-v2.5-tts-voiceclone"; else -> "mimo-v2.5-tts" }
-        val value = if (selected.getString("type") == "reference") Base64.encodeToString(audioFile(selected.getString("value")).inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP) else selected.getString("value")
+        selected = voice ?: findVoice(c, c.getString("defaultVoiceId")) ?: findVoice(c, "builtin")!!
+        key = credential(); if (key.isBlank()) return skip("missing_key")
+        value = if (selected.getString("type") == "reference") "data:audio/wav;base64," + Base64.encodeToString(audioFile(selected.getString("value")).inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP) else selected.getString("value")
         // Reserve before IO. Unknown/timeout billing stays conservatively charged, across restart.
-        val reservation = if (limit > 0) minOf(4096L, limit - used) else 4096L
+        reservation = if (limit > 0) minOf(4096L, limit - used) else 4096L
+        requestDay = u.getString("day"); replyNumber = count.optLong("replies")
+        active.add(base.absolutePath + requestId)
+        if (!preview) count.put("pending", true)
+        requests.put(requestId, JSONObject().put("state", "reserved").put("tokens", reservation).put("signature", signature).put("cardId", cardId))
         u.put("tokens", used + reservation); write("usage.json", u)
+        }
+        val started = System.nanoTime()
+        var charged = reservation; var billing = "unknown"
+        var result: JSONObject
         try {
-            val result = client.synthesize(key, model, value, text, input.optString("style").take(3000))
-            u.put("tokens", used + (result.tokens ?: reservation)); write("usage.json", u)
-            val audio = putAudio(result.wav)
-            if (!preview) { count.put("lastVoice", count.getLong("replies")); write("usage.json", u) }
-            audio
-        } catch (_: Exception) { JSONObject() } // Text delivery must always proceed.
+            val response = client.synthesize(key, MimoTtsClient.Voice(selected.getString("type"), value), text, input.optString("style").take(3000))
+            charged = response.tokens ?: reservation; billing = if (response.tokens != null) "confirmed" else "unknown"
+            result = try { putAudio(response.wav).put("status", "generated").put("stage", "synthesis").put("requestId", requestId) }
+                catch (_: Exception) { outcome("failed", "provider_invalid_audio") }
+        } catch (failure: Exception) {
+            if (failure is MimoTtsClient.Failure && !failure.billingUnknown) { charged = 0; billing = "confirmed" }
+            result = outcome(if (failure is MimoTtsClient.Failure) "failed" else "unknown", (failure as? MimoTtsClient.Failure)?.code ?: "provider_timeout_or_network")
+        }
+        result.put("elapsedMs", (System.nanoTime() - started) / 1_000_000)
+        synchronized(lock) {
+            active.remove(base.absolutePath + requestId)
+            val u = usage()
+            if (u.optString("day") == requestDay) {
+                u.put("tokens", maxOf(0, u.optLong("tokens") - reservation + charged))
+                u.getJSONObject("requests").getJSONObject(requestId).put("state", billing).put("tokens", charged).put("result", result)
+            }
+            val count = u.getJSONObject("characters").optJSONObject(input.optString("cardId"))
+            count?.put("pending", false)
+            if (result.has("audioId") && !input.optBoolean("preview")) count?.put("lastVoice", replyNumber)
+            u.put("lastResult", result); write("usage.json", u)
+            if (result.has("audioId")) { val c = config(); findVoice(c, selected.optString("id"))?.put("verified", true); write("settings.json", c) }
+        }
+        return result
     }
 }

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:http'
@@ -55,10 +56,10 @@ test('M4 pack sync excludes message-only assets and original media remains reada
     const assetId = stableStickerAssetId(`开心包/${hash}.gif`, hash)
     const lookup = async (id: string) => id === assetId ? { filePath: `开心包/${hash}.gif` } : undefined
     assert.equal(await stickerFileForSource(stickerDeliveryUrl('', assetId), config.directory, lookup), file)
-    assert.equal(await stickerFileForSource(`file://${file}`, config.directory, lookup), file)
+    assert.equal(await stickerFileForSource(pathToFileURL(file).href, config.directory, lookup), file)
     assert.equal(await stickerFileForSource(file, config.directory, lookup), file)
     for (const src of ['https://bad/private.png', stickerDeliveryUrl('', 'unknown'), '../secret.png', 'file:///etc/passwd']) assert.equal(await stickerFileForSource(src, config.directory, lookup), undefined)
-    writeFileSync(join(dir, 'outside.gif'), bytes); symlinkSync(join(dir, 'outside.gif'), join(group, 'link.gif'))
+    writeFileSync(join(dir, 'outside.gif'), bytes); try { symlinkSync(join(dir, 'outside.gif'), join(group, 'link.gif')) } catch (e) { if (process.platform !== 'win32' || (e as NodeJS.ErrnoException).code !== 'EPERM') throw e }
     assert.equal(await stickerFileForSource(join(group, 'link.gif'), config.directory, lookup), undefined)
     const media = imageStore(dir), saved = media.registerSticker(bytes)
     assert.equal(media.get(saved.id), `data:image/gif;base64,${bytes.toString('base64')}`)

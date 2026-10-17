@@ -19,13 +19,14 @@ export function StorySettingEditor({ bridge, close, saved }: { bridge: NativeBri
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  const [expected, setExpected] = useState<{ expectedStoryId: string; expectedRevision: string }>()
   useEffect(() => {
     let cancelled = false
     setError('')
     void bridge.rpc({ method: 'story.snapshot' }).then(result => {
       const setting = (result.data as { story?: { setting?: EditableStorySetting } }).story?.setting
       if (!setting) throw new Error('未找到当前故事设定')
-      if (!cancelled) setDraft(structuredClone(setting))
+      if (!cancelled) { setDraft(structuredClone(setting)); const data = result.data as { story: { id: string }; settingRevision: string }; setExpected({ expectedStoryId: data.story.id, expectedRevision: data.settingRevision }) }
     }).catch(failure => { if (!cancelled) setError(String(failure instanceof Error ? failure.message : failure)) })
     return () => { cancelled = true }
   }, [bridge, attempt])
@@ -34,7 +35,7 @@ export function StorySettingEditor({ bridge, close, saved }: { bridge: NativeBri
     <p className="caption">保存后用于当前故事的后续回合，经历与记忆保留。</p>
     {error && <p className="error" role="alert">{error}</p>}
     {!draft ? <><p role="status">{error ? '读取失败' : '正在读取当前故事…'}</p>{error && <button onClick={() => setAttempt(value => value + 1)}>重试读取</button>}</> : <form onSubmit={event => { event.preventDefault(); setBusy(true); setError(''); void (async () => {
-      try { await bridge.rpc({ method: 'story.applySetting', payload: storySettingPatch(draft) }); await saved(); close() }
+      try { await bridge.rpc({ method: 'story.applySetting', payload: { operationId: crypto.randomUUID(), ...expected, patch: storySettingPatch(draft) } }); await saved(); close() }
       catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
       finally { setBusy(false) }
     })() }}><fieldset disabled={busy}>

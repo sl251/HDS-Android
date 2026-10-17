@@ -16,7 +16,7 @@ export function Inbox({ bridge, healthy, native, configure, onRootBack, backHand
   const [githubProxy, setGithubProxy] = useState('')
   const request = useRef<{ requestId: string; content: string; conversation: string } | null>(null)
   const scroll = useRef<HTMLDivElement>(null)
-  const rpc = async <T,>(method: string, payload?: Record<string, unknown>) => (await bridge.rpc({ method, payload })).data as T
+  const rpc = async <T,>(method: Parameters<NativeBridge['rpc']>[0]['method'], payload?: Record<string, unknown>) => (await bridge.rpc({ method, payload })).data as T
   const act = async (task: () => Promise<unknown>) => { setBusy(true); setNotice(''); try { await task() } catch (error) { setNotice(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) } }
   useEffect(() => {
     if (!healthy || !native) { setStatus(null); return }
