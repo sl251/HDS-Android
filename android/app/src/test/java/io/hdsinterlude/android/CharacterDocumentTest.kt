@@ -31,7 +31,7 @@ class CharacterDocumentTest {
         assertTrue(closed)
     }
     @Test fun importingCreatesLibraryEntryWithoutMutatingSelectedStoryAndDuplicateRetainsEdits() {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val store = HdsStore(context)
         val old = store.saveCard(JSONObject().put("format", "v2").put("name", "已有角色"), "old-card".toByteArray())
         store.select(old.getString("id"))
