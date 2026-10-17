@@ -9,4 +9,4 @@ const { mobileSchema } = createRequire(import.meta.url)('../runtime/generated/ho
 const schema = JSON.stringify(mobileSchema(), null, 2) + '\n'
 writeFileSync('packages/contracts/mobile-config.schema.json', schema)
 writeFileSync('android/app/src/main/assets/mobile-config.schema.json', schema)
-console.log('Compiled actual HDS rc56 and mobile host from sources')
+console.log('Compiled actual HDS rc57 and mobile host from sources')

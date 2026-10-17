@@ -1,0 +1,188 @@
+HDS-Android rc57 测试修复结果
+完成时间：2026-10-17T21:44:57+08:00
+工作目录：/root/hermes-workspace/hds-android
+分支：main
+基线 HEAD：c7b653b22e7e7adc06aaa00b91937e02e49dc889
+上游版本：HDS-Interlude 1.0.1-rc57，固定 commit ab512ec6b9dc00b9f738c062fe576e711a739151。
+
+最终验收
+1. npm run test：退出码 0；94 项通过，0 失败，0 取消，0 跳过，0 todo。
+2. npm run test:ui：退出码 0；5 个 UI 脚本全部通过，0 失败；输出 18 条 PASS 场景摘要（摘要条数不等于独立测试数）。
+   通过脚本：tests/story-ui.mjs、tests/preview91-m4-ui.mjs、tests/qq-policy-ui.mjs、tests/share-persona-ui.mjs、tests/m5-ui.mjs。
+3. 上游 tests patch 关联回归：31 项通过，0 失败，0 取消，0 跳过，0 todo。
+4. UI 重试修复逻辑组完成后单独 npm run build:host：退出码 0；最终 npm run test:ui 内置 build:host 亦通过。
+5. git diff --check：退出码 0。
+
+运行命令与环境
+- npm run test
+- npm run dev -- --port 5173 --strictPort
+- HDS_BROWSER=/root/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome HDS_UI_URL=http://127.0.0.1:5173 npm run test:ui
+- node --import tsx --test --test-concurrency=1 upstream/hds-interlude/test/split-follow-up-scheduling.test.ts
+- npm run build:host
+使用已有浏览器及依赖，没有 npm install。
+注意：build-mobile-host.mjs 仍打印旧的 rc56 提示；本次实际构建/运行的是 rc57（vendor package.version、固定 Git 对象以及 Host 日志 plugin load started version=1.0.1-rc57 均已核对）。该日志文案不在本次修复范围内。
+
+本次修改文件清单
+- tests/story-ui.mjs：保存失败重试场景改用 Playwright locator.click()；通过一次性捕获点击事件在实际点击时解除 fixture 的 failSave，保留保存结果和草稿断言。
+- result-rc57-tests.txt：本结果文件。
+工作开始前已存在未跟踪文件 codex-task-rc57-tests.md；未修改。
+没有修改 runtime/、apps/、packages/ 或 vendor 被测源码，没有修改生产 mobile patch，没有提交 commit。
+
+失败与根因（每个失败一句话）
+- 首轮 UI：tests/story-ui.mjs 原第 227 行等待 prefs.userName === '保留的草稿' 超时；自动保存队列会替换重试按钮，原 locator.evaluate(button => button.click()) 可能点击已脱离 DOM 的节点，快照中 failSave 已解除但没有新的 saveSettings 调用，导致草稿未重试保存。
+  修复：由 Playwright 等待并点击当前可操作按钮，捕获该次真实点击后再解除 fixture 失败；完整 UI 重跑通过，保存重试及后续全部断言保留。
+- npm run test 首轮即 94/94 通过，没有数值/文案断言漂移，无需更改 tests/*.test.ts。
+没有尚未通过的真实上游缺陷。
+
+upstream tests patch 漂移诊断
+使用 /tmp/hdsi-rc57 的固定 rc57 Git 原始对象读取 test/split-follow-up-scheduling.test.ts，按 diagnose-patch-drift.mjs 相同顺序模拟补丁应用。
+Pristine rc57 Git object: ab512ec6b9dc00b9f738c062fe576e711a739151
+Patch: scripts/mobile-hds-rc56-tests.patch
+split-follow-up-scheduling.test.ts: total=1 apply=1 already=0 FAILED=[]
+Replay matches vendored test exactly; second replay is idempotent.
+结论：rc56 tests patch 的唯一 hunk 在 rc57 原始测试中仍唯一匹配；回放与现有 vendor 完全一致且幂等，无需重锚，因此保留 scripts/mobile-hds-rc56-tests.patch 及 patch-mobile-hds.mjs 的现有引用，没有为无漂移补丁新增 rc57 副本。
+生产 mobile patch 的基线回放、幂等和未知锚点拒绝检查也在 npm run test 中通过。
+
+npm run test 完整用例结果
+✔ V2 JSON and PNG preserve Chinese, emoji and unknown extensions (10.718153ms)
+✔ oversized fields rejected, unknown spec tolerated as V3, name truncated, legacy fields mapped (11.158738ms)
+✔ PNG raw-text tEXt, wrapped base64, and zTXt compressed cards (4.235945ms)
+✔ lore triggers against delivered history; creator notes and disabled lore stay out (1.343223ms)
+✔ regex lore is preserved but never executed and budgets visibly trim (1.010728ms)
+✔ duplicate chara blocks from successive tools: keep richest instead of rejecting (2.438911ms)
+✔ guest probe exercises host imports, real filesystem I/O and child cwd without a model (1052.275989ms)
+✔ guest probe surfaces ENOSYS at cwd and does not invent a working directory (58.004315ms)
+✔ real Koishi/HDS/SQLite host persists inbound IDs, builds card context and rejects unauthenticated RPC (9230.955066ms)
+✔ real HDS forwards native image input, retains attachment history and holds restored stories (9181.765627ms)
+✔ M3 CJK composition gates Enter, Android 229 and the composition interval; Shift+Enter stays multiline (2.015664ms)
+✔ M3 drafts isolate card IDs, persist attachments across reload and clear only the sent card (2.266428ms)
+✔ M3 sticker import deduplicates content hashes within a pack; recents deduplicate across packs and cap at 16 (2.424819ms)
+✔ M3 empty sticker libraries hide chat entry; local message mapping survives pack deletion (9.26129ms)
+✔ M3 lightbox zoom clamps and downward dismissal respects zoom, direction and native long-image scroll (0.404406ms)
+✔ M3 thinking is folded by default for current and historical content, with honest absent timing (2.40986ms)
+✔ M4 catalog gate admits mobile-local and preserves OneBot/disabled/unsupported paths (5.880368ms)
+✔ M4 empty instruction is exactly empty; populated instruction retains upstream threshold (7.551034ms)
+✔ M4 pack sync excludes message-only assets and original media remains readable after export deletion (19.992761ms)
+✔ M4 visual route maps native/sidecar providers and leaves absent or text-only vision unassigned (26.667669ms)
+✔ M4 character media marker stripping preserves prose, punctuation and ordinary bracket text (52.091834ms)
+✔ M4 actual host describes GIF, injects mobile catalog, delivers standalone/after-text and disables stale empty catalog (28350.428235ms)
+✔ M5 voice capability is absent by default, off instruction is exactly empty, enabled schema includes restrained willingness (9.491678ms)
+✔ M5 old message JSON remains readable and audio participates in message reconciliation (1.622282ms)
+✔ M5 transcript and TTS strip media markers and reasoning while preserving ordinary prose (11.429196ms)
+✔ M5 bridge failures, invalid metadata and non-loopback endpoints silently fall back to text (13.645456ms)
+✔ M5 real HDS decisions reach final local text + one audio record; legacy SQLite migrates; disabling and failed TTS preserve text (18747.320738ms)
+✔ local image store bounds attachments, prevents path access and deduplicates content (10.59217ms)
+✔ attachment contract tolerates legacy JSON objects without treating arbitrary objects as image lists (3.371774ms)
+✔ message merge retains identity and detects a moving 200-row window (6.664011ms)
+✔ refresh coordinator shares reads, follows dirty mutations and isolates revisions (4.598114ms)
+✔ explicit native rejection is failed; lost transport remains unknown (2.018546ms)
+✔ message push is exactly one stdout marker and one JSON line, with full text and ISO time (10.768286ms)
+✔ notification text uses first text line, bounds code points and never exposes image markup (2.954716ms)
+✔ since query is character-only and strictly greater, with equivalent ISO offsets (0.946023ms)
+✔ mobile assignments drive the original HDS main, compaction, timeline and Alter routes (4.513149ms)
+✔ legacy single connection retains all roles; empty assignments never silently route to another task (1.047815ms)
+✔ official preset addresses agree with the embedded upstream HDS resolver (1.754609ms)
+✔ vision projection is canonical, secret-free and checks every candidate (2.847421ms)
+✔ image entry explains all unavailable states in priority order (0.466106ms)
+✔ task board follows the main model and preserves an independent psychology model in HDS routing (5.022999ms)
+✔ deleting the assigned provider repairs orphaned tasks without using disabled connections (0.802894ms)
+✔ legacy multi-model task sets can be inherited without discarding backup providers (0.383624ms)
+✔ typ0-style koishi YAML keeps native persona semantics and never persists connection secrets (83.419457ms)
+✔ direct JSON, share envelopes and multiple HDS instances are recognized without choosing silently (1.477394ms)
+✔ unsupported YAML constructs and oversized native fields fail without echoing secrets (8.784909ms)
+✔ editing preserves Tavern extensions and HDS native fields while reflecting the current persona (6.887992ms)
+✔ vision routing rejects missing or disabled dedicated models (6.786847ms)
+✔ dedicated vision feeds observations to text narration; memory management respects story scope and confirmation (6742.807887ms)
+✔ supported schema derives upstream defaults; master switch gates independent scheduling (19.299829ms)
+✔ mobile alter output budget defaults to 400 and respects explicit user settings (6.75491ms)
+✔ mobile context budget is explicit and cannot be injected through settings or preset sync (5.361558ms)
+✔ rolling budget persists across restart, clock rollback and concurrent manual work (5.344996ms)
+✔ preset sync filters secrets and unsupported switches; rechecks remote revision (5.654001ms)
+✔ real Koishi model requests stop at budget, retain quota after restart, and foreground chat still delivers (7545.501598ms)
+✔ rc56 mobile patches apply baseline fixtures, is idempotent and rejects unknown anchors (983.206457ms)
+✔ Preview 8.1 thresholds keep defaults and independent explicit-contact settings (4.743125ms)
+✔ Preview 9 accepted messages derive delivered/read labels without mutating stored status (14.251229ms)
+✔ Preview 9 failed status is a retry button, delivered replies are quiet, and openings retain their label (1.312765ms)
+✔ Preview 9 local reply watermarks isolate cards, survive reload and the history window, and reset with a story (1.252367ms)
+✔ Preview 9 read receipts still work when local storage is unavailable (0.611836ms)
+✔ Preview 9 typing bubble has three static dots only during a send request (2.663042ms)
+✔ M2 schema exposes upstream expression defaults, Embedding and actual rc56 weather fields (18.41878ms)
+✔ M2 vector assignment stays independent, respects explicit routing and rejects unusable routes (2.060132ms)
+✔ M2 real host serves QQ sticker URLs on the RPC port and bridges Embedding to /embeddings (1898.79303ms)
+✔ M3 build overlay is idempotent and fails on unknown upstream; upstream files stay untouched (139.300668ms)
+✔ M3 real WASM encoder supports TTS WAV rates and stereo without subprocesses; SILK decodes to audible PCM (1654.199237ms)
+✔ M3 optional synthesis/encoding/record failures preserve text receipts; failed text never synthesizes (746.35176ms)
+✔ M3 real HDS + OneBot private/group record delivery, final willingness, shared bridge gates and text fallback (34998.003908ms)
+✔ M4 schedulePreplan: supported schema, rc56 defaults and explicit mobile mapping (17.439904ms)
+✔ M4 timelineDirector: supported schema, rc56 defaults and explicit mobile mapping (3.750548ms)
+✔ M4 memory: supported schema, rc56 defaults and explicit mobile mapping (5.445462ms)
+✔ M4 worldSeeder: supported schema, rc56 defaults and explicit mobile mapping (3.442516ms)
+✔ M4 longHorizon: supported schema, rc56 defaults and explicit mobile mapping (3.567356ms)
+✔ M4 weather: supported schema, rc56 defaults and explicit mobile mapping (2.199227ms)
+✔ M4 mobile memory safety caps and six-section schema reject invalid values (9.192311ms)
+✔ M4 story editor maps defaults aliases to runtime setting and validates timezone (34.584418ms)
+✔ M4 world-event source has an optional, independent runnable model assignment (2.832514ms)
+✔ Xauthority writes an authenticated wildcard record despite stale xauth locks (22.49027ms)
+✔ optional HTTPS accelerator only wraps GitHub artifact URLs (1.427842ms)
+✔ downloads report real bytes and enforce hashes, limits and cancellation (116.289034ms)
+✔ QQ policy fails closed and renders message elements as inert text (32.954336ms)
+✔ legacy numeric allowlists migrate without losing accounts and retain mobile defaults (5.466342ms)
+✔ complete policy roundtrips identity cards, per-group rules, custom gate and keywords (8.483222ms)
+✔ real OneBot adapter and HDS enforce whitelist, persist inbox and send literal text once (19851.401406ms)
+✔ scheduled time grammar uses story timezone and rejects ambiguous or past times (104.3458ms)
+✔ commitment bounds and delayed purpose enforce independent valid plans (4.943107ms)
+✔ real 10-second due timer delivers without another user message while autoAdvance is off (30704.661125ms)
+✔ cancelling ordinary plans preserves explicit delayed contact and its next wake (74.815245ms)
+✔ experimental SSE exposes an early invalid confirmation as unregistered without a duplicate reply (8328.684533ms)
+✔ setting effects describe actual rendering, runtime reload and memory behavior (9.524495ms)
+✔ share persona survives mobile preview, including persona-only shares and partial nonempty fields (48.724418ms)
+✔ story.applySetting persists share persona to the current story and preserves unspecified setting and history (10769.471138ms)
+✔ native persona reaches real HDS; SSE delivers once before completion; edited persona keeps SQLite history (7631.904605ms)
+ℹ tests 94
+ℹ suites 0
+ℹ pass 94
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 293870.526467
+
+npm run test:ui 全部 PASS 摘要
+PASS M4: four tabs, unread badge, source-aware Inbox return, policy/thread/root back priority and character library in switcher.
+PASS P0-b: notification toggle defaults off, denied permission state and system settings link.
+PASS Preview 9: in-flight three-dot typing bubble, delivered/read double checks, quiet character replies and local reply watermark.
+PASS Preview 9: failed history messages retry through the send chain with the original requestId and images, preserving the composer.
+PASS Preview 9: failed draft retry button retains attachments and reuses the original requestId.
+PASS Preview 8.1: an accepted history receipt resolves an unknown send without resend.
+PASS Preview 8.1: timeline/memory/mind tab reading positions.
+PASS Preview 8.1: row identity, 200-row moving window, new-message badge, chat reading restoration and textarea grow/shrink.
+PASS P0-b: hot/cold launch card selection opens chat at latest.
+PASS M3: CJK/229 composition gate, Enter/Shift+Enter, text/image paste, per-card text+attachment drafts and restart, empty/filled sticker entry, SAF/default pack name, multi-select feedback/dedup, rename/delete confirmation/individual delete, instant send/collapse/disabled guard and same-ID failed retry, GIF without bubble, recents, persisted message marker and successful draft clear.
+PASS M4: empty library hides entry; character standalone/after-text GIFs hydrate via media RPC without user mappings, keep sequence and render without bubbles; unknown markers stripped only from character prose; 320/390/740 px layouts.
+PASS M3: notification card switching during send clears only the acknowledged card draft.
+PASS M3: historical thinking toggle, native long-image overflow and browser touch scrolling, slow downward gesture, pinch zoom, zoomed pan without dismissal, top-edge downward close, blank/Escape close, body scroll lock/focus restore and reduced-motion fuse.
+PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.
+PASS M4: six schema-driven groups/defaults/switches/autosave, memory caps + vector controls, optional world model, actual App editor → RPC → HDS/SQLite snapshot, retry/cancel, history retention and restart persistence.
+PASS QQ policy UI: identity card, nested settings, custom controls, numeric keyboards, 320/390/430px touch/layout, RPC save and reopen
+PASS share persona UI: before/after diff, default on, opt out, life-only, fingerprint rejection, RPC failure.
+PASS M5: actual HDS decisions → LocalBot → SQLite → browser voice bubble, real WAV playback, transcript in one message, failed TTS preserves text, live disabled gate removes audio UI/instruction; workbench design/import/record/preview/save/rename/bind/delete; 320/390/740 px screenshots. Android microphone/SAF/TTS are fixtures; native implementation is separately covered by Robolectric.
+
+上游时钟补丁关联回归统计
+ℹ tests 31
+ℹ suites 0
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4584.016615
+
+完整原始日志
+- /tmp/hds-rc57-test-initial.log：npm run test 最终通过日志。
+- /tmp/hds-rc57-ui-initial.log：首轮 UI 保存重试失败日志。
+- artifacts/m5/existing-ui-failure.txt：首轮失败的 DOM/fixture 快照；对应 existing-ui-failure.png 为截图。
+- /tmp/hds-rc57-ui-retry.log：修复后 npm run test:ui 最终通过日志。
+- /tmp/hds-rc57-build-ui-retry.log：逻辑组 build:host 回归日志。
+- /tmp/hds-rc57-upstream-clock.log：上游 31 项时钟关联测试日志。
+- /tmp/hds-rc57-test-patch-diagnosis.log：rc57 固定 Git 对象补丁漂移诊断。
+UI 冒烟使用原生桥 fixture；本结果不声称验证 Android 真机功能。

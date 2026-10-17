@@ -222,8 +222,9 @@ try {
   await name.fill('保留的草稿'); await name.blur()
   await page.getByText('测试：保存失败').waitFor()
   assert.equal(await name.inputValue(), '保留的草稿')
-  // Clear the fixture failure at retry time; queued autosaves can otherwise remove the button first.
-  await page.getByRole('button', { name: '重试保存', exact: true }).evaluate(button => { window.__storyFixture.failSave = false; button.click() })
+  // Clear the fixture failure on the real click; autosaves can replace the button while Playwright resolves it.
+  await page.evaluate(() => document.addEventListener('click', () => { window.__storyFixture.failSave = false }, { capture: true, once: true }))
+  await page.getByRole('button', { name: '重试保存', exact: true }).click()
   await page.waitForFunction(() => window.__storyFixture.prefs.userName === '保留的草稿')
   await page.getByRole('button', { name: '立即重启生效', exact: true }).click()
   await page.waitForFunction(() => window.__storyFixture.calls.includes('stop'))
