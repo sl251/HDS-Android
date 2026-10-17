@@ -102,6 +102,7 @@ class HdsRuntime private constructor(private val context: Context) {
     init {
         try {
             transaction.recover()
+            File(environment, "background-diagnostic.json").takeIf { it.isFile }?.let { backgroundDiagnostic = JSONObject(android.util.AtomicFile(it).openRead().bufferedReader().use { r -> r.readText() }) }
             if (diagnosticFile.isFile) lastDiagnostic = JSONObject(android.util.AtomicFile(diagnosticFile).openRead().bufferedReader().use { it.readText() })
             if (lastDiagnostic.optString("result") == "in-progress") lastDiagnostic.put("result", "interrupted").put("recovery", "generation-restored")
             cleanupPending = transaction.previous.exists()

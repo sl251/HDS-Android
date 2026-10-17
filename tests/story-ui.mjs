@@ -41,7 +41,12 @@ try {
     window.Capacitor = {
       convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
       PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
-      nativePromise: async (_, method, options) => {
+      nativePromise: async (plugin, method, options) => {
+        if (plugin === 'CapacitorHttp' && method === 'get') {
+          if (f.presetDelay) await new Promise(resolve => setTimeout(resolve, f.presetDelay))
+          if (f.presetError) throw new Error(f.presetError)
+          return { status: 200, data: { code: options.url.split('/').at(-1), title: '生活预设 fixture', revision: 1, sections: ['agency', 'storyDefaults', 'model'], payload: { agency: { enabled: true, contactMode: 'balanced' }, ...(f.presetPatch ? { storyDefaults: { characterName: f.presetPatch.character.name, characterProfile: f.presetPatch.character.profile, world: f.presetPatch.world } } : {}), model: { apiKey: 'ignored-fixture' } } }, headers: {}, url: options.url }
+        }
         f.calls.push(method)
         if (method === 'notificationSettings') return f.notifications || { enabled: false, permission: 'prompt', available: false }
         if (method === 'setMessageNotifications') { f.notifications = { enabled: options.enabled, permission: 'denied', available: false }; return f.notifications }
@@ -84,7 +89,7 @@ try {
             return { data: { config: { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }, title: '生活预设 fixture', code: 'ABCDEFGH', revision: 1, fingerprint: 'fixture', removed: ['model'], changes: [{ section: 'agency', field: 'enabled', before: false, after: true }], ...(f.presetPatch ? { storyPatch: structuredClone(f.presetPatch) } : {}) } }
           }
           if (options.method === 'story.applySetting') { if (f.failSettingApply) throw new Error('测试：人设写入失败'); (f.appliedSettings ||= []).push(structuredClone(options.payload)); return { data: options.payload } }
-          if (options.method === 'preset.commit') { if (f.failSettingApply) throw new Error('测试：人设写入失败'); if (f.presetPatch) (f.appliedSettings ||= []).push(structuredClone(f.presetPatch)); const config = { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }; f.settings.mobileConfig = config; return { data: { config, state: 'committed' } } }
+          if (options.method === 'preset.commit') { if (f.failSettingApply) throw new Error('测试：人设写入失败'); if (f.presetPatch) (f.appliedSettings ||= []).push(structuredClone(f.presetPatch)); const config = { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }; f.prefs.mobileConfig = config; return { data: { config, state: 'committed' } } }
           if (options.method === 'messages.history') return { data: f.messages || [] }
           if (options.method === 'images.upload') { (f.uploaded ||= []).push(options.payload.dataUri); return { data: { id: 'a'.repeat(64) } } }
           if (options.method === 'images.get' && f.imageData) return { data: { dataUri: f.imageData } }
@@ -108,6 +113,7 @@ try {
         }
       }
     }
+    window.Capacitor.PluginHeaders.push({ name: 'CapacitorHttp', methods: [{ name: 'get', rtype: 'promise' }] })
   })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
   if (!process.env.HDS_M3_ONLY) {
@@ -215,10 +221,8 @@ try {
   await codeDialog.waitFor({ state: 'detached' })
   await page.getByText('人设已同步到当前故事，生活设置已更新，重启后生效。', { exact: true }).waitFor()
   const imported = await page.evaluate(() => ({ calls: window.__storyFixture.presetCalls, patches: window.__storyFixture.appliedSettings, prefs: window.__storyFixture.prefs }))
-  assert.deepEqual(imported.calls, [
-    { code: 'ABCDEFGH', current: codeSettingsBefore.mobileConfig ?? {} },
-    { code: 'ABCDEFGH', current: codeSettingsBefore.mobileConfig ?? {}, fingerprint: 'fixture' },
-  ])
+  assert.equal(imported.calls.length, 1, 'Preview uses CapacitorHttp while apply rechecks through the host')
+  assert.equal(imported.calls[0].code, 'ABCDEFGH'); assert.match(imported.calls[0].fingerprint, /^[a-f0-9]{64}$/)
   assert.deepEqual(imported.patches, [{ character: { name: '星禾', profile: '修理师' }, world: '海边' }])
   assert.equal(imported.prefs.mobileConfig.sections.agency.contactMode, 'balanced')
   for (const key of ['providers', 'modelOptions', 'autoAdvance', 'userName', 'userProfile', 'activeCard']) assert.deepEqual(imported.prefs[key], codeSettingsBefore[key])
@@ -239,7 +243,7 @@ try {
   await checkCode.click()
   await applyCode.waitFor()
   // Editing a previously checked code must discard its fingerprint/preview.
-  await codeInput.fill('BCDEFGHI')
+  await codeInput.fill('BCDEFGHJ')
   assert.equal(await applyCode.count(), 0)
   await checkCode.click()
   await applyCode.click()
@@ -250,7 +254,7 @@ try {
   await checkCode.click()
   await applyCode.click()
   await codeDialog.getByRole('alert').getByText('测试：人设写入失败', { exact: true }).waitFor()
-  assert.equal(await codeInput.inputValue(), 'BCDEFGHI')
+  assert.equal(await codeInput.inputValue(), 'BCDEFGHJ')
   assert.equal(await page.evaluate(() => window.__storyFixture.appliedSettings.length), 1)
   assert.equal(await page.evaluate(() => window.__storyFixture.saves.length), codeSaves, 'Failed checks/applies never save life settings')
   await codeDialog.getByRole('button', { name: '关闭导入码' }).click()

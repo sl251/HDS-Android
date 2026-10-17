@@ -445,7 +445,7 @@ function App() {
         setCodePreview(null); setImportCodeOpen(false); setImportCode('')
         setNotice(next.storyPatch ? '人设已同步到当前故事，生活设置已更新，重启后生效。' : '生活设置已更新，重启后生效。')
       } else setCodePreview({ ...next, current: version, storyRevision: revision })
-    } catch (error) { setCodePreview(null); setCodeError(errorText(error) + (apply ? ' 如应用已中断，可在生活设置恢复上次导入。' : '')) }
+    } catch (error) { setCodePreview(null); setCodeError(errorText(error)) }
     finally { setBusy(false) }
   }
   const send = async (retry?: Message, sticker?: { packId: string; asset: StickerAsset }) => {
