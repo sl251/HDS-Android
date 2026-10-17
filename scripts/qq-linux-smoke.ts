@@ -25,11 +25,16 @@ async function main() {
     chmodSync(binary, 0o600)
     try {
       await qq.start()
-      limit = Date.now() + 10000
-      while (qq.status().phase !== 'failed' && Date.now() < limit) await new Promise(resolve => setTimeout(resolve, 100))
-      if (qq.status().phase !== 'failed' || qq.status().running) throw new Error('Rejected QQ execution was not cleaned up')
+      // Rejected execution is taken over by the watchdog (cleaning/backoff/…),
+      // not an immediate 'failed' phase. Cleanup must still complete and stop must remain usable.
+      limit = Date.now() + 30000
+      while (!['cleaning', 'backoff', 'restarting', 'quick-login', 'waiting-qr', 'gave-up'].includes(qq.status().recovery.state) && Date.now() < limit) await new Promise(resolve => setTimeout(resolve, 100))
+      if (!qq.status().recovery.state || qq.status().recovery.state === 'idle') throw new Error('Rejected QQ execution did not trigger recovery')
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      if (qq.status().running) throw new Error('Rejected QQ execution was not cleaned up')
       await Promise.race([qq.stop(), new Promise((_, reject) => setTimeout(() => reject(new Error('Stop hung after rejected QQ execution')), 5000))])
-      console.log('PASS: rejected QQ execution can be stopped and retried.')
+      if (qq.status().phase !== 'stopped' || qq.status().recovery.state !== 'idle') throw new Error('Stop did not reset recovery state')
+      console.log('PASS: rejected QQ execution is taken over by watchdog and can be stopped cleanly.')
     } finally { chmodSync(binary, 0o755) }
     await qq.start()
     limit = Date.now() + 130000
