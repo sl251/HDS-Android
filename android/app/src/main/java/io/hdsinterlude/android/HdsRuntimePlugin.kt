@@ -121,6 +121,8 @@ class HdsRuntimePlugin : Plugin() {
         }
     }
     @PluginMethod fun pickStickers(call: PluginCall) {
+        try { requireStickerVision(runtime().store.publicSettings()) }
+        catch (failure: Exception) { call.reject(failure.message ?: "请先配置识图模型", failure); return }
         val directory = call.getBoolean("directory", false) == true
         val intent = if (directory) Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
             else Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
@@ -132,7 +134,7 @@ class HdsRuntimePlugin : Plugin() {
         val tree = if (call.getBoolean("directory", false) == true) result.data?.data else null
         val uris = pickedImageUris(result)
         if (uris.isEmpty()) { call.reject("未返回可读取的文件"); return }
-        run(call) { StickerStore(context).import(uris, tree) }
+        run(call) { requireStickerVision(runtime().store.publicSettings()); StickerStore(context).import(uris, tree) }
     }
     @PluginMethod fun syncStickerLibrary(call: PluginCall) { run(call) {
         StickerStore(context).saveLibrary(call.getArray("packs") ?: throw IllegalArgumentException("缺少表情包清单")); JSONObject()

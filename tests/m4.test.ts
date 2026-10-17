@@ -89,7 +89,7 @@ test('M4 character media marker stripping preserves prose, punctuation and ordin
   assert.match(markup, /普通文字/)
 })
 
-test('M4 actual host describes GIF, injects mobile catalog, delivers standalone/after-text and disables stale empty catalog', { timeout: 120000 }, async () => {
+test('M4 actual host describes GIF, injects mobile catalog, normalizes model media choices to standalone and disables stale empty catalog', { timeout: 120000 }, async () => {
   const requests: any[] = [], logs: string[] = []
   let placement = 'after-text'
   const filePath = `开心包/${hash}.gif`, assetId = stableStickerAssetId(filePath, hash)
@@ -119,9 +119,8 @@ test('M4 actual host describes GIF, injects mobile catalog, delivers standalone/
     await host.dispatch('messages.sendLocal', { requestId: 'm4-after-text-request', content: '今天开心吗' })
     await until(async () => (await history()).some(row => row.direction === 'character' && row.images.length))
     const pair = (await history()).filter(row => row.direction === 'character')
-    assert.deepEqual(pair.map(row => [row.content, row.images.length]), [['今天很开心。', 0], ['', 1]])
-    assert.ok(Date.parse(pair[0].occurredAt) < Date.parse(pair[1].occurredAt))
-    const uri = (await host.dispatch('images.get', { id: pair[1].images[0] }) as any).dataUri
+    assert.deepEqual(pair.map(row => [row.content, row.images.length]), [['', 1]])
+    const uri = (await host.dispatch('images.get', { id: pair[0].images[0] }) as any).dataUri
     assert.equal(uri, `data:image/gif;base64,${bytes.toString('base64')}`)
     const narrative = requests.find(row => !String(row.messages[0].content).startsWith('Describe this local chat sticker'))
     assert.match(narrative.messages[0].content, /CURRENT LOCAL STICKER LIBRARY/)
@@ -130,8 +129,8 @@ test('M4 actual host describes GIF, injects mobile catalog, delivers standalone/
     assert.equal(since.at(-1).fullContent, '[表情包]')
     placement = 'standalone'
     await host.dispatch('messages.sendLocal', { requestId: 'm4-standalone-request', content: '那发个表情吧' })
-    await until(async () => (await history()).filter(row => row.direction === 'character').length >= 3)
-    assert.deepEqual((await history()).filter(row => row.direction === 'character').slice(2).map(row => [row.content, row.images.length]), [['', 1]])
+    await until(async () => (await history()).filter(row => row.direction === 'character').length >= 2)
+    assert.deepEqual((await history()).filter(row => row.direction === 'character').slice(1).map(row => [row.content, row.images.length]), [['', 1]])
     const [id1, id2] = await host.bot.sendMessage('private:local-user', `直接文本${h('img', { src: stickerDeliveryUrl('', assetId) })}`)
     assert.ok(id1 && id2)
     assert.deepEqual((await history()).filter(row => [id1, id2].includes(row.id)).map(row => [row.content, row.images.length]), [['直接文本', 0], ['', 1]])
@@ -143,7 +142,7 @@ test('M4 actual host describes GIF, injects mobile catalog, delivers standalone/
     requests.length = 0
     host = await startHost({ ...config, card: parseJsonCard(JSON.stringify({ name: '新角色', description: '空库测试' })) })
     assert.equal(host.app.interlude.config.stickers.enabled, false)
-    assert.equal((await host.dispatch('images.get', { id: pair[1].images[0] }) as any).dataUri, uri)
+    assert.equal((await host.dispatch('images.get', { id: pair[0].images[0] }) as any).dataUri, uri)
     await host.dispatch('messages.sendLocal', { requestId: 'm4-empty-library-request', content: '你好' })
     await until(async () => requests.length > 0)
     const emptyPrompt = requests[0].messages[0].content

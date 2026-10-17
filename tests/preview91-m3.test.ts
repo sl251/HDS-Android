@@ -50,25 +50,25 @@ test('M3 real WASM encoder supports TTS WAV rates and stereo without subprocesse
   for (const bytes of [Buffer.alloc(0), Buffer.from('corrupt'), wav().subarray(0, 60), Buffer.alloc(10 * 1024 * 1024 + 1)]) await assert.rejects(() => wavToSilk(bytes))
 })
 
-test('M3 optional synthesis/encoding/record failures preserve text receipts; failed text never synthesizes', { timeout: 20000 }, async () => {
+test('M3 synthesis failures and definitive record rejection fall back to one text; uncertain receipts never duplicate', { timeout: 20000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'm3-fallback-'))
   const id = 'a'.repeat(64), metadata = { audioId: id, duration: 1 }
   let mode = 'valid', requests = 0, records = 0, textDelivered = false
   const api = createServer(async (req, res) => {
     for await (const _ of req) { /* drain */ }
-    assert.equal(textDelivered, true, 'Text must already be delivered before any TTS work')
+    assert.equal(textDelivered, false, 'Choose the medium before sending any text')
     requests++; res.setHeader('Content-Type', 'application/json')
     if (mode === 'http') res.statusCode = 503
     res.end(JSON.stringify(mode === 'empty' ? {} : mode === 'invalid-id' ? { ...metadata, audioId: '../secret' } : metadata))
   })
   await new Promise<void>(resolve => api.listen(0, '127.0.0.1', resolve))
   const bridge: VoiceBridgeConfig = { directory, cardId: 'first', token: 'fixture', url: `http://127.0.0.1:${(api.address() as any).port}/synthesize` }
-  const bot = { platform: 'onebot', sendMessage: async () => { records++; throw new Error('QQ record rejected') } }
+  const bot = { platform: 'onebot', sendMessage: async () => { records++; throw Object.assign(new Error('QQ record rejected'), { code: 1200 }) } }
   const sendText = async () => { textDelivered = true; return ['text-receipt'] }
   const deliver = () => oneBotVoiceDelivery(bridge, bot, 'private:12345', '今天真开心。', .95, '', sendText)
   try {
     for (const value of ['http', 'empty', 'invalid-id', 'missing', 'corrupt', 'symlink', 'valid']) {
-      mode = value
+      mode = value; textDelivered = false
       const file = join(directory, `${id}.wav`)
       rmSync(file, { force: true })
       if (value === 'corrupt') writeFileSync(file, 'bad WAV')
@@ -78,10 +78,11 @@ test('M3 optional synthesis/encoding/record failures preserve text receipts; fai
     }
     assert.equal(records, 1, 'Only a valid, regular WAV reaches QQ; record rejection is optional')
     const before = requests
+    mode = 'http'; textDelivered = false
     await assert.rejects(() => oneBotVoiceDelivery(bridge, bot, 'private:12345', '正文', .95, '', async () => { throw new Error('text rejected') }), /text rejected/)
-    assert.equal(requests, before)
+    assert.equal(requests, before + 1)
     assert.deepEqual(await oneBotVoiceDelivery(bridge, { ...bot, platform: 'mobile-local' }, 'local', '正文', .95, '', sendText), ['text-receipt'])
-    assert.equal(requests, before, 'Other platforms retain their existing path')
+    assert.equal(requests, before + 1, 'Other platforms retain their existing path')
   } finally { await new Promise<void>(resolve => api.close(() => resolve())); rmSync(directory, { recursive: true, force: true }) }
 })
 
@@ -174,22 +175,39 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
       assert.match(models.at(-1).messages[0].content, /CURRENT LOCAL VOICE OPTION/)
       assert.notEqual(models.at(-1).stream, true, 'Voice waits for final model decision in QQ too')
       assert.equal(JSON.stringify(models).includes('m3-private-bridge-token'), false)
-      assert.equal(texts().length, before + 1, 'One text plus one record for each reply')
+      assert.equal(texts().length, 0, 'Voice is the reply: no accompanying text')
     }
-    // The background/private-bot path must settle text while Android is still
-    // synthesizing, so pending-delivery recovery cannot mistake audio for text.
+    // The background/private-bot path waits for the chosen medium receipt.
     bridgeMode = 'slow'
     const participant = (await host.app.database.get('interlude_participant', { platform: 'onebot', userId: '12345' }))[0]
     const story = (await host.app.database.get('interlude_story', {}))[0]
     let textSettled = false
     const beforeSlow = texts().length, beforeSlowRecords = records().length
-    const sending = (host.app.interlude as any).sendOutgoingMessages(story, [{ participantId: participant.id, content: '慢速语音仍先确认文字。', voice: { willingness: .95 } }]).then((rows: any[]) => { assert.equal(rows.length, 1); textSettled = true })
-    await waitFor(() => !!releaseSlow && textSettled)
-    assert.equal(texts().length, beforeSlow + 1)
-    assert.equal(records().length, beforeSlowRecords, 'TTS is blocked, but the text receipt already returned')
+    const sending = (host.app.interlude as any).sendOutgoingMessages(story, [{ participantId: participant.id, content: '慢速合成结束后只发送语音。', voice: { willingness: .95 } }]).then((rows: any[]) => { assert.equal(rows.length, 1); textSettled = true })
+    await waitFor(() => !!releaseSlow)
+    assert.equal(textSettled, false)
+    assert.equal(texts().length, beforeSlow)
+    assert.equal(records().length, beforeSlowRecords, 'TTS is blocked and no message has been sent yet')
     releaseSlow!(); releaseSlow = undefined
     await sending; await host.drainVoice(); bridgeMode = 'normal'
     assert.equal(records().length, beforeSlowRecords + 1)
+    // Exercise the real HDS sticker path through Koishi's OneBot encoder for
+    // both destinations. Custom stickers use image segments with sub_type=1.
+    const service = host.app.interlude as any
+    const stickerDirectory = join(directory, 'stickers', 'fixture'); mkdirSync(stickerDirectory, { recursive: true })
+    writeFileSync(join(stickerDirectory, 'happy.gif'), readFileSync('fixtures/images/sticker-fixture.gif'))
+    const sticker = { assetId: 'media-choice-sticker', filePath: 'fixture/happy.gif', group: 'fixture', description: '开心', animated: true, status: 'active' }
+    service.stickerById.set(sticker.assetId, sticker)
+    const onebot = host.app.bots.find(bot => bot.platform === 'onebot')!
+    for (const group of [false, true]) {
+      const before = delivered.length
+      assert.equal(await service.sendSticker(story, { bot: onebot, platform: 'onebot', selfId: '55555' }, group ? '88888' : 'private:12345', sticker, group ? '88888' : undefined), true)
+      const message = delivered[before].params.message
+      assert.equal(message.length, 1)
+      assert.equal(message[0].type, 'image')
+      assert.equal(Number(message[0].data.sub_type), 1)
+      assert.equal(message[0].data.summary, '[表情包]')
+    }
     for (const failure of ['low', 'invalid', 'cooldown', 'daily', 'http', 'corrupt', 'reject', 'disabled']) {
       const before = texts().length, beforeRecords = records().length
       willingness = failure === 'low' ? .1 : failure === 'invalid' ? 2 : .95
