@@ -142,7 +142,7 @@ try {
   const composer = page.getByRole('textbox', { name: '消息内容' })
   await composer.fill('今天心情怎么样？'); await page.getByRole('button', { name: '发送消息', exact: true }).click()
   await page.getByRole('button', { name: '播放语音', exact: true }).waitFor()
-  assert.equal(await page.locator('.message.character-reply').count(), 1)
+  assert.equal(await page.locator('article.message.character-reply').count(), 1)
   assert.equal(await page.locator('.voice-transcript').count(), 0)
   assert.equal(synthRequests[0].text, '今天真开心，想把这份好心情告诉你。')
   assert.match(modelRequests[0].messages[0].content, /CURRENT LOCAL VOICE OPTION/)
@@ -163,7 +163,7 @@ try {
   }
   failTts = true
   await composer.fill('再说一遍吧'); await page.getByRole('button', { name: '发送消息', exact: true }).click()
-  await page.waitForFunction(() => document.querySelectorAll('.message.character-reply').length === 2)
+  await page.waitForFunction(() => document.querySelectorAll('article.message.character-reply').length === 2)
   assert.equal(await page.locator('.voice-message').count(), 1)
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^日常与表达/ }).click()
@@ -176,7 +176,7 @@ try {
   await page.getByRole('button', { name: '故事', exact: true }).click()
   assert.equal(await page.locator('.voice-message').count(), 1, 'Disabling future voice preserves existing audio history')
   await composer.fill('普通聊天继续'); await page.getByRole('button', { name: '发送消息', exact: true }).click()
-  await page.waitForFunction(() => document.querySelectorAll('.message.character-reply').length === 3)
+  await page.waitForFunction(() => document.querySelectorAll('article.message.character-reply').length === 3)
   assert.doesNotMatch(modelRequests.at(-1).messages[0].content, /CURRENT LOCAL VOICE OPTION/)
   assert.equal(await page.locator('.voice-message').count(), 1, 'Disabling future voice preserves existing audio history')
   await page.screenshot({ path: 'artifacts/m5/voice-disabled.png', fullPage: true })
