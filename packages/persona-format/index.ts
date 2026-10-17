@@ -60,7 +60,11 @@ export function parsePersona(bytes: Uint8Array): Card[] {
     }
   } catch { throw new Error('JSON / YAML 无法解析：请检查语法；自定义标签、锚点引用和多文档暂不支持') }
   if (!isRecord(value)) throw new Error('人设文件必须包含配置对象')
-  const looksLikeCard = 'spec' in value || typeof value.name === 'string' || typeof value.char_name === 'string' || (isRecord(value.data) && typeof value.data.name === 'string')
+  // Named preset envelopes are not Tavern cards. Unwrap before format detection.
+  if (isRecord(value.preset) && isRecord(value.preset.payload)) value = value.preset.payload
+  else if (isRecord(value.payload)) value = value.payload
+  const document = value as Record<string, unknown>
+  const looksLikeCard = !isRecord(document.storyDefaults) && ('spec' in document || typeof document.name === 'string' || typeof document.char_name === 'string' || (isRecord(document.data) && typeof document.data.name === 'string'))
   if (looksLikeCard) return [parseJsonCard(JSON.stringify(value))]
   validateTree(value)
   const candidates: { value: Record<string, unknown>; path: string }[] = []
@@ -71,8 +75,6 @@ export function parsePersona(bytes: Uint8Array): Card[] {
       else if (key === 'plugins' || /^group(?::.*)?$/.test(key)) scan(child, path + key + '.')
     }
   }
-  if (isRecord(value.preset) && isRecord(value.preset.payload)) value = value.preset.payload
-  else if (isRecord(value.payload)) value = value.payload
   const root = value as Record<string, unknown>
   if (isRecord(root.storyDefaults)) candidates.push({ value: root, path: '' })
   else scan(root)
