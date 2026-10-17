@@ -168,6 +168,11 @@ try {
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^日常与表达/ }).click()
   await page.getByText('角色语音与音色', { exact: true }).click(); await toggle.click()
+  await page.waitForFunction(() => {
+    const toggle = document.querySelector('.voice-settings input[type="checkbox"]')
+    return toggle && !toggle.checked && !toggle.disabled
+  })
+  assert.equal(voices.characters[cardId].enabled, false, 'Wait for the saved binding before starting another model turn')
   await page.getByRole('button', { name: '故事', exact: true }).click()
   assert.equal(await page.locator('.voice-message').count(), 1, 'Disabling future voice preserves existing audio history')
   await composer.fill('普通聊天继续'); await page.getByRole('button', { name: '发送消息', exact: true }).click()
