@@ -25,7 +25,8 @@ object ProotLaunch {
             if (result.output.lineSequence().any { it.startsWith("HDS_GUEST_PROBE_FAILED stage=spawn") }) throw IllegalStateException("本机 Node 探测进程无法启动；请提供下方探测日志")
             // An unkillable probe is inconclusive. Avoid starting a second probe;
             // let the main launch's own timeout and health checks decide.
-            if (result.passed || result.degraded) return disableSeccomp
+            check(!result.degraded) { "本机探测进程无法清理，已停止启动以避免残留进程；请重启应用并提供诊断" }
+            if (result.passed) return disableSeccomp
         }
         throw IllegalStateException("本机 Node 兼容性检查未通过；两种 PRoot 追踪模式均失败，请提供下方探测日志")
     }

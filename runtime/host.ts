@@ -17,22 +17,30 @@ import { QQRuntime } from './qq'
 import { imageStore } from './media'
 import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt } from './stickers'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProviders, type MobileConfig } from './mobile-config'
-import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceBridgeConfig } from './voice'
+import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceOutcome, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
 import { BackgroundBudget } from './background-budget'
 import { inspectPreset } from './preset'
+import buildInfo from '../build-info.json'
+import { hostMethods } from '../packages/contracts/rpc'
+import { settingRevision, settingPatch } from './story-setting'
 import { messagePush, serializeMessagePush, messagesSinceQuery, type PushRow } from './message-push'
 export { messagePush, serializeMessagePush, messagesSinceQuery } from './message-push'
 export { mobileSchema } from './mobile-config'
 export { normalizeMobileConfig, mapMobileConfig } from './mobile-config'
 export { mobilePreset, inspectPreset } from './preset'
 
-export type HostConfig = { voiceBridge?: VoiceBridgeConfig; mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
+export type HostConfig = { restoreQQ?: boolean; voiceBridge?: VoiceBridgeConfig; mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
 export async function startHost(input: HostConfig) {
   if (!input.card?.name || !input.model || !input.endpoint || !input.token || input.token.length < 32) throw new Error('Missing valid host configuration')
   const endpoint = new URL(input.endpoint)
   if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('Invalid model endpoint')
   mkdirSync(input.dataDir, { recursive: true })
+  const voiceResultsFile = join(input.dataDir, 'voice-delivery-status.json')
+  let voiceResults: VoiceOutcome[] = []
+  try { const saved = JSON.parse(readFileSync(voiceResultsFile, 'utf8')); if (Array.isArray(saved)) voiceResults = saved.slice(-50) } catch { /* optional diagnostics */ }
+  const voiceReferences = new Set<string>()
+  const recordVoiceOutcome = (value: VoiceOutcome) => { voiceResults.push(value); if (voiceResults.length > 50) voiceResults.shift(); try { writeFileSync(voiceResultsFile + '.tmp', JSON.stringify(voiceResults)); renameSync(voiceResultsFile + '.tmp', voiceResultsFile) } catch { /* diagnostics never invalidate a receipt */ } }
   if (input.qqDir) mkdirSync(input.qqDir, { recursive: true })
   const restoreMarker = join(input.dataDir, 'restore-held.json')
   let restoreHeld = existsSync(restoreMarker)
@@ -74,10 +82,15 @@ export async function startHost(input: HostConfig) {
       const ids: string[] = []
       for (const row of rows) {
         if (row.content.trim()) row.audio = await localVoiceDelivery(input.voiceBridge, row.content, options?.mobileVoice?.willingness,
-          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000))
+          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), randomUUID(), recordVoiceOutcome)
         const id = randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
         this.lastMessageTime = occurredAt.getTime()
         await app.database.create('mobile_message' as never, { id, direction: 'character', ...row, occurredAt, status: 'delivered' } as never)
+        if (row.audio) {
+          const refsFile = join(input.dataDir, 'voice-references.json')
+          voiceReferences.add(row.audio.audioId)
+          try { writeFileSync(refsFile + '.tmp', JSON.stringify([...voiceReferences])); renameSync(refsFile + '.tmp', refsFile) } catch { /* Export rebuilds the index from SQLite before packing. */ }
+        }
         process.stdout.write(serializeMessagePush({ id, ...row, occurredAt }))
         ids.push(id)
       }
@@ -105,11 +118,12 @@ export async function startHost(input: HostConfig) {
   config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
   const voiceTasks = new Set<Promise<unknown>>()
   const drainVoice = async () => { while (voiceTasks.size) await Promise.allSettled([...voiceTasks]) }
-  ;(config.model as any).mobileOneBotVoiceDelivery = async (bot: Bot, channelId: string, content: string, willingness: unknown, sendText: () => Promise<unknown>) => {
+  config.model.mobileOneBotVoiceDelivery = async (bot, channelId, spokenText, willingness, sendText) => {
     const receipt = await sendText()
     if (bot?.platform !== 'onebot' || !input.voiceBridge) return receipt
-    const task = oneBotVoiceDelivery(input.voiceBridge, bot, channelId, content, willingness,
-      `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), async () => receipt)
+    if (voiceTasks.size >= 2 || closing) { recordVoiceOutcome({ requestId: randomUUID(), status: 'skipped', stage: 'queue', reason: closing ? 'stopping' : 'queue_full' }); return receipt }
+    const task = oneBotVoiceDelivery(input.voiceBridge, bot, channelId, spokenText, willingness,
+      `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), async () => receipt, recordVoiceOutcome, () => closing)
     voiceTasks.add(task)
     void task.finally(() => voiceTasks.delete(task)).catch(() => undefined)
     // Commit the text receipt immediately. Slow optional audio must not leave
@@ -145,6 +159,9 @@ export async function startHost(input: HostConfig) {
   // A dedicated profile owns this database; no QQ identity is fabricated.
   const current = session()
   let story = await app.interlude.findStory(current) ?? await app.interlude.createStory(current)
+  const historyAudio = await app.database.get('mobile_message' as never, {} as never) as { audio?: unknown }[]
+  for (const row of historyAudio) { const audio = messageAudio(row.audio); if (audio) voiceReferences.add(audio.audioId) }
+  writeFileSync(join(input.dataDir, 'voice-references.json'), JSON.stringify([...voiceReferences]))
   if (restoreHeld) { await app.interlude.setDesktopRuntimePhase('paused'); story = await app.interlude.setStatus(story, 'paused') }
   const cardRevisionFile = join(input.dataDir, 'card-revision.json')
   const appliedRevision = existsSync(cardRevisionFile) ? JSON.parse(readFileSync(cardRevisionFile, 'utf8')).revision : 0
@@ -183,8 +200,11 @@ export async function startHost(input: HostConfig) {
       }) as Parameters<typeof app.interlude.ensureParticipant>[1])
     }
   }) : undefined
+  if (qq && input.restoreQQ && !restoreHeld) void qq.start(true).catch(() => undefined)
   const dispatch = async (method: string, payload: Record<string, unknown>) => {
+    if (!(hostMethods as readonly string[]).includes(method)) throw new Error('Unknown or disallowed method')
     if (closing) throw new Error('核心正在关闭，请稍后再试')
+    if (method === 'network.update') { if (typeof payload.available !== 'boolean') throw new Error('Invalid network availability'); return qq?.setNetwork(payload.available) ?? { available: payload.available } }
     if (method.startsWith('qq.')) { if (!qq) throw new Error('QQ 本机目录未配置'); return qq.dispatch(method, payload) }
     if (method === 'images.upload') return { id: media.save(payload.dataUri).id }
     if (method === 'images.get') return { dataUri: media.get(String(payload.id)) }
@@ -240,7 +260,8 @@ export async function startHost(input: HostConfig) {
       return { restartRequired: lifeRestartRequired || visionRestartRequired, visionRestartRequired, activeVision, reasons: [...(lifeRestartRequired ? ['mobile-config-changed'] : []), ...(visionRestartRequired ? ['vision-config-changed'] : [])] }
     }
     if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (section.key === 'embedding' ? config.model.embedding : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
-    if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
+    if (method === 'voice.status') return voiceResults.slice()
+    if (method === 'health') return { build: buildInfo, budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.since') {
       const query = messagesSinceQuery(payload.since)
       const limit = Math.max(1, Math.min(200, Math.floor(Number(payload.limit) || 200)))
@@ -256,12 +277,37 @@ export async function startHost(input: HostConfig) {
       return rows.map(messagePush)
     }
     if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, occurredAt: new Date((row as { occurredAt: Date | string }).occurredAt).toISOString(), images: messageImages((row as { images?: unknown }).images), audio: messageAudio((row as { audio?: unknown }).audio) }))
-    if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, schedulingStatus: await app.interlude.adminSchedulingStatus(story.id), entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
+    if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, settingRevision: settingRevision(active?.setting), schedulingStatus: await app.interlude.adminSchedulingStatus(story.id), entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
     if (method === 'story.applySetting') {
+      const run = async () => {
+      const operationId = String(payload.operationId ?? '')
+      if (!/^[a-zA-Z0-9-]{8,64}$/.test(operationId)) throw new Error('缺少有效的人设操作编号，请升级界面')
+      const patch = settingPatch(payload.patch)
+      const operationFile = join(input.dataDir, `setting-${operationId}.json`)
       const active = await app.interlude.findStory(current)
       if (!active) throw new Error('未找到当前故事')
-      story = await app.interlude.updateSetting(active, payload)
-      return story.setting
+      if (payload.expectedStoryId !== active.id) throw new Error('当前故事已改变，请重新检查')
+      const signature = settingRevision(patch)
+      let record = existsSync(operationFile) ? JSON.parse(readFileSync(operationFile, 'utf8')) : undefined
+      if (record && record.signature !== signature) throw new Error('操作编号与原人设不一致')
+      if (record?.state === 'committed') return record.result
+      // The durable before/after pair makes a crash between DB write and receipt recoverable.
+      if (record && settingRevision(active.setting) === record.afterRevision) {
+        record.state = 'committed'; record.result = active.setting
+      } else {
+        if (settingRevision(active.setting) !== payload.expectedRevision) throw new Error('故事人设已修改，请重新检查')
+        const after = { ...active.setting, ...patch,
+          ...(patch.character ? { character: { ...active.setting.character, ...patch.character as object } } : {}),
+          ...(patch.user ? { user: { ...active.setting.user, ...patch.user as object } } : {}) }
+        record = { signature, state: 'prepared', afterRevision: settingRevision(after) }
+        writeFileSync(operationFile + '.tmp', JSON.stringify(record)); renameSync(operationFile + '.tmp', operationFile)
+        story = await app.interlude.updateSetting(active, patch)
+        record.state = 'committed'; record.result = story.setting
+      }
+      writeFileSync(operationFile + '.tmp', JSON.stringify(record)); renameSync(operationFile + '.tmp', operationFile)
+      return record.result
+      }
+      const result = queue.then(run); queue = result.then(() => {}, () => {}); return result
     }
     if (method === 'story.pause' || method === 'story.resume') {
       const paused = method.endsWith('pause')

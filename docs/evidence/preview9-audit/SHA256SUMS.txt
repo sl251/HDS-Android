@@ -1,0 +1,2 @@
+bb63af7be1a1025b3321c0e7ff6c6f37609af2998313c36a61bd1fc25f6acafc  HDS-Android-0.1.0-preview.9.2.2-arm64.apk
+ad0053d65343061e4effd906e0fde8f4b7581f7ac161beb9778e6eed45d4c64f  HDS-Android-0.1.0-preview.9.2.2-source.tar.gz

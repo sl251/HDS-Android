@@ -8,6 +8,8 @@ import './style.css'
 import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
 import { CardEditor } from './CardEditor'
 import { StorySettingEditor } from './StorySettingEditor'
+import { BackgroundSettings } from './BackgroundSettings'
+import buildInfo from '../../build-info.json'
 import { CharacterExportModal } from './CharacterExportModal'
 import { Inbox } from './Inbox'
 import { parsePersona, importBytes } from '../../packages/persona-format'
@@ -113,7 +115,7 @@ function App() {
   const [importCodeOpen, setImportCodeOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [importCode, setImportCode] = useState('')
-  const [codePreview, setCodePreview] = useState<(PresetPreview & { current: string; storyRevision: number }) | null>(null)
+  const [codePreview, setCodePreview] = useState<(PresetPreview & { current: string; storyRevision: number; settingRevision?: string }) | null>(null)
   const [codeError, setCodeError] = useState('')
   const [detail, updateDetail] = useState<'story' | 'memory' | 'mind'>('story')
   const [switcher, setSwitcher] = useState(false)
@@ -434,14 +436,22 @@ function App() {
         : await inspectImportCode(importCode.trim(), current)
       ensureCurrent()
       if (apply) {
-        if (next.storyPatch) { await bridge.rpc({ method: 'story.applySetting', payload: next.storyPatch }); ensureCurrent() }
-        const updated = { ...settingsRef.current, mobileConfig: next.config }
+        await saveQueue.current.catch(() => {})
+        const result = await bridge.rpc({ method: 'preset.commit', payload: { operationId: crypto.randomUUID(), cardId: selectedRef.current, code: importCode.trim(), fingerprint: next.fingerprint, current, ...(codePreview?.settingRevision ? { expectedRevision: codePreview.settingRevision } : {}) } })
+        ensureCurrent()
+        const committed = result.data as { config: ModelSettings['mobileConfig'] }
+        const updated = { ...settingsRef.current, mobileConfig: committed.config }
+        const saved = JSON.parse(savedSettings.current || '{}')
+        savedSettings.current = JSON.stringify({ ...saved, mobileConfig: committed.config })
         settingsRef.current = updated; setSettings(updated)
-        await persistSettings()
         if (next.storyPatch) await refreshStory()
         setCodePreview(null); setImportCodeOpen(false); setImportCode('')
         setNotice(next.storyPatch ? '人设已同步到当前故事，生活设置已更新，重启后生效。' : '生活设置已更新，重启后生效。')
-      } else setCodePreview({ ...next, current: version, storyRevision: revision })
+      } else {
+        const snapshot = runtimeRef.current?.state === 'healthy' ? await bridge.rpc({ method: 'story.snapshot' }) : undefined
+        ensureCurrent()
+        setCodePreview({ ...next, current: version, storyRevision: revision, settingRevision: (snapshot?.data as { settingRevision?: string } | undefined)?.settingRevision })
+      }
     } catch (error) { setCodePreview(null); setCodeError(errorText(error)) }
     finally { setBusy(false) }
   }
@@ -594,10 +604,11 @@ function App() {
             <StoryManagement scope="story" bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />
           </>}
           {spacePage !== 'system' && <LifeSettings area={spacePage} value={settings.mobileConfig} change={mobileConfig => setSettings(previous => ({ ...previous, mobileConfig }))} bridge={bridge} healthy={healthy} native={native} notify={setNotice} />}
+          {spacePage === 'system' && <BackgroundSettings bridge={bridge} native={native} notify={setNotice} />}
           {spacePage === 'system' && <>
             <ModelCenter settings={settings} setSettings={setSettings} native={native} busy={busy || sending} bridge={bridge} act={act} notify={setNotice} />
             <StoryManagement scope="backup" bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />
-          <section className="settings-group"><details><summary><span><b>核心维护与诊断</b><small>运行组件、设备信息与日志</small></span></summary><p className="caption">遇到运行问题时，可重新准备核心组件。角色与故事会保留。</p><button className="secondary" disabled={!native || busy || transitioning || healthy} onClick={() => act(async () => { await bridge.install(); setRuntime(await bridge.status()) })}>重新准备核心组件</button><h3>设备与诊断</h3><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>表情包占用</dt><dd>{(libraryBytes(stickers) / 1024 ** 2).toFixed(2)} MiB（含已发送原件）</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || '—'} / rc56</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre role="log" aria-label="运行日志">{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></details></section>
+          <section className="settings-group"><details><summary><span><b>核心维护与诊断</b><small>运行组件、设备信息与日志</small></span></summary><p className="caption">遇到运行问题时，可重新准备核心组件。角色与故事会保留。</p><button className="secondary" disabled={!native || busy || transitioning || healthy} onClick={() => act(async () => { await bridge.install(); setRuntime(await bridge.status()) })}>重新准备核心组件</button><h3>设备与诊断</h3><dl><div><dt>设备</dt><dd>{runtime?.device.model || '待原生读取'}</dd></div><div><dt>Android / API</dt><dd>{runtime ? `${runtime.device.android} / ${runtime.device.sdk}` : '—'}</dd></div><div><dt>ABI / 页大小</dt><dd>{runtime ? `${runtime.device.abi} / ${runtime.device.pageSize} B` : '—'}</dd></div><div><dt>表情包占用</dt><dd>{(libraryBytes(stickers) / 1024 ** 2).toFixed(2)} MiB（含已发送原件）</dd></div><div><dt>可用空间</dt><dd>{runtime ? `${(runtime.device.availableBytes / 1024 ** 3).toFixed(2)} GiB` : '—'}</dd></div><div><dt>应用 / HDS</dt><dd>{runtime?.version || buildInfo.version} / {buildInfo.core}</dd></div></dl><div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => act(async () => setDiagnostic(await bridge.diagnostics({ probe: true })))}>查看安装诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(() => bridge.copyDiagnostics(), '安装诊断已复制，不含密钥、人设和聊天。')}>复制诊断</button><button className="secondary" disabled={!native || busy} onClick={() => act(async () => { const result = await bridge.saveDiagnostics(); setNotice(result.cancelled ? '已取消保存' : '安装诊断已保存。') })}>保存诊断</button></div>{diagnostic && <pre aria-label="安装诊断">{JSON.stringify(diagnostic, null, 2)}</pre>}<details><summary>查看运行日志</summary><pre role="log" aria-label="运行日志">{runtime?.logs.join('\n') || '暂无日志'}</pre></details><p className="caption">请反馈错误阶段、页大小与日志；分享前检查是否包含个人聊天内容。16 KB 页、后台存活与 QQ 能力均需真机验证。</p></details></section>
           </>}
         </div>}
       </>}

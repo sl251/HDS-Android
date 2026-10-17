@@ -1,0 +1,78 @@
+name: Audit regression validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/preview9-audit-fixes]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.11.1'
+          cache: npm
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:host && npm run build && npx cap sync android
+      - name: Native bridge, provider protocol, audio, quota and archive regressions
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --no-daemon lintRelease testReleaseUnitTest
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: audit-native-evidence
+          path: |
+            android/app/build/reports/
+            android/app/build/test-results/
+  regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.11.1'
+          cache: npm
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Contracts, host, UI build and archive policy
+        run: |
+          mkdir -p artifacts
+          node scripts/build-contracts.mjs --check
+          npm test 2>&1 | tee artifacts/audit-host-tests.log
+          npm run build
+          npx cap sync android
+          python3 tests/runtime-pack.test.py
+          python3 tests/guest-openssl-config.test.py
+      - name: Browser regressions
+        run: |
+          npx playwright-core install --with-deps chromium
+          export HDS_BROWSER=$(node --input-type=module -e 'import {chromium} from "playwright-core"; console.log(chromium.executablePath())')
+          npm run dev -- --port 5173 > artifacts/audit-vite.log 2>&1 &
+          for attempt in $(seq 1 30); do curl --silent --fail http://127.0.0.1:5173/ > /dev/null && break; sleep 1; done
+          npm run test:ui 2>&1 | tee artifacts/audit-ui-tests.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: audit-regression-evidence
+          path: |
+            artifacts/audit-*.log
+            android/app/build/reports/
+            android/app/build/test-results/

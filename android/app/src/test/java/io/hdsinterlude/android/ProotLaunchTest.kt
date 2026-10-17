@@ -41,11 +41,11 @@ class ProotLaunchTest {
         assertEquals(listOf(-1234), killed)
     }
 
-    @Test fun unkillableProbeContinuesWithWarningButSpawnFailureStillStops() {
+    @Test fun unkillableProbeStopsBeforeStartingMoreProcesses() {
         val attempts = mutableListOf<Boolean>()
         val result = ProotLaunch.ProbeResult(null, true, "HDS_GUEST_PROBE_WARNING stage=cleanup degraded=true", degraded = true)
         assertFalse(result.passed)
-        assertTrue(ProotLaunch.selectProfile { attempts.add(it); result })
+        assertThrows(IllegalStateException::class.java) { ProotLaunch.selectProfile { attempts.add(it); result } }
         assertEquals(listOf(true), attempts)
         var calls = 0
         assertThrows(IllegalStateException::class.java) {

@@ -44,14 +44,20 @@ export type QQStatus = { phase: string; installed: boolean; running: boolean; lo
 export type QQConversation = { id: string; name: string; last: string; time: number; unread: number }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
 export type MessageNotificationSettings = { enabled: boolean; permission: 'prompt' | 'granted' | 'denied'; available: boolean }
+export type BackgroundState = { enabled: boolean; desired: boolean; batteryUnrestricted: boolean; notificationAllowed: boolean; doze: boolean; networkAvailable: boolean; networkType: string; attempts: number; buildMatches: boolean }
 export type NativeBridge = {
   voiceState(): Promise<VoiceState>;
   saveVoiceSettings(options: { dailyLimit?: number; cooldown?: number; defaultVoiceId?: string; apiKey?: string; clearKey?: boolean; cardId?: string; binding?: VoiceBinding }): Promise<VoiceState>;
   saveVoice(options: Partial<Voice> & { name: string }): Promise<VoiceState>;
   deleteVoice(options: { id: string }): Promise<VoiceState>;
   voiceAudio(options: { audioId: string }): Promise<{ dataUri: string }>;
-  previewVoice(options: { voiceId?: string; draft?: Pick<Voice, 'type' | 'value'> }): Promise<Partial<MessageAudio>>;
-  pickVoiceAudio(): Promise<Partial<MessageAudio> & { cancelled?: boolean }>;
+  voiceStoragePreview(): Promise<{ previewId: string; bytes: number; files: number; orphanBytes: number; orphanFiles: number; referencesComplete: boolean }>;
+  pruneVoiceAudio(options: { previewId: string; confirm: boolean }): ReturnType<NativeBridge['voiceStoragePreview']>;
+  previewVoice(options: { voiceId?: string; draft?: Pick<Voice, 'type' | 'value'> }): Promise<Partial<MessageAudio> & import('./voice').VoiceResult>;
+  backgroundState(): Promise<BackgroundState>;
+  saveBackgroundPolicy(options: { enabled: boolean }): Promise<BackgroundState>;
+  openBatterySettings(): Promise<void>;
+  pickVoiceAudio(options?: { clipSeconds?: number }): Promise<Partial<MessageAudio> & { cancelled?: boolean; format?: string; sampleRate?: number; channels?: number; bytes?: number }>;
   startVoiceRecording(): Promise<void>;
   stopVoiceRecording(): Promise<MessageAudio>;
   cancelVoiceRecording(): Promise<void>;
@@ -89,7 +95,7 @@ export type NativeBridge = {
   selectCard(options: { id: string }): Promise<void>;
   updateCard(options: { id: string; card: Card }): Promise<SavedCard>;
   deleteCard(options: { id: string }): Promise<void>;
-  rpc(options: { method: string; payload?: Record<string, unknown> }): Promise<{ data: unknown }>;
+  rpc(options: { method: import('./rpc').RpcMethod; payload?: Record<string, unknown> }): Promise<{ data: unknown }>;
 }
 
 /** Non-secret route identity shared by the UI and host. Never project credentials/query strings. */

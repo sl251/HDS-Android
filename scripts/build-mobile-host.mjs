@@ -2,6 +2,7 @@ import { build } from 'esbuild'
 import { createRequire } from 'node:module'
 import { writeFileSync } from 'node:fs'
 import { oneBotVoiceOverlay } from './mobile-onebot-voice.mjs'
+import './build-contracts.mjs'
 // rc56's upstream tsconfig extends a Koishi monorepo file absent from this host.
 await build({ entryPoints: ['runtime/host.ts'], outfile: 'runtime/generated/host.cjs', platform: 'node', format: 'cjs', target: 'node24', bundle: true, packages: 'external', tsconfig: 'tsconfig.json', plugins: [oneBotVoiceOverlay] })
 await build({ entryPoints: ['runtime/qq.ts'], outfile: 'runtime/generated/qq.cjs', platform: 'node', format: 'cjs', target: 'node24', bundle: true, packages: 'external' })

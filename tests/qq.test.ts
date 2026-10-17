@@ -89,7 +89,9 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     assert.equal((await qq.api('QQLogin/CheckLoginStatus')).isLogin, false)
     // Only the external QQ process/API are fixtures. The compiled production
     // login poll must load its own adapter, bind the story and open OneBot.
-    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
+    // Android's guest process-group cleanup is exercised on Linux CI. Windows
+    // retains the real adapter/socket/API integration with an inert OS boundary.
+    const child = process.platform === 'win32' ? { exitCode: 0, signalCode: null } : spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
     Object.assign(qq, { child, phase: 'confirming', wsPort: (ws.address() as any).port, wsToken: 'fixture-ws-token' })
     loggedIn = true
     const bindStory = qq.bindStory

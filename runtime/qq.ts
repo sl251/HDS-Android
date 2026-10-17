@@ -149,6 +149,23 @@ export class QQRuntime {
   private recoveryTimer?: ReturnType<typeof setTimeout>
   private recoveryEpoch = 0
   private watchdogEnabled = false
+  private networkAvailable = true
+  private lastHeartbeat = 0
+  private networkPausedRecovery = false
+  private channelDisconnectedAt = 0
+  private channelRecoveries = 0
+  setNetwork(available: boolean) {
+    this.networkAvailable = available
+    if (!available) {
+      clearTimeout(this.recoveryTimer); this.recoveryTimer = undefined
+      if (['backoff', 'restarting'].includes(this.recovery.state)) this.networkPausedRecovery = true
+      this.progress = '网络不可用，恢复计数已暂停'
+    } else {
+      if (this.networkPausedRecovery && this.watchdogEnabled && !this.closing) { this.networkPausedRecovery = false; this.recovery.state = 'idle'; this.handleOffline('网络恢复后继续恢复 QQ', 'process') }
+      else void this.poll()
+    }
+    return { available, lastHeartbeat: this.lastHeartbeat }
+  }
   private hadLogin = false; private onlineSince = 0; private loginFailures = 0; private quickLoginDeadline = 0
   constructor(private app: Context, private directory: string, private profile: string, private config: any, private bindStory?: (account: string, users: QQUserAccount[]) => Promise<void>) {
     mkdirSync(directory, { recursive: true }); mkdirSync(join(directory, 'home'), { recursive: true }); mkdirSync(join(directory, 'config'), { recursive: true })
@@ -232,6 +249,7 @@ export class QQRuntime {
   /** All offline sources enter here. Duplicate events from the same dying
    * process cannot queue extra launches; control serializes cleanup with UI RPCs. */
   private handleOffline(reason: string, source: 'status' | 'log' | 'process' | 'api' = 'status') {
+    if (!this.networkAvailable) { this.networkPausedRecovery = true; return }
     if (this.closing || !this.watchdogEnabled || ['cleaning', 'backoff', 'gave-up'].includes(this.recovery.state)) return
     if (this.recovery.state === 'waiting-qr' && !this.hadLogin && (source === 'status' || source === 'log')) return
     if (this.recovery.state === 'quick-login' && (source === 'status' || source === 'log')) {
@@ -257,7 +275,7 @@ export class QQRuntime {
       this.recoveryTimer = setTimeout(() => {
         this.recoveryTimer = undefined
         this.enqueueRecovery(async () => {
-          if (this.closing || epoch !== this.recoveryEpoch) return
+          if (this.closing || epoch !== this.recoveryEpoch || !this.networkAvailable) return
           this.recovery.state = 'restarting'; this.recovery.attempts++; this.recovery.nextRetryAt = 0
           this.startedAt = Date.now()
           try { await this.launch() } catch (error) { this.handleOffline(`QQ 重启失败：${error instanceof Error ? error.message : '启动失败'}`, 'process') }
@@ -352,12 +370,13 @@ export class QQRuntime {
     return result.data
   }
   private async poll() {
-    if (!this.child || this.polling || this.closing || ['cleaning', 'backoff', 'gave-up'].includes(this.recovery.state)) return
+    if (!this.networkAvailable || !this.child || this.polling || this.closing || ['cleaning', 'backoff', 'gave-up'].includes(this.recovery.state)) return
     this.polling = true
     const generation = this.generation
     let stage: 'login' | 'channel' = 'login'
     try {
       const status = await this.api('QQLogin/CheckLoginStatus')
+      this.lastHeartbeat = Date.now()
       if (this.closing || !this.child || generation !== this.generation) return
       this.loginFailures = 0
       if (status.isOffline || (this.hadLogin && status.isLogin !== true)) {
@@ -377,6 +396,18 @@ export class QQRuntime {
         if (this.closing || generation !== this.generation) return
         const account = String(info.uin || '')
         if (!/^[1-9]\d{4,14}$/.test(account)) throw new Error('QQ 返回无效账号')
+        if (this.bot()?.status === 1) { this.channelDisconnectedAt = 0; this.channelRecoveries = 0 }
+        else if (this.networkAvailable) {
+          if (!this.channelDisconnectedAt) this.channelDisconnectedAt = Date.now()
+          if (this.fork && Date.now() - this.channelDisconnectedAt >= 30000 && this.channelRecoveries < 5) {
+            this.channelDisconnectedAt = Date.now(); this.channelRecoveries++
+            const old = this.fork; let timeout: ReturnType<typeof setTimeout> | undefined
+            try { await Promise.race([old.dispose(), new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('消息通道关闭超时')), 2000) })]) }
+            finally { clearTimeout(timeout) }
+            if (this.closing || generation !== this.generation) return
+            if (this.fork === old) this.fork = undefined
+          }
+        }
         if (this.account !== account || !this.fork) {
           if (this.fork) { await this.fork.dispose(); this.fork = undefined }
           this.account = account; this.nickname = String(info.nick || account).slice(0, 100)
@@ -424,11 +455,11 @@ export class QQRuntime {
       this.qrImage = ''
     } finally { this.polling = false }
   }
-  async start() {
+  async start(restore = false) {
     if (this.child || this.installation || this.phase === 'starting') throw new Error('QQ 正在运行、安装或自动恢复，请先停止')
     if (!componentsReady(this.directory)) throw new Error('请先下载 QQ 组件')
     this.cancelRecovery(); this.watchdogEnabled = true
-    this.recovery = { state: 'idle', attempts: 0, nextRetryAt: 0, reason: '' }
+    this.recovery = { state: restore ? 'restarting' : 'idle', attempts: 0, nextRetryAt: 0, reason: '' }
     try { await this.launch() } catch (error) {
       this.handleOffline(`QQ 启动失败：${error instanceof Error ? error.message : '启动失败'}`, 'process')
       throw error
@@ -489,6 +520,7 @@ export class QQRuntime {
   }
   async stop() {
     this.cancelRecovery()
+    this.networkPausedRecovery = false; this.channelDisconnectedAt = 0; this.channelRecoveries = 0
     this.generation++; this.closing = true; this.loginOnline = false; this.qrImage = ''; this.qr = ''
     this.cancellation?.abort(); await this.installation
     await this.cleanupProcesses()
@@ -499,7 +531,7 @@ export class QQRuntime {
     this.cancelRecovery(); this.closing = true; this.generation++
     clearInterval(this.timer); await this.control; await this.stop(); await this.sending
   }
-  status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, loggedIn: this.loginOnline, progress: this.progress, download: this.download, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1, recovery: { ...this.recovery } } }
+  status() { return { networkAvailable: this.networkAvailable, lastHeartbeat: this.lastHeartbeat, phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, loggedIn: this.loginOnline, progress: this.progress, download: this.download, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.networkAvailable && this.loginOnline && this.bot()?.status === 1, recovery: { ...this.recovery } } }
   async dispatch(method: string, payload: any) {
     // Invalidate queued/timed recovery immediately, even while a launch is awaiting I/O.
     if (method === 'qq.stop') { this.cancelRecovery(); this.closing = true; this.generation++ }

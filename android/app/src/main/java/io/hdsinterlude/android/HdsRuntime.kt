@@ -49,6 +49,24 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var cleanStop = false
     @Volatile private var backgroundBudget = JSONObject()
     @Volatile private var serviceHealthFailed = false
+    @Volatile private var backgroundDiagnostic = JSONObject()
+    @Synchronized fun recordBackground(event: String) {
+        try {
+            require(event.matches(Regex("[a-z0-9_-]{1,48}")))
+            val file = File(environment, "background-events.json")
+            val old = if (file.isFile) JSONObject(file.readText()).getJSONArray("events") else JSONArray()
+            val rows = JSONArray(); for (i in maxOf(0, old.length() - 59) until old.length()) rows.put(old.get(i))
+            rows.put(BackgroundPolicy(context).snapshot().put("event", event).put("at", System.currentTimeMillis()).put("appPid", android.os.Process.myPid()).put("nodeAlive", process?.isAlive == true).put("nodeState", state))
+            writeAtomic(file, JSONObject().put("events", rows))
+        } catch (_: Exception) { /* Diagnostics must not change service behavior. */ }
+    }
+    fun networkChanged() { executor.execute {
+        recordBackground("network-change")
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        val dns = manager.activeNetwork?.let { manager.getLinkProperties(it)?.dnsServers }?.mapNotNull { it.hostAddress }?.filter { !it.contains('%') }.orEmpty()
+        if (dns.isNotEmpty() && File(rootfs, "etc").isDirectory) try { File(rootfs, "etc/resolv.conf").writeText(dns.joinToString("\n") { "nameserver $it" } + "\n") } catch (_: Exception) { log("网络变化：DNS 更新失败") }
+        if (state == "healthy") try { rpc("network.update", JSONObject().put("available", BackgroundPolicy(context).snapshot().optBoolean("networkAvailable"))) } catch (_: Exception) { log("网络变化：核心暂未响应") }
+    } }
 
     fun notificationText(): String = when {
         state == "healthy" && serviceHealthFailed -> "本机健康检查暂未响应，请打开应用查看诊断"
@@ -65,7 +83,14 @@ class HdsRuntime private constructor(private val context: Context) {
     fun refreshServiceHealth(done: () -> Unit) {
         executor.execute {
             if (state == "healthy" && !profileMaintenance) {
-                try { backgroundBudget = rpc("health", JSONObject()).getJSONObject("data").optJSONObject("budget") ?: JSONObject(); serviceHealthFailed = false }
+                try {
+                    backgroundBudget = rpc("health", JSONObject()).getJSONObject("data").optJSONObject("budget") ?: JSONObject(); serviceHealthFailed = false
+                    val qq = rpc("qq.status", JSONObject()).getJSONObject("data")
+                    backgroundDiagnostic = BackgroundPolicy(context).snapshot().put("at", System.currentTimeMillis()).put("nodeAlive", process?.isAlive == true)
+                        .put("qqAlive", qq.optBoolean("running")).put("qqLogin", qq.optBoolean("loggedIn")).put("oneBotConnected", qq.optBoolean("online"))
+                        .put("lastHeartbeat", qq.optLong("lastHeartbeat")).put("recoveryState", qq.optJSONObject("recovery")?.optString("state"))
+                    writeAtomic(File(environment, "background-diagnostic.json"), backgroundDiagnostic)
+                }
                 catch (_: Exception) { serviceHealthFailed = true; log("前台健康检查暂未响应；未重放消息或重启业务") }
             }
             done()
@@ -88,6 +113,7 @@ class HdsRuntime private constructor(private val context: Context) {
     init {
         try {
             transaction.recover()
+            File(environment, "background-diagnostic.json").takeIf { it.isFile }?.let { backgroundDiagnostic = JSONObject(android.util.AtomicFile(it).openRead().bufferedReader().use { r -> r.readText() }) }
             if (diagnosticFile.isFile) lastDiagnostic = JSONObject(android.util.AtomicFile(diagnosticFile).openRead().bufferedReader().use { it.readText() })
             if (lastDiagnostic.optString("result") == "in-progress") lastDiagnostic.put("result", "interrupted").put("recovery", "generation-restored")
             cleanupPending = transaction.previous.exists()
@@ -132,12 +158,14 @@ class HdsRuntime private constructor(private val context: Context) {
     @Synchronized fun status(): JSONObject = JSONObject().put("state", state).put("installed", installed())
         .put("environmentState", environmentState()).put("running", process?.isAlive == true).put("cleanupPending", cleanupPending)
         .put("progress", progress).put("error", error).put("logs", JSONArray(output.toList())).put("device", device())
-        .put("version", appVersion()).put("hds", "1.0.1-rc51").put("diagnostic", lastDiagnostic)
+        .put("version", appVersion()).put("hds", RuntimeContract.CORE).put("contract", RuntimeContract.CONTRACT).put("diagnostic", lastDiagnostic).put("background", backgroundDiagnostic)
     fun diagnosticReport(probe: Boolean = false): JSONObject {
         val report = JSONObject().put("schema", 1).put("device", device()).put("appVersion", appVersion())
             .put("environmentState", environmentState()).put("bundled", manifestSummary(bundled))
             .put("installed", manifestSummary(installedManifest())).put("installation", lastDiagnostic)
             .put("cleanupPending", cleanupPending).put("recoveryError", recoveryError).put("avc", "unavailable").put("layout", layoutDiagnostic).put("launch", launchDiagnostic)
+            .put("contract", RuntimeContract.CONTRACT).put("background", backgroundDiagnostic).put("backgroundPolicy", BackgroundPolicy(context).snapshot())
+        try { val events = File(environment, "background-events.json"); if (events.isFile) report.put("backgroundEvents", JSONObject(events.readText()).getJSONArray("events")) } catch (_: Exception) {}
         if (probe) report.put("fileCapabilities", probeFiles())
         // Deliberately excludes runtime output, settings, cards, credentials and chat.
         return report
@@ -262,7 +290,7 @@ class HdsRuntime private constructor(private val context: Context) {
         require(prefs.optString("endpoint").isNotBlank() && prefs.optString("model").isNotBlank()) { "请先保存模型设置" }
         if (!installed()) { startupFailure = ""; installAsync(startAfterInstall = true); return }
         cancelRequested = false; startupFailure = ""; state = "starting"; error = ""; progress = "启动手机内的 HDS 核心"
-        executor.execute { try { startNow() } catch (failure: Throwable) { voiceBridge?.close(); voiceBridge = null; process?.destroy(); process = null; fail("HDS 启动失败", failure); HdsService.stop(context) } }
+        executor.execute { try { startNow() } catch (failure: Throwable) { voiceBridge?.close(); voiceBridge = null; process?.destroy(); process = null; fail("HDS 启动失败", failure); HdsService.stop(context, preserveIntent = true) } }
     }
     @Volatile private var voiceBridge: VoiceBridge? = null
     private fun startNow() {
@@ -317,6 +345,7 @@ class HdsRuntime private constructor(private val context: Context) {
         voiceBridge?.close()
         val voice = VoiceBridge(context, token, cardId); voiceBridge = voice
         configuration.put("voiceBridge", JSONObject().put("url", voice.url).put("token", token).put("cardId", cardId).put("directory", "/hds-voice"))
+        configuration.put("restoreQQ", BackgroundPolicy(context).let { it.wantsRestore() && it.qqDesired() })
         val cardName = configuration.getJSONObject("card").getString("name")
         runningCardId = cardId; runningCardName = cardName
         val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach {
@@ -333,7 +362,7 @@ class HdsRuntime private constructor(private val context: Context) {
         val deadline = System.currentTimeMillis() + 90000
         var lastFailure = ""
         while (System.currentTimeMillis() < deadline && child.isAlive && !cancelRequested) {
-            try { val health = rpc("health", JSONObject()); if (health.getJSONObject("data").optBoolean("sqlite")) { state = "healthy"; progress = "HDS rc51 与 SQLite 已响应 · 本机端口 $port"; error = ""; break } }
+            try { val health = rpc("health", JSONObject()); val data = health.getJSONObject("data"); require(data.optJSONObject("build")?.optInt("contract") == RuntimeContract.CONTRACT) { "界面、原生与核心契约版本不一致，请重新准备核心组件" }; if (data.optBoolean("sqlite")) { state = "healthy"; progress = "HDS ${RuntimeContract.CORE} 与 SQLite 已响应 · 本机端口 $port"; error = ""; networkChanged(); break } }
             catch (failure: Throwable) { lastFailure = failure.javaClass.simpleName }
             Thread.sleep(500)
         }
@@ -348,7 +377,7 @@ class HdsRuntime private constructor(private val context: Context) {
         }
         Thread({
             val code = child.waitFor()
-            if (process === child && state != "stopping") { voiceBridge?.close(); voiceBridge = null; process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); HdsService.stop(context) }
+            if (process === child && state != "stopping") { voiceBridge?.close(); voiceBridge = null; process = null; state = "failed"; error = "核心进程退出，退出码 $code"; progress = "请查看诊断后重新启动"; log(error); HdsService.stop(context, preserveIntent = true) }
         }, "hds-exit").start()
     }
     private fun probeGuest(args: List<String>, nativeDir: String, temporary: File, disableSeccomp: Boolean): ProotLaunch.ProbeResult {
@@ -434,7 +463,11 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {
         require(!profileMaintenance || method == "health") { "故事正在备份或维护" }
-        require(method in listOf("config.status", "preset.sync", "preset.syncStatus", "images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.since", "messages.sendLocal", "story.snapshot", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
+        require(method in RuntimeContract.methods) { "不允许的本机 API 方法" }
+        if (method == "story.applySetting") {
+            require(state == "healthy" && runningCardId == store.publicSettings().optString("activeCard")) { "当前角色或运行状态已改变" }
+            require(payload.optString("operationId").matches(Regex("[a-zA-Z0-9-]{8,64}")) && payload.optString("expectedRevision").matches(Regex("[a-f0-9]{64}")) && payload.optString("expectedStoryId").length in 1..128 && payload.optJSONObject("patch") != null) { "人设提交字段无效" }
+        }
         require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         val connection = URL("http://127.0.0.1:$port/rpc").openConnection() as HttpURLConnection
         try {

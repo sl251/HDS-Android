@@ -128,6 +128,7 @@ export interface ModelConfig {
   mobileCardPrompt?: (request: NarrativeRequest) => { before: string; after: string }
   /** App-owned live capability; unused by upstream connectors. */
   mobileVoiceCapabilities?: () => ChatActionCapabilities['voice']
+  mobileOneBotVoiceDelivery?: import('../../../runtime/voice').MobileVoiceDelivery
   /** Optional mobile-only filter for empty-library engine instructions. */
   mobileSystemPrompt?: (prompt: string, request: NarrativeRequest) => string
 

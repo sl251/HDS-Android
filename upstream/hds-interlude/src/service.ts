@@ -1295,6 +1295,7 @@ export class InterludeService extends Service {
     const message: OutgoingMessageDraft = {
       participantId: current.participantId,
       content: current.content,
+      ...restoreDesktopContext(entry.metadata),
       ...(current.endpointId ? { endpointId: current.endpointId } : {}),
       userInitiated: false,
       scriptEvent,
@@ -5867,7 +5868,7 @@ export class InterludeService extends Service {
       }
       scriptEntry = await this.appendEntry(
         story.id,
-        scriptEntryDraftForCommit(commit, decision.interaction ?? null, timelinePlan, decision.lifeHandoff),
+        scriptEntryDraftForCommit(commit, decision.interaction ?? null, timelinePlan, decision.lifeHandoff, decision.voice),
         now,
         participant?.id ?? '',
       )
@@ -6119,6 +6120,7 @@ export class InterludeService extends Service {
         notBefore: interaction.reply.sendAt,
         payload: {
           content: interaction.reply.content,
+          ...(decision.voice ? { voice: decision.voice } : {}),
           ...(delayedEndpointId ? { endpointId: delayedEndpointId } : {}),
           userInitiated: phase === 'user-message',
           ...(phase === 'user-message' && interaction.reply.purpose === 'scheduled-contact' ? { purpose: 'scheduled-contact' } : {}),
@@ -6254,6 +6256,7 @@ export class InterludeService extends Service {
           notBefore: sendAtValue, payload: {
             content: action.content, endpointId: action.endpointId, userInitiated: false, crossConversation: true,
             willingness: action.willingness, reason: action.reason,
+            ...(decision.voice ? { voice: decision.voice } : {}),
             ...(commit
               ? scriptEventPayload(attachMessageEvent(
                   { participantId: action.participantId, content: action.content, endpointId: action.endpointId },

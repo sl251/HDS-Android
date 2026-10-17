@@ -14,13 +14,38 @@ import android.os.Looper
 class HdsService : Service() {
     companion object {
         @Volatile private var active: HdsService? = null
-        fun stop(context: android.content.Context) {
+        fun stop(context: android.content.Context, preserveIntent: Boolean = false) {
+            if (preserveIntent && BackgroundPolicy(context).wantsRestore()) return
+            if (!preserveIntent) BackgroundPolicy(context).stop()
             active?.intentionalStop = true
             context.stopService(Intent(context, HdsService::class.java))
         }
     }
     @Volatile private var intentionalStop = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private var healthySince = 0L
+    private val powerReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) { HdsRuntime.get(this@HdsService).recordBackground("power-or-screen-change") }
+    }
+    private val network by lazy { getSystemService(android.net.ConnectivityManager::class.java) }
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(value: android.net.Network) { HdsRuntime.get(this@HdsService).networkChanged() }
+        override fun onLost(value: android.net.Network) { HdsRuntime.get(this@HdsService).networkChanged() }
+        override fun onCapabilitiesChanged(value: android.net.Network, capabilities: android.net.NetworkCapabilities) { HdsRuntime.get(this@HdsService).networkChanged() }
+        override fun onLinkPropertiesChanged(value: android.net.Network, properties: android.net.LinkProperties) { HdsRuntime.get(this@HdsService).networkChanged() }
+    }
+    private fun restoreIfAllowed() {
+        val runtime = HdsRuntime.get(this); val policy = BackgroundPolicy(this)
+        val status = runtime.status(); val state = status.optString("state")
+        if (state == "healthy") { if (healthySince == 0L) healthySince = System.currentTimeMillis(); if (System.currentTimeMillis() - healthySince >= 600000) policy.stable(); return }
+        healthySince = 0L
+        if (state !in listOf("failed", "stopped") || intentionalStop) return
+        val cardId = runtime.store.publicSettings().optString("activeCard")
+        if (policy.eligible(cardId) && policy.snapshot().optBoolean("networkAvailable") && status.optBoolean("installed")) {
+            policy.attempt()
+            try { runtime.startAsync() } catch (_: Exception) { /* Persisted backoff limits retries. */ }
+        }
+    }
     private val messageIo = java.util.concurrent.Executors.newSingleThreadExecutor()
     private lateinit var messages: CharacterNotifications
     private val push: (String, String, CharacterMessage, Boolean) -> Unit = { id, name, message, foreground ->
@@ -57,6 +82,7 @@ class HdsService : Service() {
     }
     private val handler = Handler(Looper.getMainLooper())
     private val health = object : Runnable { override fun run() {
+        restoreIfAllowed()
         HdsRuntime.get(this@HdsService).refreshServiceHealth {
             enqueueMessages { catchUp() }
             handler.post {
@@ -73,6 +99,10 @@ class HdsService : Service() {
     override fun onCreate() {
         super.onCreate()
         active = this
+        HdsRuntime.get(this).recordBackground("service-created")
+        val powerEvents = android.content.IntentFilter().apply { addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF); addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED); addAction(Intent.ACTION_POWER_CONNECTED); addAction(Intent.ACTION_POWER_DISCONNECTED) }
+        androidx.core.content.ContextCompat.registerReceiver(this, powerReceiver, powerEvents, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        network.registerDefaultNetworkCallback(networkCallback)
         messages = CharacterNotifications(this)
         messages.createChannel()
         HdsRuntime.get(this).messagePush = push
@@ -91,9 +121,10 @@ class HdsService : Service() {
             .addAction(Notification.Action.Builder(null, "停止全部", stop).build()).build()
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP") { intentionalStop = true; HdsRuntime.get(this).stopAsync(); stopSelf() }
-        return START_NOT_STICKY
+        if (intent?.action == "STOP") { intentionalStop = true; BackgroundPolicy(this).stop(); HdsRuntime.get(this).stopAsync(); stopSelf(); return START_NOT_STICKY }
+        if (intent == null) { if (!BackgroundPolicy(this).wantsRestore()) { stopSelf(); return START_NOT_STICKY }; restoreIfAllowed() }
+        return if (BackgroundPolicy(this).wantsRestore()) START_STICKY else START_NOT_STICKY
     }
-    override fun onDestroy() { if (HdsRuntime.get(this).messagePush === push) HdsRuntime.get(this).messagePush = null; messageIo.shutdownNow(); handler.removeCallbacksAndMessages(null); wakeLock?.let { if (it.isHeld) it.release() }; if (active === this) active = null; if (!intentionalStop) HdsRuntime.get(this).stopAsync(); super.onDestroy() }
+    override fun onDestroy() { HdsRuntime.get(this).recordBackground("service-destroyed"); try { unregisterReceiver(powerReceiver) } catch (_: Exception) {}; try { network.unregisterNetworkCallback(networkCallback) } catch (_: Exception) {}; if (HdsRuntime.get(this).messagePush === push) HdsRuntime.get(this).messagePush = null; messageIo.shutdownNow(); handler.removeCallbacksAndMessages(null); wakeLock?.let { if (it.isHeld) it.release() }; if (active === this) active = null; if (!intentionalStop) HdsRuntime.get(this).stopAsync(); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 }

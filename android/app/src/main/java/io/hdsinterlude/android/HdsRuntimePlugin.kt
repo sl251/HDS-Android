@@ -30,7 +30,11 @@ internal fun pickedImageUris(result: ActivityResult): List<android.net.Uri> {
 @CapacitorPlugin(name = "HdsRuntime", permissions = [Permission(alias = "microphone", strings = [android.Manifest.permission.RECORD_AUDIO]), Permission(alias = "notifications", strings = [android.Manifest.permission.POST_NOTIFICATIONS])])
 class HdsRuntimePlugin : Plugin() {
     private val io = Executors.newSingleThreadExecutor()
+    private val voiceIo = java.util.concurrent.ThreadPoolExecutor(2, 2, 0, java.util.concurrent.TimeUnit.MILLISECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(2))
     private fun runtime() = HdsRuntime.get(context)
+    private val presetCommit by lazy { PresetCommit(runtime().store, { method, payload -> runtime().rpc(method, payload) }, { cardId ->
+        require(runtime().status().optString("state") == "healthy" && runtime().runningCardId == cardId) { "请先唤醒原角色再恢复导入" }
+    }) }
     private fun resolve(call: PluginCall, result: JSONObject = JSONObject()) { call.resolve(JSObject.fromJSONObject(result)) }
     private fun run(call: PluginCall, operation: () -> JSONObject) { io.execute { try { resolve(call, operation()) } catch (failure: Throwable) { call.reject(failure.message ?: "原生操作失败", failure.javaClass.simpleName) } } }
     @PluginMethod fun notificationSettings(call: PluginCall) { resolve(call, CharacterNotifications(context).status()) }
@@ -62,16 +66,19 @@ class HdsRuntimePlugin : Plugin() {
     @PluginMethod fun saveVoice(call: PluginCall) { run(call) { VoiceStore(context).saveVoice(call.data) } }
     @PluginMethod fun deleteVoice(call: PluginCall) { run(call) { VoiceStore(context).deleteVoice(call.getString("id") ?: "") } }
     @PluginMethod fun voiceAudio(call: PluginCall) { run(call) { VoiceStore(context).audio(call.getString("audioId") ?: "") } }
-    @PluginMethod fun previewVoice(call: PluginCall) { run(call) {
-        VoiceStore(context).synthesize(JSONObject(call.data.toString()).put("preview", true).put("text", "你好，今天也想和你一起，把日子慢慢过好。"))
-    } }
+    @PluginMethod fun voiceStoragePreview(call: PluginCall) { run(call) { VoiceStorage(context).preview() } }
+    @PluginMethod fun pruneVoiceAudio(call: PluginCall) { run(call) { VoiceStorage(context).prune(call.data) } }
+    @PluginMethod fun previewVoice(call: PluginCall) {
+        try { voiceIo.execute { try { resolve(call, VoiceStore(context).synthesize(JSONObject(call.data.toString()).put("preview", true).put("text", "你好，今天也想和你一起，把日子慢慢过好。"))) } catch (e: Exception) { call.reject(e.message ?: "试听失败") } } }
+        catch (_: java.util.concurrent.RejectedExecutionException) { resolve(call, JSONObject().put("status", "skipped").put("reason", "queue_full").put("stage", "queue")) }
+    }
     @PluginMethod fun pickVoiceAudio(call: PluginCall) {
-        startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/wav", "audio/x-wav", "audio/mpeg")), "voicePicked")
+        startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("audio/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/aac", "audio/x-m4a")), "voicePicked")
     }
     @ActivityCallback private fun voicePicked(call: PluginCall?, result: ActivityResult) {
         if (call == null) return
         if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
-        run(call) { VoiceStore(context).import(result.data!!.data!!).put("cancelled", false) }
+        run(call) { VoiceStore(context).import(result.data!!.data!!, call.getInt("clipSeconds")).put("cancelled", false) }
     }
     @PluginMethod fun startVoiceRecording(call: PluginCall) {
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissionForAlias("microphone", call, "voicePermissionResult")
@@ -83,8 +90,16 @@ class HdsRuntimePlugin : Plugin() {
     }
     @PluginMethod fun stopVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.stop() } }
     @PluginMethod fun cancelVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.cancel(); JSONObject() } }
-    override fun handleOnDestroy() { voiceRecorder.cancel(); super.handleOnDestroy() }
+    override fun handleOnDestroy() { voiceRecorder.cancel(); voiceIo.shutdownNow(); super.handleOnDestroy() }
     @PluginMethod fun status(call: PluginCall) { resolve(call, runtime().status()) }
+    @PluginMethod fun backgroundState(call: PluginCall) { resolve(call, BackgroundPolicy(context).snapshot()) }
+    @PluginMethod fun saveBackgroundPolicy(call: PluginCall) { run(call) {
+        val policy = BackgroundPolicy(context); policy.setEnabled(call.getBoolean("enabled", false) == true)
+        if (policy.enabled() && runtime().status().optString("state") == "healthy") policy.markStart(runtime().runningCardId)
+        if (runtime().status().optString("state") == "healthy") context.startService(Intent(context, HdsService::class.java))
+        policy.snapshot()
+    } }
+    @PluginMethod fun openBatterySettings(call: PluginCall) { activity.startActivity(BackgroundPolicy(context).settingsIntent()); resolve(call) }
     @PluginMethod fun settings(call: PluginCall) { run(call) { runtime().store.publicSettings() } }
     @PluginMethod fun appearance(call: PluginCall) { run(call) { AppearanceStore(context).read() } }
     @PluginMethod fun saveAppearance(call: PluginCall) { run(call) { AppearanceStore(context).save(call.data); JSONObject() } }
@@ -151,6 +166,7 @@ class HdsRuntimePlugin : Plugin() {
         run(call) {
             val id = runtime().store.publicSettings().getString("activeCard")
             runtime().maintainStory(id) {
+                VoiceReferences.rebuild(runtime().store.profile())
                 context.contentResolver.openOutputStream(result.data!!.data!!, "wt")?.use { StoryArchive(runtime().store.base).export(id, it) } ?: throw IllegalArgumentException("无法写入存档")
             }
             JSONObject().put("cancelled", false)
@@ -224,6 +240,7 @@ class HdsRuntimePlugin : Plugin() {
         runtime().store.selectedCard()
         val settings = runtime().store.publicSettings()
         require(settings.optString("endpoint").isNotEmpty() && settings.optString("model").isNotEmpty()) { "请先保存模型配置" }
+        BackgroundPolicy(context).markStart(settings.optString("activeCard"))
         ContextCompat.startForegroundService(context, Intent(context, HdsService::class.java))
         try { runtime().startAsync() } catch (failure: Throwable) { HdsService.stop(context); throw failure }
         JSONObject()
@@ -245,7 +262,7 @@ class HdsRuntimePlugin : Plugin() {
             JSONObject().put("cancelled", false)
         }
     }
-    @PluginMethod fun stop(call: PluginCall) { run(call) { runtime().stopBlocking(); HdsService.stop(context); JSONObject() } }
+    @PluginMethod fun stop(call: PluginCall) { BackgroundPolicy(context).stop(); run(call) { runtime().stopBlocking(); HdsService.stop(context); JSONObject() } }
     @PluginMethod fun cards(call: PluginCall) { run(call) { JSONObject().put("cards", runtime().store.listCards()) } }
     @PluginMethod fun saveCard(call: PluginCall) { run(call) {
         val text = call.getString("base64") ?: throw IllegalArgumentException("缺少原始卡文件")
@@ -275,7 +292,11 @@ class HdsRuntimePlugin : Plugin() {
     @PluginMethod fun rpc(call: PluginCall) { run(call) {
         val method = call.getString("method") ?: throw IllegalArgumentException("缺少方法")
         val payload = call.getObject("payload") ?: JSONObject()
+        if (method == "qq.stop") BackgroundPolicy(context).setQQDesired(false)
+        if (method == "qq.start") BackgroundPolicy(context).setQQDesired(true)
         when (method) {
+            "preset.commit" -> JSONObject().put("data", presetCommit.apply(payload))
+            "preset.commitStatus" -> JSONObject().put("data", presetCommit.status())
             "models.test" -> runtime().testModel(payload)
             "models.list" -> runtime().listModels(payload)
             else -> runtime().rpc(method, payload)

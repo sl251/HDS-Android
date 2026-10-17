@@ -20,7 +20,7 @@ class HdsStore(private val context: Context) {
     val data = File(base, "profiles").apply { mkdirs() }
     private val cards = File(base, "cards").apply { mkdirs() }
     private val settingsFile = File(base, "settings.json")
-    init { StoryArchive(base).recover() }
+    init { StoryArchive(base).recoverIfNeeded() }
     private fun read(file: File): JSONObject = if (file.exists()) JSONObject(AtomicFile(file).openRead().bufferedReader().use { it.readText() }) else JSONObject()
     private fun write(file: File, value: JSONObject) {
         file.parentFile?.mkdirs()
@@ -122,6 +122,9 @@ class HdsStore(private val context: Context) {
         source.put("mobileConfig", mobileSettings.normalize(input.optJSONObject("mobileConfig") ?: source.optJSONObject("mobileConfig") ?: JSONObject()))
         source.put("autoAdvance", input.optBoolean("autoAdvance", false))
         write(settingsFile, source)
+    }
+    @Synchronized fun saveMobileConfig(config: JSONObject) {
+        val source = privateSettings(); source.put("mobileConfig", mobileSettings.normalize(config)); write(settingsFile, source)
     }
     @Synchronized fun listCards(): JSONArray {
         val values = JSONArray()
