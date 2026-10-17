@@ -39,7 +39,8 @@ export const newQQUser = (): QQUserAccount => ({ qq: '', label: '', personId: ''
 export const newQQGroup = (): QQGroupRule => ({ groupId: '', label: '', enabled: true, purpose: '', characterRole: '', responseMode: 'mention-only', contextLimit: 20, debounceSeconds: 1, cooldownSeconds: 60, historicalImageLimit: 3, willingnessPreset: 'off', keywords: [] })
 export const newQQWillingness = (): QQWillingness => ({ enabled: false, maxScore: 1, threshold: 0.24, probabilityAmplifier: 1.3, decayHalfLifeSeconds: 180, replyCost: 0.55, baseGain: 0.12, quoteGain: 0.12, keywordGain: 0.18 })
 export type DownloadProgress = { component: string; receivedBytes: number; totalBytes?: number; bytesPerSecond: number }
-export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[] }
+export type QQRecovery = { state: 'idle' | 'cleaning' | 'backoff' | 'restarting' | 'quick-login' | 'waiting-qr' | 'gave-up'; attempts: number; nextRetryAt: number; reason: string }
+export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[]; recovery?: QQRecovery }
 export type QQConversation = { id: string; name: string; last: string; time: number; unread: number }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
 export type MessageNotificationSettings = { enabled: boolean; permission: 'prompt' | 'granted' | 'denied'; available: boolean }

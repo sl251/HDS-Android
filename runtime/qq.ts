@@ -8,7 +8,7 @@ import { createServer } from 'node:net'
 import QRCode from 'qrcode'
 import { componentsPath, componentsReady, installComponents, githubDownloadUrl } from './qq-components'
 import { availableDisplayNumber, writeDisplayAuthority, xvfbArguments } from './qq-display'
-import { newQQUser, newQQGroup, newQQWillingness, type DownloadProgress, type QQPolicy, type QQUserAccount, type QQGroupRule, type QQWillingnessPreset } from '../packages/contracts'
+import { newQQUser, newQQGroup, newQQWillingness, type DownloadProgress, type QQPolicy, type QQUserAccount, type QQGroupRule, type QQWillingnessPreset, type QQRecovery } from '../packages/contracts'
 export type { QQPolicy } from '../packages/contracts'
 
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
@@ -75,6 +75,57 @@ async function freePort(): Promise<number> {
   return port
 }
 
+const RESTART_INTERVAL = 30000
+const MAX_RECOVERIES = 5
+const STABLE_LOGIN = 60000
+const QUICK_LOGIN_TIMEOUT = 30000
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+/** Both launchers are session leaders. Keep their pgids even after exit: Electron
+ * descendants can outlive the launcher and continue holding the QQ login lock.
+ * Never signal the surrounding HDS/PRoot group or find processes by name. */
+export async function terminateQQProcesses(children: readonly ChildProcess[], graceMs = 1500) {
+  const groups = [...new Set(children.flatMap(child => child.pid ? [child.pid] : []))]
+  const signal = (pid: number, value: NodeJS.Signals | 0) => {
+    try { process.kill(-pid, value); return true } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+      throw error
+    }
+  }
+  for (const pid of groups) signal(pid, 'SIGTERM')
+  if (groups.some(pid => signal(pid, 0))) await sleep(graceMs)
+  // Escalate the entire group even when its leader exited on SIGTERM.
+  for (const pid of groups) signal(pid, 'SIGKILL')
+  await Promise.all(children.map(child => child.pid && child.exitCode === null && child.signalCode === null
+    ? new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => { child.off('exit', exited); reject(new Error('QQ 进程清理超时，请停止 QQ 后重试')) }, 2000)
+      const exited = () => { clearTimeout(timeout); resolve() }
+      child.once('exit', exited)
+    }) : Promise.resolve()))
+  // SIGKILL delivery is asynchronous. Wait for group members to stop executing
+  // before a new QQ can touch the login cache; zombies hold no files/locks.
+  const liveMembers = () => readdirSync('/proc').some(name => {
+    if (!/^\d+$/.test(name)) return false
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, 'utf8')
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+      return groups.includes(Number(fields[2])) && !['Z', 'X'].includes(fields[0])
+    } catch (error) {
+      // Android may hide other UIDs' /proc entries; they cannot belong to the
+      // private groups we spawned. Our own children remain visible in PRoot.
+      if (['ENOENT', 'ESRCH', 'EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code || '')) return false
+      throw error
+    }
+  })
+  if (groups.length) {
+    const deadline = Date.now() + 2000
+    while (liveMembers()) {
+      if (Date.now() >= deadline) throw new Error('QQ 残留进程未退出，已停止自动重启')
+      await sleep(25)
+    }
+  }
+}
+
 /** Runs in the same PRoot as HDS. No shell interpolation, remote command API, or UI tokens. */
 export class QQRuntime {
   private child?: ChildProcess
@@ -93,6 +144,12 @@ export class QQRuntime {
   private sending = Promise.resolve()
   private control = Promise.resolve()
   private generation = 0
+  private ownedProcesses = new Set<ChildProcess>()
+  private recovery: QQRecovery = { state: 'idle', attempts: 0, nextRetryAt: 0, reason: '' }
+  private recoveryTimer?: ReturnType<typeof setTimeout>
+  private recoveryEpoch = 0
+  private watchdogEnabled = false
+  private hadLogin = false; private onlineSince = 0; private loginFailures = 0; private quickLoginDeadline = 0
   constructor(private app: Context, private directory: string, private profile: string, private config: any, private bindStory?: (account: string, users: QQUserAccount[]) => Promise<void>) {
     mkdirSync(directory, { recursive: true }); mkdirSync(join(directory, 'home'), { recursive: true }); mkdirSync(join(directory, 'config'), { recursive: true })
     if (existsSync(join(profile, 'qq-policy.json'))) this.policy = qqPolicy(JSON.parse(readFileSync(join(profile, 'qq-policy.json'), 'utf8')))
@@ -158,30 +215,162 @@ export class QQRuntime {
     const safe = text.replace(/https?:\/\/\S+/g, '[URL]').replaceAll(this.directory, '[qq-data]').replaceAll(this.webToken || '\0', '[token]').replaceAll(this.wsToken || '\0', '[token]').replace(/\x1b\[[0-9;]*m/g, '').slice(0, 600)
     this.logs.push(safe); this.logs = this.logs.slice(-30)
   }
+  private cancelRecovery() {
+    this.watchdogEnabled = false; this.recoveryEpoch++
+    clearTimeout(this.recoveryTimer); this.recoveryTimer = undefined
+  }
+  private enqueueRecovery(task: () => Promise<void>) {
+    const result = this.control.then(task)
+    this.control = result.catch(error => this.giveUp(`QQ 自动恢复失败：${error instanceof Error ? error.message : '未知错误'}`))
+  }
+  private giveUp(reason: string) {
+    this.cancelRecovery(); this.loginOnline = false; this.qr = ''; this.qrImage = ''
+    this.recovery = { ...this.recovery, state: 'gave-up', nextRetryAt: 0, reason }
+    this.phase = 'failed'; this.progress = 'QQ 自动恢复已停止，需要人工介入：请停止 QQ 后重新启动'
+    this.error = reason; this.diagnostic(reason)
+  }
+  /** All offline sources enter here. Duplicate events from the same dying
+   * process cannot queue extra launches; control serializes cleanup with UI RPCs. */
+  private handleOffline(reason: string, source: 'status' | 'log' | 'process' | 'api' = 'status') {
+    if (this.closing || !this.watchdogEnabled || ['cleaning', 'backoff', 'gave-up'].includes(this.recovery.state)) return
+    if (this.recovery.state === 'waiting-qr' && !this.hadLogin && (source === 'status' || source === 'log')) return
+    if (this.recovery.state === 'quick-login' && (source === 'status' || source === 'log')) {
+      // A rejected cached login needs a scan, not another process restart.
+      const generation = this.generation
+      this.recovery.state = 'waiting-qr'
+      this.enqueueRecovery(() => this.fallbackQr(reason, generation))
+      return
+    }
+    this.generation++; this.loginOnline = false; this.onlineSince = 0; this.qr = ''; this.qrImage = ''
+    this.recovery = { ...this.recovery, state: 'cleaning', nextRetryAt: 0, reason: reason.slice(0, 200) }
+    this.phase = 'starting'; this.progress = 'QQ 自动恢复中：正在清理离线进程'; this.error = ''
+    this.diagnostic(reason)
+    const epoch = this.recoveryEpoch
+    this.enqueueRecovery(async () => {
+      if (this.closing || epoch !== this.recoveryEpoch) return
+      await this.cleanupProcesses()
+      if (this.closing || epoch !== this.recoveryEpoch) return
+      if (this.recovery.attempts >= MAX_RECOVERIES) { this.giveUp(`QQ 连续 ${MAX_RECOVERIES} 次自动恢复未能稳定登录：${this.recovery.reason}`); return }
+      const delay = Math.max(0, this.startedAt + RESTART_INTERVAL - Date.now())
+      this.recovery.state = 'backoff'; this.recovery.nextRetryAt = Date.now() + delay
+      this.progress = `QQ 自动恢复中：等待 ${Math.ceil(delay / 1000)} 秒后重启（${this.recovery.attempts + 1}/${MAX_RECOVERIES}）`
+      this.recoveryTimer = setTimeout(() => {
+        this.recoveryTimer = undefined
+        this.enqueueRecovery(async () => {
+          if (this.closing || epoch !== this.recoveryEpoch) return
+          this.recovery.state = 'restarting'; this.recovery.attempts++; this.recovery.nextRetryAt = 0
+          this.startedAt = Date.now()
+          try { await this.launch() } catch (error) { this.handleOffline(`QQ 重启失败：${error instanceof Error ? error.message : '启动失败'}`, 'process') }
+        })
+      }, delay)
+    })
+  }
+  private async cleanupProcesses() {
+    const fork = this.fork; this.fork = undefined
+    const children = [...new Set([...this.ownedProcesses, ...[this.child, this.display].filter((child): child is ChildProcess => !!child)])]
+    const dispose = async () => {
+      if (!fork) return
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([Promise.resolve().then(() => fork.dispose()), new Promise<void>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('QQ 消息通道关闭超时')), 2000)
+        })])
+      } finally { clearTimeout(timeout) }
+    }
+    // A stuck adapter must not prevent OS cleanup, nor allow a second adapter.
+    const [processes, adapter] = await Promise.allSettled([terminateQQProcesses(children), dispose()])
+    if (processes.status === 'fulfilled') {
+      this.ownedProcesses.clear(); this.child = undefined; this.display = undefined
+      this.credential = ''; this.credentialAt = 0
+    } else throw processes.reason
+    if (adapter.status === 'rejected') throw adapter.reason
+  }
+  private async fallbackQr(reason: string, generation: number) {
+    if (this.closing || generation !== this.generation) return
+    this.recovery.state = 'waiting-qr'; this.recovery.reason = reason.slice(0, 200)
+    this.qr = ''; this.qrImage = ''; this.quickLoginDeadline = 0
+    try {
+      await this.api('QQLogin/RefreshQRcode')
+      if (this.closing || generation !== this.generation) return
+      this.phase = 'qr'; this.progress = 'QQ 自动恢复未能快速登录，请用官方 QQ 扫码确认登录'; this.error = ''
+      this.diagnostic(reason)
+    } catch (error) {
+      if (this.closing || generation !== this.generation) return
+      this.handleOffline(`QQ 二维码刷新失败：${error instanceof Error ? error.message : '接口未就绪'}`, 'api')
+    }
+  }
+  private async recoveryLogin(generation: number) {
+    try {
+      // Same source as the UI's “已登录过的账号”; never guess from inbox files.
+      const accounts = await this.api('QQLogin/GetQuickLoginListNew')
+      if (this.closing || generation !== this.generation) return
+      const cached = Array.isArray(accounts) ? accounts.find(row => row.isQuickLogin && /^[1-9]\d{4,14}$/.test(String(row.uin)) && (!this.account || String(row.uin) === this.account)) : undefined
+      if (!cached) { await this.fallbackQr('没有可用的已登录账号缓存', generation); return }
+      this.recovery.state = 'quick-login'; this.quickLoginDeadline = Date.now() + QUICK_LOGIN_TIMEOUT
+      this.progress = `QQ 自动恢复中：正在快速登录 ${cached.uin}`
+      await this.api('QQLogin/SetQuickLogin', { uin: String(cached.uin) })
+    } catch (error) {
+      await this.fallbackQr(`QQ 快速登录失败：${error instanceof Error ? error.message : '登录失败'}`, generation)
+    }
+  }
+  private watchChild(child: ChildProcess, generation: number) {
+    for (const stream of [child.stdout, child.stderr]) {
+      let pending = ''
+      const line = (text: string) => {
+        if (this.child !== child || generation !== this.generation || this.closing) return
+        if (/\[SelfOffline\]|\[KickedOffLine\]|账号状态变更为离线/.test(text)) this.handleOffline('QQ 离线通知（SelfOffline / KickedOffLine）', 'log')
+        if (/error|fatal|sandbox|failed|not found|undefined symbol|cannot|失败/i.test(text) && !/qrcode|二维码|token|message content/i.test(text)) this.diagnostic(text)
+      }
+      stream?.on('data', data => {
+        pending += data.toString()
+        const lines = pending.split(/\r?\n/); pending = lines.pop()!.slice(-8192)
+        for (const text of lines) line(text)
+        if (/\[SelfOffline\]|\[KickedOffLine\]|账号状态变更为离线/.test(pending)) line(pending)
+      })
+      stream?.on('end', () => { if (pending) line(pending) })
+    }
+    child.once('error', error => { if (this.child === child && generation === this.generation) this.handleOffline(`QQ 无法启动：${error.message}`, 'process') })
+    child.once('exit', (code, signal) => { if (this.child === child && generation === this.generation) this.handleOffline(`QQ 进程退出（${signal || code}）`, 'process') })
+  }
   async api(method: string, data: unknown = {}, authenticate = true): Promise<any> {
+    const generation = this.generation
+    const current = () => { if (this.closing || generation !== this.generation) throw new Error('QQ 请求所属进程已失效') }
     if (authenticate && (!this.credential || Date.now() - this.credentialAt > 3000000)) {
       const login = await this.api('auth/login', { hash: createHash('sha256').update(this.webToken + '.napcat').digest('hex') }, false)
+      current()
       if (typeof login.Credential !== 'string') throw new Error('QQ 本地管理接口认证失败')
       this.credential = login.Credential; this.credentialAt = Date.now()
     }
+    current()
     const response = await fetch(`http://127.0.0.1:${this.webPort}/api/${method}`, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000), headers: { 'Content-Type': 'application/json', ...(authenticate ? { Authorization: `Bearer ${this.credential}` } : {}) }, body: JSON.stringify(data) })
     if (!response.ok) throw new Error(`QQ 本地接口 HTTP ${response.status}`)
     const reader = response.body!.getReader(); const chunks: Uint8Array[] = []; let bytes = 0
     try { while (true) { const chunk = await reader.read(); if (chunk.done) break; bytes += chunk.value.length; if (bytes > 1024 * 1024) throw new Error('QQ 响应过大'); chunks.push(chunk.value) } } finally { await reader.cancel() }
     const result = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    current()
     if (result.code !== 0) { this.credential = ''; throw new Error(String(result.message || 'QQ 请求失败').slice(0, 200)) }
     return result.data
   }
   private async poll() {
-    if (!this.child || this.polling || this.closing) return
+    if (!this.child || this.polling || this.closing || ['cleaning', 'backoff', 'gave-up'].includes(this.recovery.state)) return
     this.polling = true
     const generation = this.generation
     let stage: 'login' | 'channel' = 'login'
     try {
       const status = await this.api('QQLogin/CheckLoginStatus')
       if (this.closing || !this.child || generation !== this.generation) return
+      this.loginFailures = 0
+      if (status.isOffline || (this.hadLogin && status.isLogin !== true)) {
+        this.handleOffline('QQ 状态变更为离线', 'status')
+        if (this.recovery.state !== 'waiting-qr') return
+      }
       this.loginOnline = status.isLogin === true && status.coreReady === true
       if (this.loginOnline) {
+        this.hadLogin = true
+        if (!this.onlineSince) this.onlineSince = Date.now()
+        // A brief login between crashes does not reset the circuit breaker.
+        if (Date.now() - this.onlineSince >= STABLE_LOGIN) this.recovery.attempts = 0
+        this.recovery.state = 'idle'; this.recovery.nextRetryAt = 0; this.recovery.reason = ''
         stage = 'channel'
         this.qr = ''; this.qrImage = ''; this.progress = 'QQ 已登录，正在连接消息通道'
         const info = await this.api('QQLogin/GetQQLoginInfo')
@@ -203,16 +392,32 @@ export class QQRuntime {
         this.qr = ''; this.qrImage = ''; this.phase = this.bot()?.status === 1 ? 'online' : 'connecting'; this.error = ''
         this.progress = this.phase === 'online' ? 'QQ 与 HDS 消息通道已连接' : 'QQ 已登录，正在连接消息通道'
       } else {
-        this.phase = status.isOffline ? 'offline' : ['qrcode_scanned', 'initializing'].includes(status.loginPhase) ? 'confirming' : 'qr'
-        this.progress = this.phase === 'confirming' ? '已扫码，等待手机确认与 QQ 初始化' : this.phase === 'offline' ? 'QQ 已离线，请重新登录' : '请用官方 QQ 扫码确认登录'
+        this.onlineSince = 0
+        if (this.recovery.state === 'restarting') { await this.recoveryLogin(generation); return }
+        if (this.recovery.state === 'quick-login') {
+          if (status.loginError || Date.now() >= this.quickLoginDeadline) await this.fallbackQr(String(status.loginError || 'QQ 快速登录超时'), generation)
+          return
+        }
+        this.phase = status.isOffline && this.recovery.state !== 'waiting-qr' ? 'offline' : ['qrcode_scanned', 'initializing'].includes(status.loginPhase) ? 'confirming' : 'qr'
+        this.progress = this.phase === 'confirming' ? '已扫码，等待手机确认与 QQ 初始化' : this.recovery.state === 'waiting-qr' ? 'QQ 自动恢复未能快速登录，请用官方 QQ 扫码确认登录' : this.phase === 'offline' ? 'QQ 已离线，请重新登录' : '请用官方 QQ 扫码确认登录'
         this.error = String(status.loginError || '').slice(0, 200)
         const qr = String(status.qrcodeurl || '')
-        if (qr !== this.qr) { this.qr = qr; this.qrImage = qr && qr.length < 4096 ? await QRCode.toDataURL(qr, { width: 320, margin: 2 }) : '' }
+        if (qr !== this.qr) {
+          const image = qr && qr.length < 4096 ? await QRCode.toDataURL(qr, { width: 320, margin: 2 }) : ''
+          if (this.closing || generation !== this.generation) return
+          this.qr = qr; this.qrImage = image
+        }
       }
     } catch (error) {
       if (this.closing || generation !== this.generation) return
-      if (stage === 'login') this.loginOnline = false
-      if (stage === 'login' && this.phase === 'starting' && Date.now() - this.startedAt < 120000) return
+      if (stage === 'login') {
+        this.loginOnline = false; this.onlineSince = 0; this.loginFailures++
+        const booting = !this.hadLogin && this.recovery.state !== 'waiting-qr' && ['starting', 'restarting', 'quick-login'].includes(this.recovery.state === 'idle' ? this.phase : this.recovery.state)
+        if (booting && Date.now() - this.startedAt < 120000) return
+        if (booting || this.loginFailures >= 3) {
+          this.handleOffline(`QQ 状态接口持续不可用：${error instanceof Error ? error.message : '连接中断'}`, 'api'); return
+        }
+      }
       this.phase = 'failed'
       this.progress = stage === 'channel' ? 'QQ 已登录，消息通道未连接，将自动重试' : '暂时无法确认 QQ 状态，将自动重试'
       this.error = `${stage === 'channel' ? 'QQ 消息通道初始化失败' : 'QQ 状态未就绪'}：${error instanceof Error ? error.message : '连接中断'}`
@@ -220,11 +425,24 @@ export class QQRuntime {
     } finally { this.polling = false }
   }
   async start() {
-    if (this.child || this.installation || this.phase === 'starting') throw new Error('QQ 正在运行或安装，请先停止')
+    if (this.child || this.installation || this.phase === 'starting') throw new Error('QQ 正在运行、安装或自动恢复，请先停止')
     if (!componentsReady(this.directory)) throw new Error('请先下载 QQ 组件')
-    this.generation++; this.closing = false; this.phase = 'starting'; this.progress = '启动本机 QQ，首次加载可能需要两分钟'; this.error = ''; this.logs = []; this.startedAt = Date.now()
+    this.cancelRecovery(); this.watchdogEnabled = true
+    this.recovery = { state: 'idle', attempts: 0, nextRetryAt: 0, reason: '' }
+    try { await this.launch() } catch (error) {
+      this.handleOffline(`QQ 启动失败：${error instanceof Error ? error.message : '启动失败'}`, 'process')
+      throw error
+    }
+  }
+  private async launch() {
+    if (this.child || this.installation) throw new Error('QQ 正在运行或安装，请先停止')
+    if (!componentsReady(this.directory)) throw new Error('请先下载 QQ 组件')
+    this.generation++; this.closing = false; this.phase = 'starting'; this.progress = this.recovery.state === 'restarting' ? `QQ 自动恢复中：正在重启（${this.recovery.attempts}/${MAX_RECOVERIES}）` : '启动本机 QQ，首次加载可能需要两分钟'; this.error = ''; this.startedAt = Date.now()
+    const generation = this.generation
+    this.hadLogin = false; this.onlineSince = 0; this.loginFailures = 0; this.quickLoginDeadline = 0
     this.webToken = randomBytes(32).toString('hex'); this.wsToken = randomBytes(32).toString('hex'); this.credential = ''
     this.webPort = await freePort(); this.wsPort = await freePort()
+    if (this.closing || generation !== this.generation) return
     const configDir = join(this.directory, 'config')
     atomic(join(configDir, 'webui.json'), { host: '127.0.0.1', port: this.webPort, token: this.webToken, autoLoginAccount: '', loginRate: 100, disableWebUI: false })
     const network = { network: { websocketServers: [{ name: 'hds-local', enable: true, host: '127.0.0.1', port: this.wsPort, token: this.wsToken, messagePostFormat: 'array', reportSelfMessage: false, enableForcePushEvent: true }] } }
@@ -235,17 +453,23 @@ export class QQRuntime {
     const displayNumber = availableDisplayNumber()
     const authority = join(this.directory, 'display.auth')
     writeDisplayAuthority(authority, displayNumber)
-    const display = spawn('/usr/bin/Xvfb', xvfbArguments(displayNumber, authority), { stdio: ['ignore', 'ignore', 'pipe'] })
-    this.display = display
+    const display = spawn('/usr/bin/Xvfb', xvfbArguments(displayNumber, authority), { detached: true, stdio: ['ignore', 'ignore', 'pipe'] })
+    this.display = display; this.ownedProcesses.add(display)
     display.stderr?.on('data', data => this.diagnostic(String(data)))
     let displayFailure = ''
-    display.once('error', error => { displayFailure = error.message })
-    display.once('exit', code => { if (!this.closing) displayFailure = `Xvfb 退出：${code}` })
+    const displayFailed = (reason: string) => {
+      displayFailure = reason
+      if (this.display === display && generation === this.generation) this.handleOffline(reason, 'process')
+    }
+    display.once('error', error => displayFailed(`Xvfb 无法启动：${error.message}`))
+    display.once('exit', code => displayFailed(`Xvfb 退出：${code}`))
     const deadline = Date.now() + 10000
     while (!existsSync(`/tmp/.X11-unix/X${displayNumber}`)) {
-      if (displayFailure || Date.now() > deadline) { display.kill(); this.display = undefined; this.phase = 'failed'; throw new Error(displayFailure || 'QQ 虚拟显示初始化超时') }
+      if (this.closing || generation !== this.generation) return
+      if (displayFailure || Date.now() > deadline) throw new Error(displayFailure || 'QQ 虚拟显示初始化超时')
       await new Promise(resolve => setTimeout(resolve, 100))
     }
+    if (this.closing || generation !== this.generation) return
     if (displayFailure || display.exitCode !== null) throw new Error(displayFailure || `Xvfb 退出：${display.exitCode}`)
     const environment = { ...process.env,
       DISPLAY: `:${displayNumber}`, XAUTHORITY: authority, NAPCAT_MAIN_PATH: join(root, 'napcat/napcat.mjs'),
@@ -259,40 +483,26 @@ export class QQRuntime {
     }
     delete environment.ELECTRON_RUN_AS_NODE
     const child = spawn(join(root, 'opt/QQ/qq'), ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'], { cwd: join(root, 'opt/QQ'), env: environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    this.child = child
-    for (const stream of [child.stdout, child.stderr]) stream?.on('data', data => {
-      for (const line of data.toString().split(/\r?\n/)) if (/error|fatal|sandbox|failed|not found|undefined symbol|cannot|失败/i.test(line) && !/qrcode|二维码|token|message content/i.test(line)) this.diagnostic(line)
-    })
-    child.once('error', error => {
-      if (this.child !== child) return
-      // A failed spawn emits error/close, but never exit. Clear it here so
-      // stop/retry cannot wait forever for a process that was never created.
-      this.child = undefined; this.display?.kill(); this.display = undefined
-      this.loginOnline = false; this.qrImage = ''; this.phase = 'failed'
-      this.error = `QQ 无法启动：${error.message}`; this.diagnostic(this.error)
-    })
-    child.once('exit', (code, signal) => { if (this.child !== child) return; this.child = undefined; this.display?.kill(); this.display = undefined; this.loginOnline = false; this.qrImage = ''; if (!this.closing) { this.phase = 'failed'; this.error = `QQ 进程退出（${signal || code}），请查看 QQ 日志`; void this.fork?.dispose(); this.fork = undefined } })
+    this.child = child; this.ownedProcesses.add(child)
+    this.watchChild(child, generation)
     await this.poll()
   }
   async stop() {
+    this.cancelRecovery()
     this.generation++; this.closing = true; this.loginOnline = false; this.qrImage = ''; this.qr = ''
     this.cancellation?.abort(); await this.installation
-    if (this.fork) { await this.fork.dispose(); this.fork = undefined }
-    const child = this.child
-    if (child) {
-      await new Promise<void>(resolve => {
-        if (child.exitCode !== null) { resolve(); return }
-        const terminate = (signal: NodeJS.Signals) => { try { if (child.pid) process.kill(-child.pid, signal) } catch { child.kill(signal) } }
-        const kill = setTimeout(() => terminate('SIGKILL'), 3000)
-        child.once('exit', () => { clearTimeout(kill); terminate('SIGKILL'); resolve() }); terminate('SIGTERM')
-      })
-    }
-    this.display?.kill(); this.display = undefined
-    this.child = undefined; this.phase = 'stopped'; this.progress = 'QQ 已停止，登录记录保留'; this.error = ''
+    await this.cleanupProcesses()
+    this.recovery = { state: 'idle', attempts: 0, nextRetryAt: 0, reason: '' }
+    this.phase = 'stopped'; this.progress = 'QQ 已停止，登录记录保留'; this.error = ''
   }
-  async close() { clearInterval(this.timer); await this.control; await this.stop(); await this.sending }
-  status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, loggedIn: this.loginOnline, progress: this.progress, download: this.download, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1 } }
+  async close() {
+    this.cancelRecovery(); this.closing = true; this.generation++
+    clearInterval(this.timer); await this.control; await this.stop(); await this.sending
+  }
+  status() { return { phase: this.phase, installed: componentsReady(this.directory), running: !!this.child, loggedIn: this.loginOnline, progress: this.progress, download: this.download, error: this.error, account: this.account, nickname: this.nickname, qr: this.qrImage, policy: this.policy, logs: this.logs, online: this.loginOnline && this.bot()?.status === 1, recovery: { ...this.recovery } } }
   async dispatch(method: string, payload: any) {
+    // Invalidate queued/timed recovery immediately, even while a launch is awaiting I/O.
+    if (method === 'qq.stop') { this.cancelRecovery(); this.closing = true; this.generation++ }
     if (['qq.install', 'qq.start', 'qq.stop', 'qq.refreshQr', 'qq.quickLogin', 'qq.policy'].includes(method)) {
       const result = this.control.then(() => this.handle(method, payload))
       this.control = result.then(() => {}, () => {})
@@ -303,7 +513,7 @@ export class QQRuntime {
   private async handle(method: string, payload: any) {
     if (method === 'qq.status') return this.status()
     if (method === 'qq.install') {
-      if (this.child || this.installation) throw new Error('请先停止 QQ 或等待当前安装')
+      if (this.child || this.installation || this.phase === 'starting') throw new Error('请先停止 QQ 或等待当前安装')
       const proxy = payload?.githubProxy ?? ''
       githubDownloadUrl('https://github.com/NapNeko/NapCatQQ', proxy)
       this.cancellation = new AbortController(); this.phase = 'installing'; this.error = ''
@@ -313,8 +523,9 @@ export class QQRuntime {
         .then(() => { this.phase = 'stopped' }).catch(error => { this.phase = 'failed'; this.error = this.cancellation?.signal.aborted ? '安装已取消或超时，可重新下载' : error.message }).finally(() => { clearTimeout(timeout); this.installation = undefined; this.download = undefined })
       return this.status()
     }
-    if (method === 'qq.start') { try { await this.start() } catch (error) { this.display?.kill(); this.display = undefined; this.phase = 'failed'; this.error = error instanceof Error ? error.message : 'QQ 启动失败'; throw error }; return this.status() }
+    if (method === 'qq.start') { await this.start(); return this.status() }
     if (method === 'qq.stop') { await this.stop(); return this.status() }
+    if (['qq.refreshQr', 'qq.quickLogin'].includes(method) && ['cleaning', 'backoff', 'restarting', 'quick-login'].includes(this.recovery.state)) throw new Error('QQ 自动恢复中，请稍候或先停止 QQ')
     if (method === 'qq.refreshQr') {
       if (!this.child) throw new Error('请先启动 QQ')
       if ((await this.api('QQLogin/CheckLoginStatus')).isLogin !== true) { await this.api('QQLogin/RefreshQRcode'); this.qr = '' }
