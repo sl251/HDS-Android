@@ -6,6 +6,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.view.View;
 import android.view.WindowManager;
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -17,6 +18,20 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HdsRuntimePlugin.class);
         super.onCreate(savedInstanceState);
         if (bridge == null) return;
+        // Use the same WebView bridge as the viewport integration below. The UI
+        // consumes Inbox layers first and knows whether its root came from a tab.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                bridge.getWebView().evaluateJavascript(
+                    "Boolean(window.hdsHandleBack && window.hdsHandleBack())", result -> {
+                        if (!"true".equals(result)) {
+                            setEnabled(false);
+                            getOnBackPressedDispatcher().onBackPressed();
+                            setEnabled(true);
+                        }
+                    });
+            }
+        });
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         // Own system bars/cutout here; Capacitor's CONSUMED listener is disabled in config.

@@ -277,7 +277,8 @@ for (const status of ['delivered', 'cancelled']) {
 }
 
 for (const status of ['pending', 'completed', 'cancelled'] as const) {
-  test(`outbox recovery respects ${status} split ownership instead of competing with its sender`, async () => {
+  test(`outbox recovery respects ${status} split ownership instead of competing with its sender`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: now.getTime() })
     const h = harness([intent(1, 'split-message', 'alice', 5000)])
     h.rows[0].payload.scriptEvent = reference(); h.rows[0].status = status
     const entry = ledgerEntry(); h.entries.push(entry)

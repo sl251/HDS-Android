@@ -1,12 +1,12 @@
 # 第三方来源
 
-本仓库提交计划、基线脚本、Android 宿主和固定 HDS rc51 源码。参考仓库检出、node_modules、生成 bundle、运行时二进制与签名材料在忽略目录中。APK 构建时内置 Ubuntu ARM64、Node、HDS 和 PRoot/loader。未包含 SnowLuma 代码/原生组件或 Linux QQ。
+本仓库提交计划、基线脚本、Android 宿主和固定 HDS 1.0.1-rc56 源码。参考仓库检出、node_modules、生成 bundle、运行时二进制与签名材料在忽略目录中。APK 构建时内置 Ubuntu ARM64、Node、HDS 和 PRoot/loader。未包含 SnowLuma 代码/原生组件或 Linux QQ。
 
-`tools/hds-baseline/package.json` 原样取自 HDS 固定提交，用于复现依赖。`feature-parity.csv` 的功能名称和说明来自相同 HDS 源码，由 TypeScript AST 机械盘点生成；其 `mobile_status` 默认值为盘点基线而非移动端支持声明，口径见 [feature-parity.md](feature-parity.md)。保留其上游归属和 AGPL 声明。
+`tools/hds-baseline/package.json` 保留初始 rc51 基线清单，用于复现历史依赖；本次 rc56 的依赖声明与 rc51 相同，仅上游包版本变化。`feature-parity.csv` 的功能名称和说明来自相同 HDS 源码，由 TypeScript AST 机械盘点生成；其 `mobile_status` 默认值为盘点基线而非移动端支持声明，口径见 [feature-parity.md](feature-parity.md)。保留其上游归属和 AGPL 声明。
 
 | 来源 | 固定提交 | 声明/记录位置 |
 | --- | --- | --- |
-| ISEKAI-MomoiCore/HDS-Interlude | 9a77fadb88c6e57914ebac8ca75cf54a27354d01 | AGPL-3.0；原文在 legal/HDS-Interlude-AGPL-3.0.txt |
+| ISEKAI-MomoiCore/HDS-Interlude | b683bafcac42c99a45929e0516195f033f969665 | AGPL-3.0；原文在 legal/HDS-Interlude-AGPL-3.0.txt |
 | dphmoblie/deepseek-harness-android | 14a21621fa25e204d7218d37e193d9b861b837a8 | MIT；其 THIRD_PARTY_NOTICES.md 分别记录附带运行时来源 |
 | MuFengDR/AstrBot-Bubble-Android-App | f54ed74930683ac9f8ef76390f53980e2d537cb5 | BSD-3-Clause；本次未复用代码 |
 | zz6zz666/AstrBot-Android-App | 7ea03f0be5e3d780394f35959aac23ad13a772ee | 固定树只含 README，未据此复制历史代码 |
@@ -25,3 +25,5 @@ preview.4 新增 YAML 解析依赖 `yaml@2.9.1`（ISC，作者 Eemeli Aro），�
 preview.5 新增 `koishi-plugin-adapter-onebot@6.9.5`（MIT）与 `qrcode@1.5.4`（MIT），许可证随 guest npm 包收录。Ubuntu ELF 链接依赖固定在 `runtime/qq-libs.lock.json`，各自 copyright 随 APK 收录。
 
 QQ 组件由用户点击后从官方来源下载，不随 APK 内置：Linux QQ 3.2.34-53644（腾讯专有软件）；NapCat.Shell v4.18.38（Copyright © 2024 Mlikiowa，[Limited Redistribution License](https://github.com/NapNeko/NapCatQQ/blob/bbd0d2aca3d470c20b33b1d4f95123335633bf26/LICENSE)，含非商业限制）。包保留原样，不修改、公开发布其修改版或混同为 AGPL/MIT。版本、官方 URL 与 SHA-256 见 `runtime/qq-components.ts`；本项目不授予这些组件额外使用权。
+
+Preview 9.1 M3 新增 `silk-wasm@3.7.1`（[idranme/silk-wasm](https://github.com/idranme/silk-wasm)，npm 包许可证为 MIT，Copyright © 2024 idranme），锁定于宿主与 guest 两份 package-lock.json。发布包中的 `lib/silk.wasm` 随依赖保留，guest 构建现有许可证收集步骤将包内 LICENSE 纳入 APK legal/npm/silk-wasm。该依赖不需要 ffmpeg 或特定 CPU 架构的 Node 原生插件。

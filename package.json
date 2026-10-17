@@ -8,9 +8,9 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build",
     "build:host": "node scripts/build-mobile-host.mjs",
-    "test": "npm run build:host && node --import tsx --test tests/*.test.ts",
+    "test": "npm run build:host && node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "android:sync": "npm run build && cap sync android",
-    "test:ui": "npm run build:host && node tests/story-ui.mjs && node tests/m5-ui.mjs"
+    "test:ui": "npm run build:host && node tests/story-ui.mjs && node tests/preview91-m4-ui.mjs && node tests/qq-policy-ui.mjs && node tests/share-persona-ui.mjs && node tests/m5-ui.mjs"
   },
   "dependencies": {
     "@capacitor/android": "7.4.3",
@@ -23,6 +23,7 @@
     "qrcode": "1.5.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "silk-wasm": "3.7.1",
     "undici": "7.30.0",
     "yaml": "2.9.1"
   },

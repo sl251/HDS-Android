@@ -6,6 +6,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ModelSettingsCodecTest {
+    @Test fun embeddingAssignmentSurvivesNativePersistenceAndRemainsOptional() {
+        val normalized = codec.normalize(row().put("useForEmbedding", true))
+        assertTrue(normalized.getBoolean("useForEmbedding"))
+        assertTrue(codec.publicRows(JSONObject().put("providers", JSONArray().put(normalized))).getJSONObject(0).getBoolean("useForEmbedding"))
+        assertFalse(codec.normalize(row()).getBoolean("useForEmbedding"))
+        codec.validateRows(JSONArray().put(codec.normalize(row())))
+        val legacy = codec.rows(JSONObject().put("endpoint", "https://example.com/v1").put("model", "old")).getJSONObject(0)
+        assertFalse(legacy.getBoolean("useForEmbedding"))
+    }
+    @Test fun worldSeedingAssignmentSurvivesNativePersistenceAndRemainsOptional() {
+        val normalized = codec.normalize(row().put("useForWorldSeeding", true))
+        assertTrue(normalized.getBoolean("useForWorldSeeding"))
+        assertTrue(codec.publicRows(JSONObject().put("providers", JSONArray().put(normalized))).getJSONObject(0).getBoolean("useForWorldSeeding"))
+        assertFalse(codec.normalize(row()).getBoolean("useForWorldSeeding"))
+        codec.validateRows(JSONArray().put(codec.normalize(row())))
+    }
     @Test fun imageCapabilityIsExplicitAndPublic() {
         assertEquals("unknown", codec.normalize(row()).getString("imageInput"))
         for (capability in listOf("unknown", "supported", "unsupported")) {

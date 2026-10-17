@@ -1,5 +1,6 @@
 import { Context, Bot, h, type SendOptions } from 'koishi'
 import { HTTP } from '@cordisjs/plugin-http'
+import { Server } from '@koishijs/plugin-server'
 import { SQLiteDriver } from '@minatojs/driver-sqlite'
 import { createServer } from 'node:http'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
@@ -15,8 +16,8 @@ import { personaDefaults, personaEditPatch } from './persona'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
 import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt } from './stickers'
-import { mapMobileConfig, normalizeMobileConfig, mobileSchema, type MobileConfig } from './mobile-config'
-import { localVoiceCapability, localVoiceDelivery, type VoiceBridgeConfig } from './voice'
+import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProviders, type MobileConfig } from './mobile-config'
+import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
 import { BackgroundBudget } from './background-budget'
 import { inspectPreset } from './preset'
@@ -38,6 +39,9 @@ export async function startHost(input: HostConfig) {
   const app = new Context({ prefix: ['interlude.'] })
   app.baseDir = input.dataDir
   app.plugin(HTTP)
+  // Reuse HostConfig.port below. port: 0 installs the router without opening
+  // another listener; only sticker GETs are forwarded to its Koa handler.
+  app.plugin(Server, { host: '127.0.0.1', port: 0 })
   app.plugin(SQLiteDriver, { path: join(input.dataDir, 'hds.sqlite') })
   app.model.extend('mobile_message', { id: 'string(64)', direction: 'string(16)', content: 'text', occurredAt: 'timestamp', status: 'string(32)', images: { type: 'json', initial: [] }, audio: { type: 'json', initial: {} } }, { primary: 'id' })
   app.model.extend('mobile_request', { id: 'string(64)', content: 'text', status: 'string(32)', occurredAt: 'timestamp' }, { primary: 'id' })
@@ -86,16 +90,32 @@ export async function startHost(input: HostConfig) {
   const mobile = normalizeMobileConfig(input.mobileConfig)
   const budget = new BackgroundBudget(join(input.qqDir ?? input.dataDir, 'background-budget.json'), mobile.backgroundLimit)
   const stickerConfig = localStickerConfig(input.dataDir)
+  const mapped = mapMobileConfig(mobile, input.autoAdvance)
+  const model = mobileModelConfig(input)
   const config = HDS.Config({
-    stickers: stickerConfig,
-    ...mapMobileConfig(mobile, input.autoAdvance),
+    stickers: { ...stickerConfig, deliveryMode: 'http', deliveryBaseUrl: `http://127.0.0.1:${input.port}` },
+    ...mapped,
     storyDefaults: personaDefaults(input.card, input.userProfile),
-    model: mobileModelConfig(input),
+    model: { ...model, embedding: mapped.model.embedding,
+      providers: embeddingProviders(model.providers, mapped.model.embedding) },
     logging: { level: 'info', verbosity: 'standard', colors: false, kaomoji: false, logMessageContent: false, logScriptPreview: false },
     qzone: { enabled: false }, browser: { enabled: false },
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
   config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
+  const voiceTasks = new Set<Promise<unknown>>()
+  const drainVoice = async () => { while (voiceTasks.size) await Promise.allSettled([...voiceTasks]) }
+  ;(config.model as any).mobileOneBotVoiceDelivery = async (bot: Bot, channelId: string, content: string, willingness: unknown, sendText: () => Promise<unknown>) => {
+    const receipt = await sendText()
+    if (bot?.platform !== 'onebot' || !input.voiceBridge) return receipt
+    const task = oneBotVoiceDelivery(input.voiceBridge, bot, channelId, content, willingness,
+      `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), async () => receipt)
+    voiceTasks.add(task)
+    void task.finally(() => voiceTasks.delete(task)).catch(() => undefined)
+    // Commit the text receipt immediately. Slow optional audio must not leave
+    // the upstream ledger pending for its delivery-repair sweep to resend.
+    return receipt
+  }
   config.model.mobileBeforeRequest = budget.beforeRequest
   config.model.mobileSystemPrompt = (prompt, request) => request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt)
   const activeVision = visionProjection(input)
@@ -152,9 +172,16 @@ export async function startHost(input: HostConfig) {
   const saveJobs = () => { writeFileSync(`${jobFile}.tmp`, JSON.stringify(jobs)); renameSync(`${jobFile}.tmp`, jobFile) }
   saveJobs()
   const work = new Set<Promise<void>>()
-  const qq = input.qqDir ? new QQRuntime(app, input.qqDir, input.dataDir, app.interlude.config, async account => {
+  const qq = input.qqDir ? new QQRuntime(app, input.qqDir, input.dataDir, app.interlude.config, async (account, users) => {
     const result = await app.interlude.addStoryEndpoint(story, 'onebot', account, 'qq')
     if (!result.ok) throw new Error(result.error || '无法绑定 QQ 与当前角色故事')
+    for (const user of users) {
+      // An endpoint projection, not an incoming message: enroll without inventing chat history.
+      await app.interlude.ensureParticipant(story, bot.session({
+        platform: 'onebot', selfId: account, user: { id: user.qq, name: user.label || user.qq },
+        channel: { id: `private:${user.qq}`, type: 1 },
+      }) as Parameters<typeof app.interlude.ensureParticipant>[1])
+    }
   }) : undefined
   const dispatch = async (method: string, payload: Record<string, unknown>) => {
     if (closing) throw new Error('核心正在关闭，请稍后再试')
@@ -212,7 +239,7 @@ export async function startHost(input: HostConfig) {
       const visionRestartRequired = desiredVision !== undefined && JSON.stringify(desiredVision) !== JSON.stringify(activeVision)
       return { restartRequired: lifeRestartRequired || visionRestartRequired, visionRestartRequired, activeVision, reasons: [...(lifeRestartRequired ? ['mobile-config-changed'] : []), ...(visionRestartRequired ? ['vision-config-changed'] : [])] }
     }
-    if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (config as any)[section.key]?.[field.key]]))])), budget: budget.status() }
+    if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (section.key === 'embedding' ? config.model.embedding : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
     if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.since') {
       const query = messagesSinceQuery(payload.since)
@@ -230,6 +257,12 @@ export async function startHost(input: HostConfig) {
     }
     if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, occurredAt: new Date((row as { occurredAt: Date | string }).occurredAt).toISOString(), images: messageImages((row as { images?: unknown }).images), audio: messageAudio((row as { audio?: unknown }).audio) }))
     if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, schedulingStatus: await app.interlude.adminSchedulingStatus(story.id), entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
+    if (method === 'story.applySetting') {
+      const active = await app.interlude.findStory(current)
+      if (!active) throw new Error('未找到当前故事')
+      story = await app.interlude.updateSetting(active, payload)
+      return story.setting
+    }
     if (method === 'story.pause' || method === 'story.resume') {
       const paused = method.endsWith('pause')
       if (!paused && restoreHeld) { restoreHeld = false; unlinkSync(restoreMarker); await app.interlude.setDesktopRuntimePhase('running') }
@@ -264,6 +297,10 @@ export async function startHost(input: HostConfig) {
     throw new Error('Unknown or disallowed method')
   }
   const server = createServer(async (request, response) => {
+    if (request.method === 'GET' && request.url?.startsWith('/hds-interlude/sticker/')) {
+      app.server._http.emit('request', request, response)
+      return
+    }
     response.setHeader('Content-Type', 'application/json; charset=utf-8')
     response.setHeader('Cache-Control', 'no-store')
     const auth = Buffer.from(request.headers.authorization ?? '')
@@ -279,8 +316,8 @@ export async function startHost(input: HostConfig) {
   })
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(input.port, '127.0.0.1', () => resolve()) })
   let shutdown: Promise<void> | undefined
-  const stop = () => shutdown ??= (async () => { closing = true; await new Promise<void>(resolve => server.close(() => resolve())); await qq?.close(); await queue; await Promise.allSettled([...work]); bot.dispose(); await app.interlude.mobileDrainBeforeStop(); await app.stop() })()
-  return { app, bot, server, stop, dispatch, qq }
+  const stop = () => shutdown ??= (async () => { closing = true; await new Promise<void>(resolve => server.close(() => resolve())); await qq?.close(); await queue; await Promise.allSettled([...work]); bot.dispose(); await app.interlude.mobileDrainBeforeStop(); await drainVoice(); await app.stop() })()
+  return { app, bot, server, stop, dispatch, qq, drainVoice }
 }
 
 if (process.env.HDS_MOBILE_MAIN === '1') {

@@ -2,9 +2,13 @@
 
 # feature-parity.csv 说明
 
-`docs/feature-parity.csv` 由 `scripts/inventory-hds.mjs` 从上游 HDS-Interlude 固定提交
-`9a77fadb88c6e57914ebac8ca75cf54a27354d01` 的 `src/index.ts` 用 TypeScript AST 机械盘点生成，
+`docs/feature-parity.csv` 由 `scripts/inventory-hds.mjs` 从上游 HDS-Interlude `1.0.1-rc56` 固定提交
+`b683bafcac42c99a45929e0516195f033f969665` 的 `src/index.ts` 用 TypeScript AST 机械盘点生成，
 列出**上游已有的全部 23 个顶层配置分区和 46 个 `ctx.command` 命令**。
+
+Preview 9.1 M0 已对 rc56 重新运行 AST 盘点，仍为 23 个顶层分区、46 个命令；按 `(kind, feature)` 保留已有人工 `mobile_status` / `evidence`，只刷新上游描述及位置。上游预设同步允许的分区新增 `weather`，它已存在于顶层配置，故数量不变；移动端仍由 `supportedFields` 筛选。
+
+复现：先用固定提交的 `git archive` 解出原始树，再执行 `node scripts/inventory-hds.mjs /path/to/rc56/src/index.ts`。无参数时读取 vendored 源码（其中移动补丁会使部分行号偏移）；脚本输出默认状态，覆盖 CSV 前须保存并按上述键回填人工状态及证据。
 
 因此：
 
@@ -23,8 +27,10 @@
 
 | 上游能力 | 移动端入口 | 说明 |
 | --- | --- | --- |
-| `storyDefaults` | 空间 → 故事与身份 | 称呼、人设、持续生活开关 |
-| `model` | 空间 → 模型与识图 | 主叙事/记忆/Alter/识图分工 |
+| `storyDefaults` | 空间 → 生活与世界 → 修改故事设定（聊天主角菜单也可进入） | 当前故事主角、人设、世界、关系、视角、时区与补充事实；`story.applySetting` |
+| `model` | 空间 → 模型与系统 → 任务分工 / 图片理解 | 主叙事、记忆压缩、Alter、向量、世界播种与识图分工 |
 | `memory` / `overlay` | 见闻 → 长期记忆 | 整理、补充、停用、清理演化 |
-| `interlude.reset` | 空间 → 存档与故事管理 → 从当前人设重新开始 | 目录替换实现，保留本机备份 |
+| `interlude.reset` | 空间 → 生活与世界 → 故事管理 → 从当前人设重新开始 | 目录替换实现，保留本机备份 |
 | `onebot` | 信箱 | 扫码登录、白名单、私聊与 @ 群聊 |
+
+Preview 9.1 M4：空间首屏只保留运行卡片和「日常与表达 / 生活与世界 / 模型与系统」三个二级入口。六个生活与世界配置分区直接使用 schema 生成两层折叠；`schedulePreplan` / `timelineDirector` 默认开启，`worldSeeder` / `longHorizon` / `weather` 默认关闭。记忆上下文和事实均默认 20 条、最高 20 条；向量检索开关在记忆高级组，与模型分工联动。完整命令、测试与环境限制见 [M4 验收记录](../artifacts/preview9.1-m4/ACCEPTANCE.md)。

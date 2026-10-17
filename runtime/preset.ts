@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto'
-import { fetchShare, sanitizeSharePayload } from '../upstream/hds-interlude/src/share-sync'
+import { fetchShare, sanitizeSharePayload, storyDefaultsToSettingPatch } from '../upstream/hds-interlude/src/share-sync'
 import { normalizeMobileConfig, supportedFields, type MobileConfig } from './mobile-config'
 import type { Context } from 'koishi'
 
 export function mobilePreset(raw: unknown, current: MobileConfig) {
   const { preset, removed } = sanitizeSharePayload(raw)
+  const { storyDefaults, ...sections } = preset
+  const storyPatch = storyDefaults === undefined ? undefined : storyDefaultsToSettingPatch(storyDefaults)
   const next = normalizeMobileConfig(current)
   const changes: { section: string; field: string; before: unknown; after: unknown }[] = []
-  for (const [section, fields] of Object.entries(preset)) {
+  for (const [section, fields] of Object.entries(sections)) {
     if (!supportedFields[section] || !fields || typeof fields !== 'object' || Array.isArray(fields)) { removed.push(section); continue }
     for (const [key, value] of Object.entries(fields)) {
       if (!supportedFields[section].includes(key)) { removed.push(`${section}.${key}`); continue }
@@ -16,8 +18,8 @@ export function mobilePreset(raw: unknown, current: MobileConfig) {
       next.sections[section] = { ...next.sections[section], [key]: value }
     }
   }
-  if (!Object.keys(preset).some(section => Object.keys((preset[section] ?? {}) as object).some(key => supportedFields[section]?.includes(key)))) throw new Error('此预设没有 preview8 支持的生活配置字段')
-  return { config: normalizeMobileConfig(next), changes, removed }
+  if (!Object.keys(storyPatch ?? {}).length && !Object.keys(sections).some(section => Object.keys((sections[section] ?? {}) as object).some(key => supportedFields[section]?.includes(key)))) throw new Error('此预设没有移动端支持的生活配置或角色人设字段')
+  return { config: normalizeMobileConfig(next), changes, removed, storyPatch }
 }
 export async function inspectPreset(ctx: Context, code: string, current: MobileConfig, expected?: string) {
   const { info, removed } = await fetchShare(ctx, 'https://typ0.space', code)

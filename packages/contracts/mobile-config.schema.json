@@ -28,7 +28,7 @@
           "key": "autoAdvanceIntervalMinutes",
           "type": "number",
           "default": 40,
-          "description": "普通时段自动推进的目标间隔，单位分钟。",
+          "description": "普通时段自动推进的目标间隔，单位分钟。仅 Urge 关闭时生效——开启 Urge 后由弹性调度接管，此值不参与。",
           "min": 5,
           "max": 1440,
           "step": 1
@@ -37,7 +37,7 @@
           "key": "autoAdvanceJitterMinutes",
           "type": "number",
           "default": 5,
-          "description": "自动推进间隔的随机浮动范围，单位分钟。",
+          "description": "自动推进间隔的随机浮动范围，单位分钟。仅 Urge 关闭时生效（Urge 有独立的抖动幅度）。",
           "min": 0,
           "max": 60,
           "step": 1
@@ -49,7 +49,7 @@
             10,
             20
           ],
-          "description": "一段对话结束后，额外补写生活的时间点，单位分钟。默认约第 10、20 分钟。",
+          "description": "一段对话结束后，额外补写生活的时间点，单位分钟。默认约第 10、20 分钟。仅 Urge 关闭时生效——开启 Urge 后对话热度由半衰期自然衰减，不再补写。",
           "itemMin": 1,
           "itemMax": 240
         },
@@ -57,7 +57,7 @@
           "key": "conversationFollowUpJitterMinutes",
           "type": "number",
           "default": 1,
-          "description": "短期补写的随机浮动范围，单位分钟。填 0 可固定在指定时间点。",
+          "description": "短期补写的随机浮动范围，单位分钟。填 0 可固定在指定时间点。仅 Urge 关闭时生效。",
           "min": 0,
           "max": 10,
           "step": 1
@@ -66,7 +66,7 @@
     },
     {
       "key": "urge",
-      "description": "【节奏 6】Urge 弹性推进：剧本驱动的自动调度（可选，替代固定间隔）。",
+      "description": "【节奏 6】Urge 弹性推进：剧本驱动的自动调度，压缩器五档生活节奏×对话密度双因子乘法模型（可选，替代固定间隔）。",
       "fields": [
         {
           "key": "enabled",
@@ -259,6 +259,59 @@
           "description": "允许主角引用当前上下文中的一条消息进行指定回复。"
         },
         {
+          "key": "messageReactions",
+          "type": "boolean",
+          "default": true,
+          "description": "允许消息表情回应。"
+        },
+        {
+          "key": "nativeFaces",
+          "type": "boolean",
+          "default": true,
+          "description": "允许主角在需要时发送 QQ 原生小表情。"
+        },
+        {
+          "key": "allowedReactions",
+          "type": "array",
+          "default": [
+            "like",
+            "smile",
+            "laugh",
+            "heart"
+          ],
+          "description": "主模型可以选择的语义表情；平台连接器负责转换为实际表情编号。",
+          "itemOptions": [
+            "like",
+            "smile",
+            "laugh",
+            "heart",
+            "surprised",
+            "sad",
+            "angry"
+          ]
+        },
+        {
+          "key": "allowedNativeFaces",
+          "type": "array",
+          "default": [
+            "smile",
+            "laugh",
+            "sweat",
+            "awkward"
+          ],
+          "description": "允许主模型使用的 QQ 原生表情语义。",
+          "itemOptions": [
+            "smile",
+            "laugh",
+            "sweat",
+            "awkward",
+            "heart",
+            "surprised",
+            "sad",
+            "angry"
+          ]
+        },
+        {
           "key": "expressionThreshold",
           "type": "number",
           "default": 0.7,
@@ -353,10 +406,10 @@
         {
           "key": "maxTokens",
           "type": "number",
-          "default": 400,
-          "description": "侧端分析最大输出 token；只需要一到两句话。",
+          "default": 2000,
+          "description": "侧端分析最大输出 token。思考型模型需给 reasoning 留余量(建议 ≥2000)。",
           "min": 64,
-          "max": 2000,
+          "max": 16000,
           "step": 1
         },
         {
@@ -410,19 +463,207 @@
         {
           "key": "recentEntryLimit",
           "type": "number",
-          "default": 30,
-          "description": "每次主叙事请求附带的最近原始条目数。",
+          "default": 20,
+          "description": "每次主叙事附带的最近原始条目数；移动端最多 20 条。",
           "min": 1,
-          "max": 200,
+          "max": 20,
           "step": 1
         },
         {
           "key": "factLimit",
           "type": "number",
           "default": 20,
-          "description": "每次主叙事请求附带的长期事实数。",
+          "description": "每次主叙事附带的长期事实数；移动端最多 20 条。",
           "min": 1,
-          "max": 200,
+          "max": 20,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "key": "embedding",
+      "description": "Embedding 与历史语义召回。先配置 Embedding 连接，再按需开启历史召回。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "启用长期事实的语义检索。模型由上方“用作 Embedding 模型”用途开关选择。"
+        },
+        {
+          "key": "liveQuery",
+          "type": "boolean",
+          "default": false,
+          "description": "是否在每次实时对话中额外请求 Embedding 做语义检索。关闭可减少一次网络请求、降低回复延迟；后台向量补齐不受影响。"
+        },
+        {
+          "key": "providerId",
+          "type": "string",
+          "default": "",
+          "description": "向量模型连接编号；留空时使用模型分工中的向量连接。"
+        }
+      ]
+    },
+    {
+      "key": "worldSeeder",
+      "description": "【扩展 15】世界播种器：外部事件的生成与注入（未选模型即关闭）。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "启用世界事件播种器：后台低频生成与她有关的外部事件（线下通道、NPC），到点以 [世界事件] 条目进入剧本。模型在【必填 2】模型中心的连接上勾选“用于世界播种”选择；未勾选任何连接时本开关无效。"
+        },
+        {
+          "key": "cadenceMinutes",
+          "type": "number",
+          "default": 30,
+          "description": "生成检查间隔（分钟）；偶发跳过整轮检查，多数检查输出空。",
+          "min": 5,
+          "max": 1440,
+          "step": 1
+        },
+        {
+          "key": "maxPending",
+          "type": "number",
+          "default": 6,
+          "description": "同时挂起的未注入事件上限。",
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        {
+          "key": "dailyCap",
+          "type": "number",
+          "default": 8,
+          "description": "每 24 小时注入上限（高重要性每天至多 1 条）。",
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        {
+          "key": "maxHorizonHours",
+          "type": "number",
+          "default": 72,
+          "description": "事件最远发生时限（小时）。",
+          "min": 1,
+          "max": 336,
+          "step": 1
+        },
+        {
+          "key": "temperature",
+          "type": "number",
+          "default": 0.9,
+          "description": "生成温度。",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "key": "maxTokens",
+          "type": "number",
+          "default": 1000,
+          "description": "单次输出预算（tokens）。",
+          "min": 256,
+          "max": 8192,
+          "step": 1
+        },
+        {
+          "key": "timeout",
+          "type": "number",
+          "default": 60000,
+          "description": "请求超时（毫秒）。",
+          "min": 5000,
+          "max": 300000,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "key": "longHorizon",
+      "description": "【扩展 17】长线叙事催化器（实验）：生成潜在张力与首次微表达许可（默认关闭）。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "实验：长线叙事催化器（Narrative Attractor）——累计加权叙事证据后异步生成可控的长期发展方向，并允许主叙事在自然场景中尝试一次最小、可撤回的首次表达。"
+        },
+        {
+          "key": "triggerScore",
+          "type": "number",
+          "default": 25,
+          "description": "首次生成的加权分数门槛（默认25；私聊1.0/群聊0.5）。",
+          "min": 10,
+          "max": 500,
+          "step": 1
+        },
+        {
+          "key": "reviewIncrement",
+          "type": "number",
+          "default": 40,
+          "description": "上次催化器生成后再积累多少分触发一次新的长期发展机会审查。",
+          "min": 10,
+          "max": 500,
+          "step": 1
+        },
+        {
+          "key": "intensity",
+          "type": "union",
+          "default": "subtle",
+          "description": "指导强度（第一版默认 subtle）。",
+          "options": [
+            "subtle",
+            "moderate",
+            "strong"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "weather",
+      "description": "【扩展 16】运行时天气:真实天气 → [世界事件] 注入(默认关闭)。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "启用运行时天气注入:从 Open-Meteo(免费无 Key)拉取真实天气,以 [世界事件] 剧本条目注入当前温度与天况。"
+        },
+        {
+          "key": "latitude",
+          "type": "number",
+          "default": 39.14,
+          "description": "观测点纬度(手动模式,或自动解析失败时的回退)。",
+          "min": -90,
+          "max": 90
+        },
+        {
+          "key": "longitude",
+          "type": "number",
+          "default": 117.18,
+          "description": "观测点经度。",
+          "min": -180,
+          "max": 180
+        },
+        {
+          "key": "autoFromLocation",
+          "type": "boolean",
+          "default": true,
+          "description": "从故事设定中的地点(storySetting.location)自动解析观测点;解析失败回退手动经纬度。"
+        },
+        {
+          "key": "skipFantasyWorld",
+          "type": "boolean",
+          "default": false,
+          "description": "手动开关:架空世界(异世界/精灵/幻想设定)跳过天气注入。注意默认关闭——即架空世界默认也会注入真实地球天气；设定为异世界的故事建议开启。"
+        },
+        {
+          "key": "cadenceMinutes",
+          "type": "number",
+          "default": 30,
+          "description": "拉取间隔(分钟)。注入为纯数据格式(\"环境:22°C 小毛毛雨。\"),不带建议句。",
+          "min": 5,
+          "max": 180,
           "step": 1
         }
       ]

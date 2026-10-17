@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { constants } from 'node:fs'
+import { open } from 'node:fs/promises'
+import { wavToSilk } from './voice-codec'
 import { voiceText, messageAudio, type MessageAudio } from '../packages/contracts/voice'
 
 export type VoiceBridgeConfig = { url: string; token: string; cardId: string; directory: string }
@@ -23,4 +26,34 @@ export async function localVoiceDelivery(bridge: VoiceBridgeConfig | undefined, 
     if (!response.ok) return undefined
     return messageAudio(await response.json())
   } catch { return undefined }
+}
+
+/** Text is the authoritative delivery. Optional QQ audio cannot invalidate its
+ * receipt, trigger a text retry, or bypass Android's shared quota/cooldown. */
+export async function oneBotVoiceDelivery<T>(bridge: VoiceBridgeConfig | undefined, bot: { platform: string; sendMessage: (channelId: string, content: string) => Promise<unknown> }, channelId: string,
+  content: string, willingness: unknown, style: string, sendText: () => Promise<T>): Promise<T> {
+  const receipt = await sendText()
+  if (bot?.platform !== 'onebot' || !bridge || (Array.isArray(receipt) && !receipt.length)) return receipt
+  try {
+    const audio = await localVoiceDelivery(bridge, content, willingness, style)
+    if (!audio) return receipt
+    const file = await open(join(bridge.directory, `${audio.audioId}.wav`), constants.O_RDONLY | constants.O_NOFOLLOW)
+    let wav: Buffer
+    try {
+      const stat = await file.stat()
+      if (!stat.isFile() || stat.size > 10 * 1024 * 1024 || !stat.size) return receipt
+      wav = await file.readFile()
+    } finally { await file.close() }
+    const silk = await wavToSilk(wav)
+    // Koishi's real OneBot encoder emits a standalone record segment and turns
+    // the data URI into base64://; no guest/Android filesystem path escapes.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        bot.sendMessage(channelId, `<audio src="data:audio/silk;base64,${silk.toString('base64')}"/>`),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Optional voice delivery timed out')), 15000) }),
+      ])
+    } finally { clearTimeout(timer) }
+  } catch { /* Synthesis, codec and optional record failures retain text. */ }
+  return receipt
 }

@@ -1,3 +1,80 @@
+# 更新记录
+
+## 1.0.1-rc56（2026-10-15，发布候选）
+
+本节以 rc55 发布包为基线，汇总全量静态审查确认的问题修复（P1 全部 + P2 加固）。普通 Koishi 行为不变，语义修复集中在 typ-0 桌面桥接与表情包路由。
+
+**产物状态**：源码、包声明与构建产物统一为 `1.0.1-rc56`；构建与验包完成后交付 `release/koishi-plugin-hds-interlude-1.0.1-rc56.tgz`（本轮按要求暂缓打包——rc55 tgz 不代表当前源码，勿混用）。旧安装包不会自动获得以下改动，运行实例需安装并重载。
+
+### 审查修复（P1）
+
+- **P1-1 严格 typecheck**：移除 service.ts 未使用的 `ATTENTION_MULTIPLIERS` 导入（TS6133 阻断发布检查）。
+- **P1-2 群消息结果未知语义**：`sendGroupMessage` 桌面路径 `!outcome.ok` 时保留 `transportTimeout` 标记随异常上抛；catch 识别该标记后 segment reason 加 `transport-timeout:` 前缀并以 warn 级记录（确定失败维持 error 级）；`sendCrossGroupMessage` 账本映射对该前缀记 `pending` 交补偿——消息可能已发出时不再误记确定失败（与私聊路径 rc53 语义对齐）。bot 路径（withTransportTimeout）同样受益于 catch 的标记识别。
+- **P1-3 动作 ambiguous 语义**：贴纸与原生表情的桌面动作代理调用在 `outcome.ambiguous` 时上抛带标记的错误；catch 记账为 `pending`（`recordPlatformDeliveryOutcome` 放宽允许 pending——平台动作不在补偿回放的 kind=message 过滤内，无自动重发与重复风险），日志明示结果未知（可能已发送，不自动重试），对齐 Qzone 路径语义。
+- **P1-4 版本纪律**：版本串全套对齐 rc56（package.json/meta/README/四指南/架构文档/CHANGELOG/部署 HTML/配置测试锚点）。
+
+### 加固（P2）
+
+- **表情包回源路由**：realpath 双侧边界判定（resolve/relative 挡不住 root 内符号链接/junction 指向目录外，Windows 实测 junction 形态已回归覆盖）；`stickerRouteRegistered` 改为注册成功后置位（server.get 抛错时下次发送可重试，不再永久跳过）；流错误在响应头已发出时销毁流（改状态码无效，避免请求悬挂）。
+- **P2-4 proxyAgent 说明**：配置描述更新为实际覆盖范围——普通 Chat/Embedding/Anthropic/Zhipu/OpenAI 兼容流式与实验性流式抢先回复均经代理（原说明流式暂不经过代理已过时）。
+- **已知边界**：rc55 tgz 为旧产物；群消息桌面路径未携带 intentKey（重放去重依赖插件侧 settled/acceptedDeliveries 检查，与私聊路径的宿主侧幂等存在差距，后续批次评估补齐）。
+
+### Console 配置面审计修正（并入 rc56）
+
+按配置描述 ↔ 代码行为对照审计结论修正 Console 配置模块（不改功能实现）：
+- **描述修正**：embedding.modelId 不再指向 Console 已不存在的 model.models（改为遗留说明）；mainResponseFormat 声明为唯一主开关（连接行遗留 responseFormat 不再影响主叙事）；chatActions.platforms 注明仅 qq 生效（wechat 为预留位）；sticker deliveryMode 去掉死别名 router 表述；weather.skipFantasyWorld 注明默认会给架空世界注入真实天气；specialization off 去掉 rc12 历史坐标。
+- **跨配置联动声明**：runtime 的固定推进五参数（interval/jitter/followUp×2/restWindows）逐条注明"仅 Urge 关闭时生效"（restWindows 注明 Urge 下只剩窗口命中布尔 × restMultiplier）；runtime.proactiveWillingnessThreshold 补反向引用（Urge 开启时改调 Urge 节同名门槛）；willingnessAuto 注明三态数据源与五档降维（玩手机/休息并入 idle 档）。
+- **排序重排**：Model 节 providers 前置（必填优先，vision/audio 移入高级区）；runtime 节 33 字段按 接收→合并分段→转发→重试→上下文预算→延迟回复→主动消息→后台→固定推进 分组重排；urge 门槛移节尾；storyDefaults.supplementaryFacts 归位到 supportingCast 旁；顶层 weather 前移至 worldSeeder 之后并重编扩展 16-19。
+- **假旋钮隐藏**：longHorizon.privateWeight/groupWeight 与 chatRhythm 同待遇 .hidden()（描述保留兼容说明）。
+- **同步白名单对齐（唯一代码改动，一行）**：SHARE_SECTIONS 补 weather——此前站点白名单含 weather 而插件不含，含 weather 的预设同步时该分区被静默丢弃；presetSync.sections 描述同步补列。
+- **配置测试更新**：节顺序/Model 首键断言按新序锚定；SHARE_SECTIONS 数量 17→18 并断言 weather 在列。
+
+### 回归测试
+
+新增 `test/desktop-outcome-semantics.test.ts`（群超时前缀+warn 级对照/确定失败 error 级对照/账本谓词/贴纸与表情 ambiguous→pending 及确定失败对照）与 issue6 套件加固项（注册失败不置位/junction 越界拦截/穿越拦截/合法文件放行）。
+
+## 1.0.1-rc55（2026-10-15，发布候选）
+
+本节以 rc54 发布包为基线，交付 issue #5（verbosity=diagnostic 时叙事管线死锁）修复。
+
+**产物状态**：源码、包声明与构建产物统一为 `1.0.1-rc55`；按既有发布流程构建、验包并交付 `release/koishi-plugin-hds-interlude-1.0.1-rc55.tgz`。旧 rc54 及更早安装包不会自动获得以下改动，运行实例需安装并重载。
+
+### issue #5：诊断日志死锁（三层修复）
+
+- **崩溃根因**：`flushBufferedNarrative` 的回合开场诊断日志向 `reportOperation` 传入了 `{ id }` 伪造的轻量 story 桩——`writeReport` 在 layered/compact/detailed 三种格式里都直接读 `story.setting.character.name`，桩上该路径为 undefined，抛 `TypeError: Cannot read properties of undefined (reading 'character')`。日志级别需达 debug（用户开 diagnostic 时通常同开）即触发。
+- **死锁机制**：该异常恰好落在批次消费（`splice`）与 `try` 之间的裸奔区间——`endFlush` 永不执行，turn 永久 in-flight 且 `narrating` 故事级互斥不释放；后续消息持续缓冲但永不进入模型调度，直到重启进程。已消费批次同时丢失。
+- **修复**：①`writeReport` 主角名防御式读取 `story.setting?.character?.name ?? story.id`（三种格式共用一处变量），日志层永不成为故障源；②回合开场诊断改用 `reportStandalone`（本就是回合级信息，不再伪造 story 桩）；③`try` 提前到 `splice` 之后包住全程——任何前段异常由既有 catch 消化并按“未提交批次”排叙事重试（消息从已落库入站条目恢复），`finally` 的 `endFlush` 必达。
+- **回归测试**：`test/issue5-write-report-stub.test.ts` 两项——三种日志格式下桩 story 不抛且回退故事 ID；前段抛错时 endFlush 必达、故事互斥释放、重试已排、批次语义保持。
+
+## 1.0.1-rc54（2026-10-15，发布候选）
+
+本节以 rc53 发布包为基线，交付主叙事文风默认值恢复。普通 Koishi 与 typ-0 桌面行为架构不变。
+
+**产物状态**：源码、包声明与构建产物统一为 `1.0.1-rc54`；按既有发布流程构建、验包并交付 `release/koishi-plugin-hds-interlude-1.0.1-rc54.tgz`。旧 rc53 及更早安装包不会自动获得以下改动，运行实例需安装并重载。
+
+### 主叙事文风默认值恢复
+
+- **`model.stylePrompt` 默认从单句英文恢复为完整中文写作指引**：默认值此前在某轮重构中被压缩为一句英文兜底（"Use restrained, realistic prose…"），丢失了原文风指引的完整语义。现恢复为约 700 字的中文生活剧本写作指引，含：推进篇幅弹性（约 400 字可长可短、重点展现变化）、从主角真实生活质感展开的写作方法、用户消息作为外部事件的落位规则（可即时注意也可延后处理）、主角自身生活内容的补充维度、适度不确定性与变化、主动联系动机、贴近主角的第三人称限知视角、推进至当前时刻结束的收尾边界、线上聊天省字习惯。
+- **双源收敛**：schema 默认与 `systemPrompt` 的空值兜底此前是两份独立硬编码（存在漂移风险），现统一为 `DEFAULT_STYLE_PROMPT` 单一常量（`narrator.ts` 导出，`index.ts` schema 引用）——清空字段保存后两处行为一致。
+- **兼容性**：仅影响 `model.stylePrompt` 缺省/清空的配置（新故事、未动过该字段的实例）；已有显式配置（含预设同步写入的值）完全不受影响。故事级 `storyDefaults.style` 覆盖语义不变。
+
+## 1.0.1-rc53（2026-10-15，发布候选）
+
+本节以 rc52 发布包为基线，交付 typ0 桌面全量代码审查发现的一处协议级冲突修复。普通 Koishi（非 typ-0 worker）部署的既有行为不变。
+
+**产物状态**：源码、包声明与构建产物统一为 `1.0.1-rc53`；按既有发布流程构建、验包并交付 `release/koishi-plugin-hds-interlude-1.0.1-rc53.tgz`。旧 rc52 及更早安装包不会自动获得以下改动，运行实例需安装并重载。
+
+### 桌面桥接投递回执语义（typ-0 冲突修复）
+
+- **宿主 `unknown` 回执误判为终态失败**：宿主 OneBot echo 超时/桥接关闭时回执 `status: 'unknown'`（消息可能已到达平台、结果不可知），桥接层此前一律以普通 Error reject，service 的 catch 据此判定"确定失败"——绕过了 rc50 建立的"结果未知 → pending 补偿"语义。后果：待投递补偿不再复查该消息、账本误记"未投递的主角消息"、Agency 主动联系配额被误作废（可能重复发出实际已达的消息）。修复：`settleDelivery` 对 `unknown` 回执 reject 携带 `transportTimeout` 标记；桥接自身 45s 确认超时同样标记；后台投递 handler 的 outcome 透传该标记；service 私聊后台路径按标记走 pending 分支（重复投递由既有 intentKey 幂等去重挡住）。`DesktopDeliveryStatus` 类型补全 `unknown`（宿主自 D2-2 起实际发送该值，类型此前失真）。
+- **实时回复片段数组逗号拼接**：桌面实时会话 `session.send` 收到 `[quote 元素, 零宽分隔]` 数组时经 `String(outgoing)` 序列化会以逗号拼接（`<quote id="…"/>,​正文`），且宿主无法还原为真正的 QQ 回复引用。修复：数组逐段 `join('')` 保真，`replyTo`（触发消息 ID）随投递透传，宿主据此构造 OneBot `[reply,id=…]` 段。
+- 回归测试：`desktop-bridge.test.ts` 新增 unknown/确定失败分类标记断言与片段数组序列化断言（含 replyTo 透传）。
+
+### 验证与边界
+
+- 全量回归与严格 TypeScript 检查通过（数字见发布验证）；`unknown → pending` 分类与 intentKey 幂等去重的组合不引入重复投递。
+- 群聊后台路径的回执错误文本同样携带"结果未知"措辞，但本轮未改群分段的账本语义（群路径无补偿重放，维持显式失败留痕）。
+
 ## 1.0.1-rc51（2026-10-13，发布候选）
 
 本节以 rc50 发布包为基线，合并其后的工作区修复（含下节"未发布：rc50 后续修复"全部内容）与本日两批新增修复：运行日志全量分析修复与 Agency 端点专项审查修复。保留持续叙事、单剧本单人格和事实全局可见原则，不改变既有业务架构。
@@ -16,6 +93,58 @@
 - **解析层主动行动丢弃留痕**：advance 相位模型未输出 `proactiveContact` 时，裸 `crossConversationActions` 因 willingness 缺失/低于阈值或 delayed 时间越界被解析层丢弃的行动，现在显式携带原因（`droppedProactiveActions`）写入"从未发送"的 withdrawn 账本与历史条目，并输出一条 info——关闭"剧本已写她发出、实际从未进入投递管线"的幻影缝隙。目标不在白名单、群目标或空内容的丢弃维持既有静默行为；模型输出 `proactiveContact` 时仍由 Agency 决策边界全权判断（行为不变）。
 - **冷却豁免用户回复**：出站失败的 5 分钟端点冷却不再拦截 `userInitiated` 回复（含 `allowed=false` 显式失败态）——一次网络抖动不再让该参与者最长 5 分钟已读不回。冷却的防轰炸语义完整保留给后台与主动重试路径；用户回复若真失败仍记录并延长冷却，每条用户消息至多尝试一次。
 - **Agency 每日上限改为送达计数**：放行时预记 `proactiveContactLog` 携带 `ref`（UUID）并随消息草稿进入投递管线；投递终态失败按 `ref` 作废该条计数——被端点拦截或传输失败的主动联系不再消耗每日配额。`pending`（可恢复）失败不作废；归一化保留 `ref/voided`，重启不丢。
+
+### 代码审查修复与功能增强（2026-10-15 批次）
+
+**Urge 推进系统重构（乘法模型 + 五档生活节奏）**：
+- `planUrge` 从线性插值改为乘法公式 `base / (densityFactor × rhythmFactor)`——对话密度与生活节奏两个独立因子相乘，hot 区间不再截断正常通道
+- 新增五档生活节奏 `lifeRhythm`（phone-focused ×1.4 / available ×1.0 / occupied ×0.7 / resting ×0.5 / asleep ×0.15），由**压缩器**主写、**主叙事 urge 交接**可覆盖、**用户消息到达**即时提升（asleep/resting → phone-focused）
+- `restWindows` 从"替换间隔"降级为"无节奏数据时的兜底倍率"（`restMultiplier` 默认 0.6）
+- 半衰期默认从 45min 提高到 90min（对话后高密度持续期翻倍）
+- 新配置：`compaction.sideTaskMaxTokens`（侧端 JSON 任务输出预算，默认 4096，0=不限）、`urge.advanced.activeMultiplier`（默认 1.4）、`urge.advanced.restMultiplier`（默认 0.6）
+- 群聊意愿新增**回复后跳过抖动**：五档幅度表（eager 0-3 条 / normal 0-6 / quiet 1-9）× 节奏调制（phone-focused -1 / resting +2 / asleep +3），@ 直通不清零计数
+- Alter 兜底 max_tokens 从 500 抬到 2000
+
+**rc50 issue 报告九项修复**：
+- 问题二（P0）：七处发送/OneBot 调用加 `withTransportTimeout`（30s 默认，超时→"结果未知"记 pending 交补偿幂等）；serial 看门狗（占用 >2min 告警带任务起点栈）
+- 问题三：lite 档补表情包/聊天动作/引用回复三段说明（条件展开）
+- 问题四：`requiresVisibleReplyRecovery` 携带动作字段时不判回复缺失（只发表情包不配文字合法）
+- 问题五：`reconcileTransportReferences` 为 `localMedia`/`nativeFace`/`messageReactions` 补两层嵌套提权
+- 问题六：`normalizeScriptField` 纯函数归一对象/entries/数组形态的 script 字段（decide() 返回链接，闸门前生效）
+- 问题七：`repairBareQuotes` 裸引号修补候选（排在括号平衡扫描之前）
+- 问题八：模型失败时保留原始输出快照（`safeJsonPreview`/截断原文）
+- 问题九：`gxh.vip.qq.com` 加入信任域
+- 问题十：off 档日志区分（`full(off→legacy 完整合约)`）；`sideSpecialty` 支持 standard
+
+**issue #3（群聊隐私回声）修复**：
+- `normalizeDecision` 层新增内容回声闸：群目标 cross-action 内容与 `interaction.reply` 重叠（完全一致/包含/bigram Jaccard > 0.55）时丢弃并留痕
+- 最短长度守卫（≥6 字符才做包含判定，防止短回复误杀）
+- `sendCrossGroupMessage` 无 scriptEvent 时打不可追溯警告
+
+**issue #4（引号层级）修复**：
+- `sanitizeAndClampVisibleContent` 加引号层级提升：成对中文弯单引号 `‘...’` → `“...”`（剧本外层 `“”` 剥掉后内层应升为第一层）
+
+**世界播种器天气领地让渡**：
+- 实况天气生效的故事，播种器让出天气领地（nature 切面换替身 + 硬排除规则 + weather-guard 校验闸）
+- 架空世界/天气关闭保持模型即兴（它们没有别的天气来源）
+
+**代码审查修复（moderate 级）**：
+- `serial` 看门狗 token 改为任务实际开始时写入，且不被后续排队任务覆盖
+- `withTransportTimeout` 用结构化标记替代子串匹配识别超时
+- `isGroupEchoOfPrivateReply` 加最短长度守卫（≥6 字符才做包含判定）
+- Urge `rhythmAttention` 只在本次交接显式提供时写入 `lifeRhythm`（防止档位永久"新鲜"导致 stale 永不触发）
+- `weather.ts` 五处修复：`Number()` null→0 坐标错位 / 快照 TTL==sweep 周期导致刷新率减半 / weather_code undefined / 负地理编码缓存 / 注释全角冒号
+- `interlude.reset` 补删 `preset-sync-state.json`（与 `database.clear` 一致）
+- `normalizeLifeRhythmDraft` 接入 service 消费点（压缩器输出的五档节奏经校验后落库）
+- 群发/贴纸/表情回应路径的 transport-timeout 待接入 pending 语义（当前仅私聊路径已修）
+
+**天气功能测试**（15 项专项）：配置归一化/架空判定/WMO 码映射/手动经纬度/自动地理编码/编码失败回退/缓存/注入格式
+
+### 打包后紧急更正（rc51 安装包构建形态）
+
+- **事故**：首个 rc51 安装包误含 tsc 的 ESM 中间产物而非 esbuild CJS bundle——插件 tsconfig 被测试向自包含版本覆盖后丢失 `emitDeclarationOnly`，全量 `yakumo build` 的 esbuild 步骤因此跳过主插件，产物为无扩展名 ESM 导入的多文件 lib，Node/Koishi 任何 loader 加载即抛错（实测 `require('./lib/index.js')` 直接失败；Linux/Docker 用户报告的启动崩溃属实）。
+- **修复**：恢复 tsconfig 继承工作区 `tsconfig.base.json`（emitDeclarationOnly），清理旧 lib 重建——`lib/index.js` 回到 21,749 行自包含 CJS bundle（rc50 同形态），require 冒烟通过；三端（GitHub/gitee 附件、桌面实例）已全部替换，新 SHA-256 `65f323546beb8abf92b230b80e3c1d7bad250d70cbed5a29fdc00dba554a17b2`。
+- **防线**：`prepack`（ensure-fresh-bundle.mjs）新增 CJS 形态校验——`lib/index.js` 出现顶层 `import/export` 即拒绝打包（已做正反双向测试）；此前它只查 mtime 新鲜度，查不出形态回归。
 
 ### 打包前复核校正
 

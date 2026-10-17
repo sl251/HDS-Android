@@ -34,11 +34,17 @@ class MobileSettingsCodec(private val schema: JSONObject) {
                         val options = field.getJSONArray("options")
                         require((0 until options.length()).any { options.get(it) == value }) { "$section.$key 选项无效" }
                     }
+                    "string" -> require(value is String && value.length <= 128) { "$section.$key 应为连接编号" }
                     "array" -> {
                         require(value is JSONArray && value.length() <= 12) { "补写时间点最多 12 个" }
                         for (i in 0 until value.length()) {
                             val item = value.get(i)
-                            require(item is Number && item.toDouble() % 1.0 == 0.0 && item.toDouble() >= field.getDouble("itemMin") && item.toDouble() <= field.getDouble("itemMax")) { "补写时间点应为 1 至 240 分钟" }
+                            val options = field.optJSONArray("itemOptions")
+                            if (options != null) {
+                                require((0 until options.length()).any { options.get(it) == item }) { "$section.$key 表情选项无效" }
+                            } else {
+                                require(item is Number && item.toDouble() % 1.0 == 0.0 && item.toDouble() >= field.getDouble("itemMin") && item.toDouble() <= field.getDouble("itemMax")) { "补写时间点应为 1 至 240 分钟" }
+                            }
                         }
                     }
                     else -> throw IllegalArgumentException("配置字段类型尚未支持")

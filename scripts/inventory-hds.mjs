@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(join(root, 'tools/hds-baseline/package.json'))
 const ts = require('typescript')
-const source = ts.createSourceFile('index.ts', readFileSync(join(root, '.references/HDS-Interlude/src/index.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
+const sourcePath = process.argv[2] ? resolve(process.argv[2]) : join(root, 'upstream/hds-interlude/src/index.ts')
+const source = ts.createSourceFile('index.ts', readFileSync(sourcePath, 'utf8'), ts.ScriptTarget.Latest, true)
 const rows = []
 const at = node => `src/index.ts:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`
 const description = expression => {

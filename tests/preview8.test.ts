@@ -24,6 +24,33 @@ test('supported schema derives upstream defaults; master switch gates independen
   assert.throws(() => normalizeMobileConfig({ backgroundLimit: -1 }))
 })
 
+test('mobile alter output budget defaults to 400 and respects explicit user settings', () => {
+  for (const autoAdvance of [false, true]) {
+    assert.equal(mapMobileConfig(undefined, autoAdvance).alterSystem.maxTokens, 400)
+    assert.equal(mapMobileConfig({ sections: { alterSystem: { enabled: true } } }, autoAdvance).alterSystem.maxTokens, 400)
+    for (const maxTokens of [128, 400, 2000]) assert.equal(mapMobileConfig({ sections: { alterSystem: { maxTokens } } }, autoAdvance).alterSystem.maxTokens, maxTokens)
+  }
+})
+
+test('mobile context budget is explicit and cannot be injected through settings or preset sync', () => {
+  for (const autoAdvance of [false, true]) {
+    for (const config of [undefined, { sections: { runtime: { sweepIntervalMinutes: 2 } } }]) {
+      const mapped = mapMobileConfig(config, autoAdvance)
+      assert.equal(mapped.runtime.contextEntryLimit, 20)
+      assert.equal(mapped.runtime.contextTimeWindowMinutes, 10)
+    }
+  }
+  const runtimeFields = mobileSchema().sections.find(section => section.key === 'runtime')!.fields.map(field => field.key)
+  for (const field of ['contextEntryLimit', 'contextTimeWindowMinutes']) {
+    assert.ok(!runtimeFields.includes(field))
+    assert.throws(() => normalizeMobileConfig({ sections: { runtime: { [field]: 500 } } }), /不支持的配置字段/)
+  }
+  const preset = mobilePreset({ runtime: { contextEntryLimit: 200, contextTimeWindowMinutes: 1440, sweepIntervalMinutes: 2 } }, {})
+  assert.deepEqual(preset.config.sections.runtime, { sweepIntervalMinutes: 2 })
+  assert.equal(mapMobileConfig(preset.config, true).runtime.contextEntryLimit, 20)
+  assert.equal(mapMobileConfig(preset.config, true).runtime.contextTimeWindowMinutes, 10)
+})
+
 test('rolling budget persists across restart, clock rollback and concurrent manual work', async () => {
   let clock = 100000000
   const file = join(mkdtempSync(join(tmpdir(), 'hds-budget-')), 'budget.json')
@@ -73,6 +100,8 @@ test('real Koishi model requests stop at budget, retain quota after restart, and
   let host: Awaited<ReturnType<typeof startHost>> | undefined
   try {
     host = await startHost(config)
+    assert.equal(host.app.interlude.config.runtime.contextEntryLimit, 20)
+    assert.equal(host.app.interlude.config.runtime.contextTimeWindowMinutes, 10)
     const story = (await host.dispatch('story.snapshot', {}) as any).story
     const timeline = { story, participant: null, phase: 'advance' as const, from: new Date(Date.now() - 600000), now: new Date(), scene: null, facts: [], recentEntries: [], dueIntents: [] }
     await host.app.interlude.getNarrator().planTimeline!(timeline)
@@ -95,21 +124,28 @@ test('real Koishi model requests stop at budget, retain quota after restart, and
   } finally { await host?.stop(); await new Promise<void>(resolve => api.close(() => resolve())) }
 })
 
-test('Preview 8.1 patch applies baseline fixtures, is idempotent and rejects unknown anchors', async () => {
+test('rc56 mobile patches apply baseline fixtures, is idempotent and rejects unknown anchors', async () => {
   // Import is read-only; use isolated strings/temporary source files, never mutate vendored sources.
-  const { preview81Patches, applyPreview81, patchMobile } = await import('../scripts/patch-mobile-hds.mjs')
+  const { mobilePatches, mobileTestPatches, applyMobilePatches, patchMobile } = await import('../scripts/patch-mobile-hds.mjs')
   const { writeFileSync, rmSync } = await import('node:fs')
   const directory = mkdtempSync(join(tmpdir(), 'hds-patch81-'))
   try {
-    for (const [name, patches] of Object.entries(preview81Patches) as [string, { before: string; after: string }[]][]) {
+    for (const [name, patches] of Object.entries(mobilePatches) as [string, { before: string; after: string }[]][]) {
       const actual = readFileSync(`upstream/hds-interlude/src/${name}`, 'utf8')
       let baseline = actual
       for (const patch of [...patches].reverse()) { assert.ok(baseline.includes(patch.after)); baseline = baseline.replace(patch.after, () => patch.before) }
-      const applied = applyPreview81(baseline, name)
+      const applied = applyMobilePatches(baseline, name)
       assert.equal(applied, actual, name)
-      assert.equal(applyPreview81(applied, name), applied)
-      assert.throws(() => applyPreview81(baseline.replace(patches[0].before, 'unknown-source'), name), /unknown\/ambiguous anchor/)
+      assert.equal(applyMobilePatches(applied, name), applied)
+      assert.throws(() => applyMobilePatches(baseline.replace(patches[0].before, 'unknown-source'), name), /unknown\/ambiguous anchor/)
       writeFileSync(join(directory, name), baseline)
+    }
+    for (const [name, patches] of Object.entries(mobileTestPatches) as [string, { before: string; after: string }[]][]) {
+      const actual = readFileSync(`upstream/hds-interlude/test/${name}`, 'utf8')
+      let baseline = actual
+      for (const patch of [...patches].reverse()) baseline = baseline.replace(patch.after, () => patch.before)
+      assert.equal(applyMobilePatches(baseline, name, mobileTestPatches), actual)
+      assert.equal(applyMobilePatches(actual, name, mobileTestPatches), actual)
     }
     writeFileSync(join(directory, 'endpoints.ts'), readFileSync('upstream/hds-interlude/src/endpoints.ts', 'utf8'))
     patchMobile(directory)

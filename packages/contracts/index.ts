@@ -6,7 +6,7 @@ export type RuntimeStatus = { state: string; installed: boolean; environmentStat
 export type ModelProvider = {
   id: string; preset: string; label: string; endpoint: string; model: string; modelsEndpoint?: string;
   protocol: 'chat-completions' | 'anthropic-messages'; enabled: boolean; credentialPresent: boolean;
-  useForMain: boolean; useForCompaction: boolean; useForAlter: boolean;
+  useForMain: boolean; useForCompaction: boolean; useForAlter: boolean; useForEmbedding?: boolean; useForWorldSeeding?: boolean;
   imageInput?: 'unknown' | 'supported' | 'unsupported';
   deepseekThinking?: 'inherit' | 'disabled' | 'enabled'; apiKey?: string; clearKey?: boolean;
 }
@@ -25,7 +25,19 @@ export function messageImages(value: unknown): string[] {
   return [...new Set(value.filter((id): id is string => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)))].slice(0, 3)
 }
 export type Appearance = { font: 'default' | 'sans' | 'serif' | 'custom'; fontSize: number; backgroundOpacity: number; panelOpacity: number; backgroundBlur: number; backgroundData?: string; fontData?: string; fontName?: string; backgroundPath?: string; backgroundRevision?: number; fontPath?: string; fontRevision?: number; theme: 'system' | 'light' | 'dark' }
-export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
+export type QQUserAccount = { qq: string; label: string; personId: string; profile: string; relationship: string; enabled: boolean }
+export type QQWillingnessPreset = 'off' | 'quiet' | 'reserved' | 'normal' | 'active' | 'eager' | 'auto' | 'custom'
+export type QQWillingness = { enabled: boolean; maxScore: number; threshold: number; probabilityAmplifier: number; decayHalfLifeSeconds: number; replyCost: number; baseGain: number; quoteGain: number; keywordGain: number }
+export type QQGroupRule = {
+  groupId: string; label: string; enabled: boolean; purpose: string; characterRole: string;
+  responseMode: 'mention-only' | 'always'; contextLimit: number; debounceSeconds: number; cooldownSeconds: number;
+  historicalImageLimit: number; willingnessPreset: QQWillingnessPreset; keywords: string[];
+  willingness?: QQWillingness; willingnessAuto?: { busy?: string; idle?: string; asleep?: string };
+}
+export type QQPolicy = { enabled: boolean; users: QQUserAccount[]; groups: QQGroupRule[] }
+export const newQQUser = (): QQUserAccount => ({ qq: '', label: '', personId: '', profile: '', relationship: '', enabled: true })
+export const newQQGroup = (): QQGroupRule => ({ groupId: '', label: '', enabled: true, purpose: '', characterRole: '', responseMode: 'mention-only', contextLimit: 20, debounceSeconds: 1, cooldownSeconds: 60, historicalImageLimit: 3, willingnessPreset: 'off', keywords: [] })
+export const newQQWillingness = (): QQWillingness => ({ enabled: false, maxScore: 1, threshold: 0.24, probabilityAmplifier: 1.3, decayHalfLifeSeconds: 180, replyCost: 0.55, baseGain: 0.12, quoteGain: 0.12, keywordGain: 0.18 })
 export type DownloadProgress = { component: string; receivedBytes: number; totalBytes?: number; bytesPerSecond: number }
 export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[] }
 export type QQConversation = { id: string; name: string; last: string; time: number; unread: number }

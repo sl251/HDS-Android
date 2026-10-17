@@ -1,4 +1,5 @@
 import { Config } from '../upstream/hds-interlude/src/index'
+import { Schema } from '@koishijs/core'
 
 // This is the supported surface, not a second copy of upstream defaults/types.
 export const supportedFields: Record<string, string[]> = {
@@ -7,20 +8,36 @@ export const supportedFields: Record<string, string[]> = {
   agency: ['enabled', 'contactMode', 'maxWindowMinutes', 'minimumProactiveIntervalMinutes', 'naturalWillingnessThreshold', 'naturalMinimumIntervalMinutes', 'proactiveDailyCap'],
   schedulePreplan: ['enabled', 'horizonDays', 'variationLevel', 'candidateActivationProbability', 'candidateRevealMinutes', 'reviewAfterLocalHour', 'anchorAutoAdvance'],
   timelineDirector: ['enabled'],
-  chatActions: ['enabled', 'quoteReply', 'expressionThreshold'],
+  chatActions: ['enabled', 'quoteReply', 'messageReactions', 'nativeFaces', 'allowedReactions', 'allowedNativeFaces', 'expressionThreshold'],
   alterSystem: ['enabled', 'baseThreshold', 'densityFactor', 'sameDirectionBoost', 'oppositeDecay', 'minWeight', 'maxIntensity', 'temperature', 'topP', 'maxTokens', 'timeout'],
   memory: ['enabled', 'backgroundIntervalMinutes', 'sceneEntryThreshold', 'sceneCharacterThreshold', 'recentEntryLimit', 'factLimit'],
+  embedding: ['enabled', 'liveQuery', 'providerId'],
+  worldSeeder: ['enabled', 'cadenceMinutes', 'maxPending', 'dailyCap', 'maxHorizonHours', 'temperature', 'maxTokens', 'timeout'],
+  longHorizon: ['enabled', 'triggerScore', 'reviewIncrement', 'intensity'],
+  weather: ['enabled', 'latitude', 'longitude', 'autoFromLocation', 'skipFantasyWorld', 'cadenceMinutes'],
 }
 export type MobileConfig = { sections?: Record<string, Record<string, unknown>>; backgroundLimit?: number }
-export function mobileSchema() {
+// rc56 exposes Embedding under model; providerId remains a supported legacy
+// routing key in its defaults/types, but is absent from the visible schema.
+function sectionSchema(key: string) {
   const root = Config as any
+  if (key === 'memory') return { ...root.dict.memory, dict: { ...root.dict.memory.dict,
+    recentEntryLimit: Schema.natural().min(1).max(20).default(20).description('每次主叙事附带的最近原始条目数；移动端最多 20 条。'),
+    factLimit: Schema.natural().min(1).max(20).default(20).description('每次主叙事附带的长期事实数；移动端最多 20 条。') } }
+  if (key !== 'embedding') return root.dict[key]
+  const embedding = root.dict.model.dict.embedding
+  return { meta: embedding.meta, dict: { ...embedding.dict,
+    providerId: Schema.string().default(embedding.meta.default.providerId).description('向量模型连接编号；留空时使用模型分工中的向量连接。') } }
+}
+export function mobileSchema() {
   return { version: 1, backgroundLimit: 120, sections: Object.entries(supportedFields).map(([key, fields]) => {
-    const section = root.dict[key]
+    const section = sectionSchema(key)
     return { key, description: section.meta.description, fields: fields.map(name => {
       const field = section.dict[name]
       if (!field) throw new Error(`Unsupported upstream field ${key}.${name}`)
       return { key: name, type: field.type, default: field.meta.default ?? section.meta.default?.[name], description: field.meta.description,
         min: field.meta.min, max: field.meta.max, step: field.meta.step, options: field.list?.map((item: any) => item.value),
+        itemOptions: field.inner?.list?.map((item: any) => item.value),
         itemMin: field.inner?.meta?.min, itemMax: field.inner?.meta?.max }
     }) }
   }) }
@@ -37,26 +54,39 @@ export function normalizeMobileConfig(value: MobileConfig = {}): Required<Mobile
     for (const [key, item] of Object.entries(fields)) {
       if (!supportedFields[section].includes(key)) throw new Error(`不支持的配置字段：${section}.${key}`)
       if (key === 'conversationFollowUpMinutes' && (!Array.isArray(item) || item.length > 12)) throw new Error('补写时间点最多 12 个')
-      output[key] = (Config as any).dict[section].dict[key](item)
+      output[key] = sectionSchema(section).dict[key](item)
     }
     sections[section] = output
   }
   return { sections, backgroundLimit }
 }
 export function mapMobileConfig(value: MobileConfig | undefined, autoAdvance: boolean) {
-  const { sections } = normalizeMobileConfig(value)
+  const { sections: { embedding, ...sections } } = normalizeMobileConfig(value)
   const urge = Boolean(sections.urge?.enabled)
   return {
     ...sections,
+    // Materialize supported rc56 defaults, including the mobile memory budget.
+    ...Object.fromEntries(mobileSchema().sections.filter(section => ['schedulePreplan', 'timelineDirector', 'memory', 'worldSeeder', 'longHorizon', 'weather'].includes(section.key)).map(section => [section.key, {
+      ...Object.fromEntries(section.fields.map(field => [field.key, field.default])), ...sections[section.key],
+    }])),
     runtime: { ...sections.runtime, autoCreate: true, autoAdvanceEnabled: autoAdvance, allowProactiveMessages: autoAdvance,
       userMessageDebounceSeconds: 1, typingMaxDelaySeconds: 12,
+      contextEntryLimit: 20, contextTimeWindowMinutes: 10,
       conversationFollowUpMinutes: !autoAdvance || urge ? [] : sections.runtime?.conversationFollowUpMinutes ?? [10, 20] },
     urge: { ...sections.urge, enabled: autoAdvance && urge },
     agency: { ...sections.agency, enabled: autoAdvance && Boolean(sections.agency?.enabled) },
-    timelineDirector: { ...sections.timelineDirector, enabled: autoAdvance && sections.timelineDirector?.enabled !== false },
-    chatActions: { ...sections.chatActions, messageReactions: false, nativeFaces: false },
+    alterSystem: { ...sections.alterSystem, maxTokens: sections.alterSystem?.maxTokens ?? 400 },
+    model: { embedding: { ...embedding, enabled: embedding?.enabled === true, liveQuery: embedding?.liveQuery === true } },
     qzone: { enabled: false }, browser: { enabled: false }, presetSync: { enabled: false },
   }
+}
+
+/** Explicit providerId takes precedence over role flags; never use a chat model implicitly. */
+export function embeddingProviders<T extends { id?: string; enabled?: boolean; protocol?: string; useForEmbedding?: boolean }>(providers: T[], options: Record<string, unknown> = {}) {
+  const routed = providers.map(row => ({ ...row, useForEmbedding: row.enabled === true && row.protocol !== 'anthropic-messages' && row.protocol !== 'gemini-interactions'
+    && (options.providerId ? row.id === options.providerId : row.useForEmbedding === true) }))
+  if (options.enabled === true && !routed.some(row => row.useForEmbedding)) throw new Error('请在模型分工中指定启用的向量连接（OpenAI 兼容接口）')
+  return routed
 }
 
 /** Reuse the App's visual route; never silently assign a text-only connection. */

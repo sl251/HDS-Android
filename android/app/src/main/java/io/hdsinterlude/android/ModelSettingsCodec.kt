@@ -5,7 +5,7 @@ import org.json.JSONObject
 
 /** Settings migration/validation without Android or network access. Secrets never enter public rows. */
 class ModelSettingsCodec(private val presets: JSONArray) {
-    private val roles = listOf("useForMain", "useForCompaction", "useForAlter")
+    private val roles = listOf("useForMain", "useForCompaction", "useForAlter", "useForEmbedding", "useForWorldSeeding")
     // A pristine extra row is an accidental add, not a runnable connection.
     // Never discard a draft with typed values or a previously saved secret.
     fun emptyDraft(input: JSONObject, previous: JSONObject? = null): Boolean =
@@ -29,7 +29,7 @@ class ModelSettingsCodec(private val presets: JSONArray) {
         val legacy = JSONObject().put("id", "legacy-primary").put("preset", "custom").put("label", "原有模型连接")
             .put("endpoint", settings.optString("endpoint")).put("model", settings.optString("model")).put("enabled", true)
             .put("protocol", "chat-completions")
-        roles.forEach { legacy.put(it, true) }
+        roles.forEach { legacy.put(it, it != "useForEmbedding" && it != "useForWorldSeeding") }
         for (field in listOf("encryptedKey", "keyIv")) if (settings.has(field)) legacy.put(field, settings.get(field))
         return JSONArray().put(legacy)
     }

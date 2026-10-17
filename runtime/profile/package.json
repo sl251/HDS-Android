@@ -9,6 +9,7 @@
     "koishi-plugin-adapter-onebot": "6.9.5",
     "qface": "1.4.1",
     "qrcode": "1.5.4",
+    "silk-wasm": "3.7.1",
     "undici": "7.30.0"
   }
 }

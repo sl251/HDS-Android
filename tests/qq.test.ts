@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { newQQUser, newQQGroup, newQQWillingness } from '../packages/contracts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -17,13 +18,30 @@ const waitFor = async (check: () => boolean | Promise<boolean>) => { const deadl
 test('QQ policy fails closed and renders message elements as inert text', () => {
   assert.throws(() => qqPolicy({ enabled: true, users: ['https://example.com'], groups: [] }))
   assert.throws(() => qqPolicy({ enabled: 'false', users: [], groups: [] }))
-  assert.deepEqual(qqPolicy({ enabled: true, users: ['12345', '12345'], groups: [] }), { enabled: true, users: ['12345'], groups: [] })
+  assert.deepEqual(qqPolicy({ enabled: true, users: ['12345', '12345'], groups: [] }), { enabled: true, users: [{ ...newQQUser(), qq: '12345' }], groups: [] })
   assert.equal(plainMessage('你好<image src="file:///private"/><at id="12345"/>'), '你好[图片]@12345 ')
+})
+
+test('legacy numeric allowlists migrate without losing accounts and retain mobile defaults', () => {
+  const migrated = qqPolicy({ enabled: false, users: ['12345', '67890', '12345'], groups: ['88888', '99999'] })
+  assert.deepEqual(migrated.users, ['12345', '67890'].map(qq => ({ ...newQQUser(), qq })))
+  assert.deepEqual(migrated.groups, ['88888', '99999'].map(groupId => ({ ...newQQGroup(), groupId })))
+  assert.deepEqual(qqPolicy(JSON.parse(JSON.stringify(migrated))), migrated)
+})
+
+test('complete policy roundtrips identity cards, per-group rules, custom gate and keywords', () => {
+  const policy = { enabled: true, users: [{ ...newQQUser(), qq: '12345', label: '小林', personId: 'lin', profile: '同事', relationship: '老朋友', enabled: false }], groups: [{ ...newQQGroup(), groupId: '88888', label: '朋友群', purpose: '聊日常', characterRole: '邻居', responseMode: 'always', contextLimit: 42, debounceSeconds: 0.5, cooldownSeconds: 90, historicalImageLimit: 5, willingnessPreset: 'custom', keywords: ['日常'], willingness: { ...newQQWillingness(), enabled: true, threshold: 0.42 }, willingnessAuto: { busy: 'quiet', idle: 'active', asleep: 'reserved' } }] }
+  assert.deepEqual(qqPolicy(policy), policy)
+  assert.deepEqual(qqPolicy({ ...policy, groups: [{ groupId: '88888', willingness: { keywords: ['日常'] } }] }).groups[0].keywords, ['日常'])
+  for (const patch of [{ contextLimit: 3 }, { contextLimit: 101 }, { contextLimit: 4.5 }, { debounceSeconds: 11 }, { cooldownSeconds: -1 }, { cooldownSeconds: 86401 }, { historicalImageLimit: 7 }, { willingnessPreset: 'gentle' }, { enabled: 'true' }, { keywords: [''] }, { willingness: { threshold: NaN } }, { willingness: { decayHalfLifeSeconds: 9 } }]) {
+    assert.throws(() => qqPolicy({ enabled: true, users: [], groups: [{ groupId: '88888', ...patch }] }))
+  }
+  for (const patch of [{ qq: 12345 }, { profile: 42 }, { enabled: 'false' }]) assert.throws(() => qqPolicy({ enabled: true, users: [{ qq: '12345', ...patch }], groups: [] }))
 })
 
 test('real OneBot adapter and HDS enforce whitelist, persist inbox and send literal text once', { timeout: 90000 }, async () => {
   const calls: any[] = [], delivered: any[] = []
-  let loggedIn = false, loginActions = 0
+  let loggedIn = false, loginActions = 0, receiptId = 70000
   const http = createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk
     res.setHeader('Content-Type', 'application/json')
@@ -49,16 +67,22 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
       if (request.action === 'get_guild_service_profile') data = { tiny_id: '0' }
       if (request.action === 'get_stranger_info') data = { user_id: request.params.user_id, nickname: '邻居' }
       if (request.action === 'get_group_info') data = { group_id: request.params.group_id, group_name: '朋友群' }
-      if (request.action === 'send_private_msg' || request.action === 'send_group_msg') { delivered.push(request); data = { message_id: 70000 + delivered.length } }
+      if (request.action === 'send_private_msg' || request.action === 'send_group_msg') { delivered.push(request); data = { message_id: ++receiptId } }
       client.send(JSON.stringify({ status: 'ok', retcode: 0, data, echo: request.echo }))
     })
   })
   const reserved = createServer(); await new Promise<void>(resolve => reserved.listen(0, '127.0.0.1', resolve)); const port = (reserved.address() as any).port; await new Promise<void>(resolve => reserved.close(() => resolve()))
   const dir = mkdtempSync(join(tmpdir(), 'hds-qq-test-'))
+  writeFileSync(join(dir, 'qq-policy.json'), JSON.stringify({ enabled: false, users: ['24680'], groups: ['88888'] }))
   const host = await startHost({ card: parseJsonCard(JSON.stringify({ spec: 'chara_card_v2', data: { name: '星禾', description: 'QQ_PERSONA_MARKER，邻居的朋友' } })), endpoint: `http://127.0.0.1:${httpPort}/v1/chat/completions`, model: 'fixture', userName: '邻居', userProfile: '', autoAdvance: false, mobileConfig: { sections: { chatActions: { enabled: true, quoteReply: true } } }, token: 'qq-test-rpc-token-more-than-32-characters', port, dataDir: dir, qqDir: join(dir, 'qq') })
   try {
     const qq = host.qq! as any
     assert.equal((await host.dispatch('qq.status', {}) as any).policy.enabled, false)
+    assert.deepEqual(qq.status().policy.users, [{ ...newQQUser(), qq: '24680' }], 'Disk legacy policy is migrated on read')
+    const friend = { ...newQQUser(), qq: '24680', label: '阿林', personId: 'friend-lin', profile: 'PRECHAT_PROFILE，邻居', relationship: 'PRECHAT_RELATIONSHIP，多年的朋友' }
+    const disabled = { ...newQQUser(), qq: '33333', enabled: false }
+    await host.dispatch('qq.policy', { enabled: true, users: [friend, disabled], groups: [] })
+    assert.equal((await host.app.database.get('interlude_participant', { platform: 'onebot' })).length, 0, 'Offline policies wait for a known bot identity')
     // Exercise the actual NapCat HTTP auth client and actual OneBot WebSocket adapter;
     // only external QQ endpoints are replaced by loopback fixtures.
     Object.assign(qq, { webPort: httpPort, webToken: 'fixture-secret' })
@@ -86,11 +110,37 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     const quick = await host.dispatch('qq.quickLogin', { uin: '55555' }) as any
     assert.equal(quick.alreadyLoggedIn, true)
     assert.equal(loginActions, 0, 'Already logged-in accounts must not receive new QR/login requests')
+    const registered = await host.app.database.get('interlude_participant', { platform: 'onebot' })
+    assert.equal(registered.length, 1, 'Only enabled friends enroll at login, before any inbound chat')
+    assert.equal(registered[0].userId, '24680')
+    assert.equal(registered[0].displayName, friend.label)
+    assert.equal(registered[0].personId, friend.personId)
+    assert.equal(registered[0].profile, friend.profile)
+    assert.equal(registered[0].relationship, friend.relationship)
+    const endpoints = await host.app.database.get('interlude_endpoint', { ownerKind: 'participant-user', ownerId: registered[0].id })
+    assert.equal(endpoints.length, 1, 'The participant has a delivery endpoint before first chat')
+    assert.equal(host.app.interlude.canHandleParticipant(registered[0]), true)
+    const onebot = host.app.bots.find(bot => bot.platform === 'onebot')!
+    const activeStory = (await host.app.database.get('interlude_story', {}))[0]
+    const proactive = await (host.app.interlude as any).sendOutgoingMessages(activeStory, [{ participantId: registered[0].id, content: 'PRECHAT_PROACTIVE_DELIVERY' }])
+    assert.equal(proactive.length, 1, 'The upstream proactive path delivers before any incoming private message')
+    assert.equal(String(delivered.at(-1).params.user_id), '24680')
+    assert.match(JSON.stringify(delivered.at(-1)), /PRECHAT_PROACTIVE_DELIVERY/)
+    await assert.rejects(() => onebot.sendMessage('private:33333', 'disabled target'), /暂停|授权/)
+    delivered.length = 0
     const incoming = (id: number, user: number, text: string) => socket.send(JSON.stringify({ post_type: 'message', message_type: 'private', sub_type: 'friend', self_id: 55555, user_id: user, message_id: id, time: Math.floor(Date.now() / 1000), message: [{ type: 'text', data: { text } }], raw_message: text, font: 0, sender: { user_id: user, nickname: '邻居' } }))
     incoming(1001, 12345, '尚未授权的消息')
     await waitFor(async () => (await host.dispatch('qq.conversations', {}) as any[]).length > 0)
-    await delay(1400); assert.equal(calls.length, 0, 'Disabled auto-reply must not call a model')
-    await host.dispatch('qq.policy', { enabled: true, users: ['12345'], groups: [] })
+    await delay(1400); assert.equal(calls.length, 0, 'An unauthorized friend must not call a model')
+    await host.dispatch('qq.policy', { enabled: true, users: [{ ...newQQUser(), qq: '12345', label: '邻居', profile: 'POLICY_PROFILE', relationship: 'POLICY_RELATIONSHIP' }, friend, disabled], groups: [] })
+    const beforeChat = await host.app.database.get('interlude_participant', { platform: 'onebot', userId: '12345' })
+    assert.equal(beforeChat.length, 1, 'Saving online policy enrolls a new friend before first chat')
+    assert.equal(beforeChat[0].profile, 'POLICY_PROFILE')
+    assert.equal(beforeChat[0].relationship, 'POLICY_RELATIONSHIP')
+    await host.dispatch('qq.policy', { enabled: true, users: [{ qq: '12345', label: '新称呼', profile: 'POLICY_PROFILE', relationship: 'POLICY_RELATIONSHIP' }, friend, disabled], groups: [] })
+    assert.equal((await host.app.database.get('interlude_participant', { platform: 'onebot', userId: '12345' }))[0].displayName, '新称呼')
+    assert.equal((await host.app.database.get('interlude_participant', { platform: 'onebot' })).length, 2, 'Repeated policy application never duplicates participants')
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'qq-policy.json'), 'utf8')), qq.status().policy)
     incoming(1002, 99999, '不在白名单')
     await delay(1400); assert.equal(calls.length, 0)
     incoming(1003, 12345, '明天见面好吗？')
@@ -120,6 +170,21 @@ test('real OneBot adapter and HDS enforce whitelist, persist inbox and send lite
     await waitFor(() => delivered.some(row => row.action === 'send_group_msg' && String(row.params.group_id) === '88888'))
     const groupDelivery = delivered.find(row => row.action === 'send_group_msg')
     assert.ok(groupDelivery.params.message.some((segment: any) => segment.type === 'reply' && String(segment.data.id) === '1005'), 'HDS quote must reach the actual OneBot send payload')
+    const fullRule = { ...newQQGroup(), groupId: '88888', label: '日常群', purpose: 'GROUP_PURPOSE', characterRole: 'GROUP_ROLE', responseMode: 'always', contextLimit: 7, debounceSeconds: 0, cooldownSeconds: 0, historicalImageLimit: 1, willingnessPreset: 'normal', keywords: ['GROUP_FIXTURE'], willingness: { ...newQQWillingness(), threshold: 0.7 }, willingnessAuto: { busy: 'reserved', idle: 'eager', asleep: 'quiet' } }
+    await host.dispatch('qq.policy', { enabled: true, users: ['12345', { ...friend, enabled: false }], groups: [fullRule, { groupId: '99999', enabled: false }] })
+    const { keywords, ...upstreamRule } = qqPolicy({ enabled: true, users: [], groups: [fullRule] }).groups[0]
+    assert.deepEqual(host.app.interlude.config.onebot.groupChats![0], { ...upstreamRule, assignee: '55555', willingness: { ...upstreamRule.willingness, keywords } }, 'Every group field reaches the upstream engine')
+    assert.equal(host.app.interlude.config.onebot.groupChats![1].enabled, false)
+    assert.equal(host.app.interlude.config.onebot.userAccounts[1].enabled, false)
+    assert.equal(host.app.interlude.canHandleParticipant(registered[0]), false, 'Disabling an enrolled friend revokes proactive delivery')
+    await assert.rejects(() => onebot.sendMessage('private:24680', 'disabled after enrollment'), /暂停|授权/)
+    const alwaysCount = calls.length
+    await host.dispatch('qq.policy', { enabled: true, users: ['12345'], groups: [{ ...fullRule, willingnessPreset: 'off', willingness: { enabled: false } }] })
+    group(1006, false)
+    await waitFor(() => calls.length > alwaysCount)
+    assert.match(JSON.stringify(calls.at(-1)), /GROUP_PURPOSE/)
+    assert.match(JSON.stringify(calls.at(-1)), /GROUP_ROLE/)
+    await waitFor(async () => (await host.dispatch('qq.history', { conversation: 'group:88888' }) as any[]).filter(row => row.outgoing).length >= 2)
     await host.dispatch('qq.policy', { enabled: false, users: ['12345'], groups: [] })
     const bot = host.app.bots.find(bot => bot.platform === 'onebot')!
     await assert.rejects(() => bot.sendMessage('private:12345', 'must not send'), /暂停|授权/)

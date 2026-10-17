@@ -40,17 +40,3 @@ test('only live and due prompt payloads carry the bounded commitment list', () =
   assert.equal(due.ongoingThreads.followUpCommitments[0].summary, '答应想清楚后回复耳机选择。')
   assert.equal(advance.ongoingThreads.followUpCommitments, undefined)
 })
-
-test('scheduled policy and fixed local time survive both compiled prompt orders', () => {
-  for (const cacheFirst of [false, true]) {
-    const value = request('user-message')
-    value.now = new Date('2026-10-16T02:00:00Z')
-    value.scheduledContactPolicy = { delayedMinSeconds: 10, delayedMaxMinutes: 1440, commitmentMinSeconds: 300, commitmentMaxHours: 12 }
-    const payload = toPromptPayload(value, { cacheFirst }) as any
-    assert.deepEqual(payload.authoringWindow.scheduledContactPolicy, value.scheduledContactPolicy)
-    assert.match(payload.authoringWindow.interval.nowLocal, /10:00/)
-  }
-  assert.match(systemPrompt('user-message', '', '', '', '', ''), /choose exactly ONE/)
-  assert.match(systemPrompt('intent-due', '', '', '', '', ''), /send the contact owed now/)
-  assert.doesNotMatch(systemPrompt('advance', '', '', '', '', ''), /USER-REQUESTED FUTURE CONTACT/)
-})

@@ -8,19 +8,59 @@ import { createServer } from 'node:net'
 import QRCode from 'qrcode'
 import { componentsPath, componentsReady, installComponents, githubDownloadUrl } from './qq-components'
 import { availableDisplayNumber, writeDisplayAuthority, xvfbArguments } from './qq-display'
-import type { DownloadProgress } from '../packages/contracts'
+import { newQQUser, newQQGroup, newQQWillingness, type DownloadProgress, type QQPolicy, type QQUserAccount, type QQGroupRule, type QQWillingnessPreset } from '../packages/contracts'
+export type { QQPolicy } from '../packages/contracts'
 
-export type QQPolicy = { enabled: boolean; users: string[]; groups: string[] }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
 type Inbox = { messages: QQMessage[]; read: Record<string, number>; requests: Record<string, { content: string; conversation: string; status: string }> }
 const atomic = (file: string, value: unknown) => { writeFileSync(file + '.tmp', JSON.stringify(value), { mode: 0o600 }); renameSync(file + '.tmp', file) }
+/** Normalize legacy numeric allowlists and validate the complete per-account policy. */
 export function qqPolicy(value: any): QQPolicy {
-  const ids = (list: unknown) => {
-    if (!Array.isArray(list) || list.length > 100 || list.some(id => typeof id !== 'string' || !/^[1-9]\d{4,14}$/.test(id))) throw new Error('QQ 白名单须为数字账号，每类最多 100 个')
-    return [...new Set(list)] as string[]
+  const object = (row: any) => { if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('无效 QQ 设置行'); return row }
+  const text = (value: any, max = 12000): string => { if (value === undefined) return ''; if (typeof value !== 'string' || value.length > max) throw new Error('QQ 设置文本无效或过长'); return value }
+  const enabled = (value: any): boolean => { if (value === undefined) return true; if (typeof value !== 'boolean') throw new Error('无效 QQ 开关'); return value }
+  const id = (value: any): string => { if (typeof value !== 'string' || !/^[1-9]\d{4,14}$/.test(value)) throw new Error('QQ 白名单须为数字账号，每类最多 100 个'); return value }
+  const number = (value: any, fallback: number, min: number, max: number, integer = false): number => {
+    if (value === undefined) return fallback
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) throw new Error(`QQ 数值应在 ${min} 至 ${max} 之间${integer ? '，且为整数' : ''}`)
+    return value
+  }
+  const choice = <T extends string>(value: any, choices: readonly T[], fallback: T): T => { if (value === undefined) return fallback; if (!choices.includes(value)) throw new Error('无效 QQ 设置选项'); return value }
+  const list = <T,>(rows: any, key: (row: T) => string, normalize: (row: any) => T): T[] => {
+    if (!Array.isArray(rows) || rows.length > 100) throw new Error('QQ 白名单每类最多 100 个')
+    const seen = new Set<string>()
+    return rows.map(normalize).filter(row => { const id = key(row); if (seen.has(id)) return false; seen.add(id); return true })
   }
   if (typeof value?.enabled !== 'boolean') throw new Error('无效 QQ 设置')
-  return { enabled: value.enabled, users: ids(value.users), groups: ids(value.groups) }
+  const users = list<QQUserAccount>(value.users, row => row.qq, input => {
+    const row = typeof input === 'string' ? { qq: input } : object(input)
+    return { ...newQQUser(), qq: id(row.qq), label: text(row.label, 200), personId: text(row.personId, 200), profile: text(row.profile), relationship: text(row.relationship), enabled: enabled(row.enabled) }
+  })
+  const groups = list<QQGroupRule>(value.groups, row => row.groupId, input => {
+    const row = typeof input === 'string' ? { groupId: input } : object(input)
+    const custom = row.willingness === undefined ? undefined : object(row.willingness)
+    const keywords = row.keywords ?? custom?.keywords ?? []
+    if (!Array.isArray(keywords) || keywords.length > 30 || keywords.some(item => typeof item !== 'string' || !item.trim() || item.length > 200)) throw new Error('关键词最多 30 个，每个 1 至 200 字')
+    const result: QQGroupRule = { ...newQQGroup(), groupId: id(row.groupId), label: text(row.label, 200), enabled: enabled(row.enabled), purpose: text(row.purpose), characterRole: text(row.characterRole),
+      responseMode: choice(row.responseMode, ['mention-only', 'always'], 'mention-only'),
+      contextLimit: number(row.contextLimit, 20, 4, 100, true), debounceSeconds: number(row.debounceSeconds, 1, 0, 10),
+      cooldownSeconds: number(row.cooldownSeconds, 60, 0, 86400, true), historicalImageLimit: number(row.historicalImageLimit, 3, 0, 6, true),
+      willingnessPreset: choice<QQWillingnessPreset>(row.willingnessPreset, ['off', 'quiet', 'reserved', 'normal', 'active', 'eager', 'auto', 'custom'], 'off'), keywords: [...new Set(keywords.map(item => item.trim()))],
+    }
+    if (custom) {
+      const defaults = newQQWillingness()
+      result.willingness = { ...defaults, enabled: custom.enabled === undefined ? defaults.enabled : enabled(custom.enabled) }
+      for (const key of ['maxScore', 'threshold', 'probabilityAmplifier', 'decayHalfLifeSeconds', 'replyCost', 'baseGain', 'quoteGain', 'keywordGain'] as const) {
+        result.willingness[key] = number(custom[key], defaults[key], key === 'maxScore' ? 0.1 : key === 'decayHalfLifeSeconds' ? 10 : 0, key === 'decayHalfLifeSeconds' ? 86400 : 10, key === 'decayHalfLifeSeconds')
+      }
+    }
+    if (row.willingnessAuto !== undefined) {
+      const auto = object(row.willingnessAuto)
+      result.willingnessAuto = Object.fromEntries(['busy', 'idle', 'asleep'].filter(key => auto[key] !== undefined).map(key => [key, choice(auto[key], ['quiet', 'reserved', 'normal', 'active', 'eager'], 'quiet')]))
+    }
+    return result
+  })
+  return { enabled: value.enabled, users, groups }
 }
 export function plainMessage(content: string) {
   const text = h.parse(content).map(part => part.type === 'text' ? part.attrs.content : part.type === 'at' ? `@${part.attrs.name || part.attrs.id || '成员'} ` : `[${({ image: '图片', audio: '语音', video: '视频', file: '文件', face: '表情', quote: '引用' } as Record<string, string>)[part.type] || '消息'}]`).join('')
@@ -53,10 +93,10 @@ export class QQRuntime {
   private sending = Promise.resolve()
   private control = Promise.resolve()
   private generation = 0
-  constructor(private app: Context, private directory: string, private profile: string, private config: any, private bindStory?: (account: string) => Promise<void>) {
+  constructor(private app: Context, private directory: string, private profile: string, private config: any, private bindStory?: (account: string, users: QQUserAccount[]) => Promise<void>) {
     mkdirSync(directory, { recursive: true }); mkdirSync(join(directory, 'home'), { recursive: true }); mkdirSync(join(directory, 'config'), { recursive: true })
     if (existsSync(join(profile, 'qq-policy.json'))) this.policy = qqPolicy(JSON.parse(readFileSync(join(profile, 'qq-policy.json'), 'utf8')))
-    this.applyPolicy()
+    void this.applyPolicy()
     const seen = new Set<string>()
     app.on('bot-added', bot => {
       // The adapter constructs its platform fields immediately after Bot's constructor.
@@ -79,7 +119,7 @@ export class QQRuntime {
     app.middleware((session, next) => {
       if (session.platform !== 'onebot') return next()
       if (session.selfId !== this.account || session.userId === this.account || !this.policy.enabled) return
-      const allowed = session.isDirect ? this.policy.users.includes(session.userId) : this.policy.groups.includes(session.guildId || session.channelId)
+      const allowed = session.isDirect ? this.policy.users.some(row => row.enabled && row.qq === session.userId) : this.policy.groups.some(row => row.enabled && row.groupId === (session.guildId || session.channelId))
       if (allowed) return next()
     }, true)
     // Observe incoming messages before HDS's own middleware; group/private gates remain authoritative.
@@ -88,18 +128,22 @@ export class QQRuntime {
     app.before('send', session => {
       if (session.platform !== 'onebot') return
       const id = session.channelId?.replace(/^private:/, '') || ''
-      const allowed = session.channelId?.startsWith('private:') ? this.policy.users.includes(id) : this.policy.groups.includes(id)
+      const allowed = session.channelId?.startsWith('private:') ? this.policy.users.some(row => row.enabled && row.qq === id) : this.policy.groups.some(row => row.enabled && row.groupId === id)
       if (!this.policy.enabled || !allowed || session.selfId !== this.account || !this.loginOnline) throw new Error('QQ 自动投递已暂停或目标未授权')
     })
     this.timer = setInterval(() => void this.poll(), 2000)
   }
   private bot() { return this.app.bots.find(bot => bot.platform === 'onebot' && bot.selfId === this.account) as OneBotBot | undefined }
-  private applyPolicy() {
+  private async applyPolicy() {
     Object.assign(this.config.onebot, { enabled: true, ignoreSelfMessages: true,
       botAccounts: this.policy.enabled && this.account ? [{ qq: this.account, enabled: true }] : [],
-      userAccounts: this.policy.users.map(qq => ({ qq, enabled: true })),
-      groupChats: this.policy.groups.map(groupId => ({ groupId, enabled: this.policy.enabled, assignee: this.account, responseMode: 'mention-only', contextLimit: 20, debounceSeconds: 1, cooldownSeconds: 60 })),
+      userAccounts: this.policy.users.map(row => ({ ...row, enabled: this.policy.enabled && row.enabled })),
+      groupChats: this.policy.groups.map(({ keywords, ...rule }) => ({ ...rule, enabled: this.policy.enabled && rule.enabled, assignee: this.account, willingness: { ...rule.willingness, keywords } })),
     })
+    if (!this.account || !this.loginOnline) return
+    // Binding and enrollment precede opening the adapter: no first chat is needed.
+    await this.bindStory?.(this.account, this.policy.enabled ? this.policy.users.filter(row => row.enabled && row.qq !== this.account) : [])
+    for (const group of this.policy.groups) if (this.policy.enabled && group.enabled) await this.app.database.upsert('channel', [{ platform: 'onebot', id: group.groupId, assignee: this.account }])
   }
   private inboxFile() { if (!/^[1-9]\d{4,14}$/.test(this.account)) throw new Error('QQ 账号尚未就绪'); return join(this.directory, `inbox-${this.account}.json`) }
   private saveInbox() { atomic(this.inboxFile(), this.inbox) }
@@ -148,15 +192,13 @@ export class QQRuntime {
           if (this.fork) { await this.fork.dispose(); this.fork = undefined }
           this.account = account; this.nickname = String(info.nick || account).slice(0, 100)
           this.inbox = existsSync(this.inboxFile()) ? JSON.parse(readFileSync(this.inboxFile(), 'utf8')) : { messages: [], read: {}, requests: {} }
-          this.applyPolicy()
-          await this.bindStory?.(account)
+          await this.applyPolicy()
           if (this.closing || generation !== this.generation) return
           // A named export avoids CJS/ESM default wrapping in the APK bundle.
           // Validate before plugin registration: Cordis records schema errors
           // on a failed scope instead of always throwing them to this caller.
           const options = OneBotBot.Config({ selfId: account, protocol: 'ws', endpoint: `ws://127.0.0.1:${this.wsPort}`, token: this.wsToken, retryTimes: 60, retryInterval: 3000, retryLazy: 3000, responseTimeout: 15000 })
           this.fork = this.app.plugin(OneBotBot, options)
-          for (const group of this.policy.groups) await this.app.database.upsert('channel', [{ platform: 'onebot', id: group, assignee: account }])
         }
         this.qr = ''; this.qrImage = ''; this.phase = this.bot()?.status === 1 ? 'online' : 'connecting'; this.error = ''
         this.progress = this.phase === 'online' ? 'QQ 与 HDS 消息通道已连接' : 'QQ 已登录，正在连接消息通道'
@@ -285,7 +327,7 @@ export class QQRuntime {
       if ((await this.api('QQLogin/CheckLoginStatus')).isLogin === true) { await this.poll(); return { accepted: false, alreadyLoggedIn: true } }
       await this.api('QQLogin/SetQuickLogin', { uin: payload.uin }); return { accepted: true }
     }
-    if (method === 'qq.policy') { this.policy = qqPolicy(payload); atomic(join(this.profile, 'qq-policy.json'), this.policy); this.applyPolicy(); for (const group of this.policy.groups) if (this.account) await this.app.database.upsert('channel', [{ platform: 'onebot', id: group, assignee: this.account }]); return this.policy }
+    if (method === 'qq.policy') { this.policy = qqPolicy(payload); atomic(join(this.profile, 'qq-policy.json'), this.policy); await this.applyPolicy(); return this.policy }
     if (method === 'qq.conversations') {
       const map = new Map<string, any>()
       for (const message of this.inbox.messages) { const row = map.get(message.conversation) || { id: message.conversation, unread: 0 }; Object.assign(row, { last: message.content, time: message.time, name: message.conversation.startsWith('group:') ? `群 ${message.conversation.slice(6)}` : message.outgoing ? row.name || message.conversation.slice(8) : message.name }); if (!message.outgoing && message.time > (this.inbox.read[message.conversation] || 0)) row.unread++; map.set(row.id, row) }

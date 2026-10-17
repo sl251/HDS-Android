@@ -5,23 +5,23 @@
 > 聊天在幕前发生，生活在幕间继续。
 
 <p>
-  <a href="https://gitee.com/MomoiCore/HDS-Interlude/releases"><img src="docs/assets/readme/version.png" alt="当前版本 1.0.1-rc51" width="176" height="30"></a>
+  <a href="https://gitee.com/MomoiCore/HDS-Interlude/releases"><img src="docs/assets/readme/version.png" alt="当前版本 1.0.1-rc56" width="176" height="30"></a>
   <a href="https://koishi.chat/"><img src="docs/assets/readme/koishi.png" alt="适用于 Koishi 4" width="122" height="30"></a>
   <a href="https://www.typescriptlang.org/"><img src="docs/assets/readme/typescript.png" alt="使用 TypeScript 编写" width="152" height="30"></a>
   <a href="LICENSE"><img src="docs/assets/readme/license.png" alt="许可证 AGPL-3.0" width="170" height="30"></a>
 </p>
 
-**[快速开始](BEGINNER_GUIDE.md) · [一条龙向导](新人上手一条龙配置服务v1.0.1-rc51.html) · [下载发行版](https://gitee.com/MomoiCore/HDS-Interlude/releases) · [更新记录](docs/CHANGELOG.md)**
+**[快速开始](BEGINNER_GUIDE.md) · [一条龙向导](新人上手一条龙配置服务v1.0.1-rc56.html) · [下载发行版](https://gitee.com/MomoiCore/HDS-Interlude/releases) · [更新记录](docs/CHANGELOG.md)**
 
 交流群：421430402，群主24小时解答，欢迎来玩！
 
 HDS Interlude 是一个面向 Koishi 一对一与多参与者场景的持续叙事聊天框架。它让用户消息、角色的沉默、延迟回复、主动联系和自动推进，都成为同一段生活剧本中自然可见的部分，并由一次主叙事写作连贯地决定。
 
-当前版本：`1.0.1-rc51`。
+当前版本：`1.0.1-rc56`。
 
-当前文档已同步至 2026-10-13 的 rc51，累计变更以 rc50 发布包为基线（含 rc50 后工作区未发布修复）。发布流程已执行源码构建，rc51 由本次生成的 `lib/` 与 `release/koishi-plugin-hds-interlude-1.0.1-rc51.tgz` 交付；旧 rc50 安装包不会自动获得这些修改，运行实例须安装并重载后才生效。
+当前文档已同步至 2026-10-15 的 rc56，累计变更以 rc55 发布包为基线。发布流程已执行源码构建与验包，rc56 由本次生成的 `lib/` 与 `release/koishi-plugin-hds-interlude-1.0.1-rc56.tgz` 交付；旧安装包不会自动获得这些修改，运行实例须安装并重载后才生效。
 
-rc51 相对 rc50 汇总：端点在线状态启动竞态回查与 sweep 重同步、解析层主动行动丢弃留痕（关闭幻影发送缝隙）、冷却豁免用户回复、Agency 每日上限改为送达计数、历史图片过期链接缓存、停机/重载竞态中止、群受理人配置与 auto 意愿回退等 rc50 后续修复一并交付。详见 [更新记录](docs/CHANGELOG.md) 和 [投递与调度边界](docs/ARCHITECTURE.md#投递与调度边界2026-10-10-工作区更新)。
+rc56 相对 rc55 汇总：静态审查批次——桌面桥接群消息的 transportTimeout（结果未知）此前被降级为确定失败（账本 failed 而非 pending），现随异常上抛并映射为 pending 补偿；贴纸与原生表情的桌面动作 ambiguous 同样保留（账本 pending，不自动重试，对齐 Qzone 语义）；表情包回源路由 realpath 边界加固（拦截 root 内符号链接指向目录外）、注册失败不再永久跳过、流错误在响应头发出后销毁流；清理未用导入使严格 typecheck 通过；proxyAgent 配置说明更新为实际覆盖范围（含全部流式通道）。详见 [更新记录](docs/CHANGELOG.md)。
 
 沿用 rc48 及此前能力：分享码同步会将 `storyDefaults` 同步写入配置模板；清库重建或新故事不会回退到旧人设；`interlude.preset.sync` 可强制重新应用预设；`database clear` 会重置同步状态；群音频可以直接触发携带原生音频的写作；跨会话投递能力继续保留。
 
@@ -162,20 +162,62 @@ flowchart TD
 
 自动推进不把 cache-first 当作世界时间来源：时间导演提供当前窗口内的推进建议，主叙事写出实际生活，宿主约束时间端点。beta6 不再把新计划自动当作完成事实；旧自动条目仍保留原账本解释。`recentExchange` 只含真实收发消息，不复制上一段剧本文字。实际是否复写仍需模型实机观察，不能仅凭缓存模式保证。
 
-## 自动推进与剧情余波
+## 自动推进与生活节奏
 
-对话结束后，系统可以按配置在约 10 分钟、20 分钟进行短期后续补写，之后按常规间隔继续生活推进；休息时间段可改用更长间隔。
+### Urge 弹性推进（乘法模型）
+
+开启 Urge 后，自动推进间隔由两个独立因子相乘决定：
+
+```
+间隔 = 基础间隔 / (对话密度因子 × 生活节奏因子)
+```
+
+**对话密度因子**：最近 15 分钟的用户消息桶数归一化后映射到 1.0 ~ `activeMultiplier`（默认 1.4）。密集对话时推进加速，沉默时按基础节奏。密度按半衰期（默认 90 分钟）指数衰减——对话结束后高密度推进仍会持续一段时间，而非立即回落。
+
+**生活节奏因子（五档）**：由三个来源写入，按即时性排序：
+
+| 来源 | 触发时机 | 效果 |
+|---|---|---|
+| 用户消息到达 | 收到消息那一刻 | asleep/resting 立即提升为 phone-focused |
+| 主叙事交接 | 每轮模型回复的 urge 字段 | 比等压缩器更即时 |
+| 压缩器 | 每轮后台整理 | 最全面的叙事上下文判定 |
+
+五档节奏与默认倍率：
+
+| 节奏 | 倍率 | 含义 |
+|---|---|---|
+| phone-focused | ×1.4 | 正在使用手机/等待回复 |
+| available | ×1.0 | 空闲 |
+| occupied | ×0.7 | 上课/工作/沉浸爱好 |
+| resting | ×0.5 | 躺着/低能量但清醒 |
+| asleep | ×0.15 | 睡眠 |
+
+节奏数据超过 2 小时未更新视为过期，自动退回休息窗口兜底倍率（`restMultiplier` 默认 0.6，乘法而非替换——不再因时钟到达 23:00 就从 10 分钟跳到 180 分钟）。
+
+### 自动推进读取的材料
 
 自动推进没有实时用户消息，但仍会读取：
 
 - 尚未结束的场景和近期已投递对话；
 - 已安排的提醒、延迟回复、约定与未完成事项；
-- 由对话留下的“剧情余波”；
+- 由对话留下的"剧情余波"（active consequence）；
 - 角色自身正在进行的生活、配角和世界状态。
 
 因此，用户说过的重要话、请求的提醒，以及影响角色的事件，都会在后续自动推进中持续留下线索。主模型可在角色具备具体动机时发起主动联系；每次候选动作都携带 `willingness`（意愿值）和原因，插件会在阈值、目标合法性与数量边界内完成投递。
 
+### 群聊意愿与跳过抖动
+
+对 `responseMode=always` 的活跃群，本地意愿分数会随消息、关键词和引用累积，按半衰期衰减，并在超过阈值后以概率决定是否值得调用主模型。@ 机器人可以立即通过（主角睡眠态除外），主角成功发言后会消耗意愿。
+
+每次成功回复后，系统还会掷一个"跳过条数"——在观察到这么多条消息之前，即使分数够也不触发模型调用。这制造了消息条数方差，避免"每条必回"的机械感。五档幅度（eager 0-3 条 / normal 0-6 / quiet 1-9）与生活节奏调制（phone-focused 减 1 / resting 加 2 / asleep 加 3）相乘。
+
+### Schedule Preplan
+
 Schedule Preplan 在后台空闲整理时维护近期稳定日程：每天最多复用压缩模型进行一次独立轻量审查，参考既有计划后才补写周规律、阶段或日期例外。`stable / contextual / granular` 变化颗粒度控制如何保留已证实的变化；granular 的少量候选安排先以半透明可用性显示，临近后才揭示，且不会自行成为生活事件。主叙事只读取从当前时刻起未来约 12 小时的计划，不会接收整周日历；计划只约束合理性，真实剧情始终优先。固定日程边界还可成为自动推进锚点，减少随机推进跨过上课、到校或离校等节点。
+
+### 运行时天气
+
+`weather`（【扩展 16】）从 Open-Meteo（免费无 Key）周期拉取真实天气，以纯数据格式（`环境：22°C 小毛毛雨。`）作为 `[世界事件]` 注入当前温度与天况，不带建议句。观测点默认从故事设定的地点自动解析，失败时回退手动经纬度；架空世界默认也会注入真实地球天气（可用 `skipFantasyWorld` 跳过，异世界设定建议开启）。天气生效的故事，世界播种器会自动让出天气领地，避免双通道供天气。
 
 ## 记忆与设定演化
 
@@ -286,7 +328,7 @@ OneBot 模式采用显式白名单：启用后，绑定的机器人 QQ 账号和
 
 群聊与私聊分开配置。群聊需要单独列入群白名单并填写群用途、主角在群中的身份和发言模式；符合白名单和调度条件的群聊消息直接进入主叙事模型，不再额外调用快速判断模型。群聊请求开始后，后续群消息会进入下一批，不会作废已经生成的群回复；私聊仍保留首条消息提交前的新消息替代写作机制。
 
-对 `responseMode=always` 的活跃群，可按群开启纯算法 `willingness`：本地意愿分数会随消息、关键词和引用累积，按半衰期衰减，并在超过阈值后以概率决定是否值得调用主模型。@ 机器人可以立即通过（主角睡眠态除外：此时 @ 直通关闭且意愿按 20% 计），主角成功发言后会消耗意愿。这个层只减少不必要的群聊主模型调用，不参与私聊、Alter 或 Agency。
+对 `responseMode=always` 的活跃群，可按群开启纯算法 `willingness`：本地意愿分数会随消息、关键词和引用累积，按半衰期衰减，并在超过阈值后以概率决定是否值得调用主模型。@ 机器人可以立即通过（主角睡眠态除外：此时 @ 直通关闭且意愿按 20% 计），主角成功发言后会消耗意愿。这个层只减少不必要的群聊主模型调用，不参与私聊、Alter 或 Agency；回复后的跳过抖动详见[自动推进与生活节奏](#自动推进与生活节奏)。
 
 ## 图片与网页观察
 
@@ -313,29 +355,29 @@ OneBot 模式采用显式白名单：启用后，绑定的机器人 QQ 账号和
 ```bash
 npm install koishi-plugin-hds-interlude@beta
 # 或使用 corepack yarn（Koishi 官方推荐）：
-corepack yarn add "koishi-plugin-hds-interlude@file:./koishi-plugin-hds-interlude-1.0.1-rc51.tgz" --exact
+corepack yarn add "koishi-plugin-hds-interlude@file:./koishi-plugin-hds-interlude-1.0.1-rc56.tgz" --exact
 ```
 
 稳定版发布后可省略 `@beta`。然后在 Koishi Console 添加 `hds-interlude` 插件并完成配置。
 
 ### 本地 tgz 安装
 
-rc51 安装包由本次发布流程生成；安装前请确认实际 tgz 路径，必要时核对同目录的 SHA-256 校验文件。使用本地预发布包时，Koishi Desktop 实例必须使用 Yarn 4 更新 package.json 与 yarn.lock；不要用 npm 安装：
+rc56 安装包由本次发布流程生成；安装前请确认实际 tgz 路径，必要时核对同目录的 SHA-256 校验文件。使用本地预发布包时，Koishi Desktop 实例必须使用 Yarn 4 更新 package.json 与 yarn.lock；不要用 npm 安装：
 
 ```bash
-node .yarn/releases/yarn-4.12.0.cjs add "koishi-plugin-hds-interlude@file:C:/absolute/path/to/koishi-plugin-hds-interlude-1.0.1-rc51.tgz" --exact
+node .yarn/releases/yarn-4.12.0.cjs add "koishi-plugin-hds-interlude@file:C:/absolute/path/to/koishi-plugin-hds-interlude-1.0.1-rc56.tgz" --exact
 ```
 
 Windows 示例：
 
 ```powershell
-node .yarn/releases/yarn-4.12.0.cjs add "koishi-plugin-hds-interlude@file:C:/dev/HDS-Interlude/plugins/hds-interlude/release/koishi-plugin-hds-interlude-1.0.1-rc51.tgz" --exact
+node .yarn/releases/yarn-4.12.0.cjs add "koishi-plugin-hds-interlude@file:C:/dev/HDS-Interlude/plugins/hds-interlude/release/koishi-plugin-hds-interlude-1.0.1-rc56.tgz" --exact
 ```
 
 Koishi Desktop 的实例使用 Yarn 4。请在实例目录执行以下命令，并在完成后重载插件或重启 Desktop：
 
 ```powershell
-node .yarn/releases/yarn-4.12.0.cjs add "koishi-plugin-hds-interlude@file:C:/dev/HDS-Interlude/plugins/hds-interlude/release/koishi-plugin-hds-interlude-1.0.1-rc51.tgz" --exact
+node .yarn/releases/yarn-4.12.0.cjs add "koishi-plugin-hds-interlude@file:C:/dev/HDS-Interlude/plugins/hds-interlude/release/koishi-plugin-hds-interlude-1.0.1-rc56.tgz" --exact
 ```
 
 安装后重新加载 Koishi，再在 Console 启用插件。

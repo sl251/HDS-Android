@@ -1,6 +1,6 @@
 import type { ModelProvider } from '../../packages/contracts'
 
-export type ModelTask = 'useForMain' | 'useForCompaction' | 'useForAlter'
+export type ModelTask = 'useForMain' | 'useForCompaction' | 'useForAlter' | 'useForEmbedding' | 'useForWorldSeeding'
 export const assigned = (rows: ModelProvider[], task: ModelTask) => rows.filter(row => row.enabled && row[task]).map(row => row.id)
 export function followsMain(rows: ModelProvider[], task: ModelTask) {
   return JSON.stringify(assigned(rows, task)) === JSON.stringify(assigned(rows, 'useForMain'))
