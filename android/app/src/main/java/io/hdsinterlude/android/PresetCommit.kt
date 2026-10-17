@@ -60,6 +60,7 @@ class PresetCommit(private val store: HdsStore, private val rpc: (String, JSONOb
         r.put("state", "story-applied"); write(cardId, r)
         validate(cardId)
         val current = store.publicSettings().getJSONObject("mobileConfig")
+        if (input.optBoolean("keepLocal")) r.put("config", current)
         require(canonicalJson(current) == canonicalJson(r.getJSONObject("before")) || canonicalJson(current) == canonicalJson(r.getJSONObject("config"))) { "生活设置已变更；导入保留在待恢复状态，请勿重复应用" }
         store.saveMobileConfig(r.getJSONObject("config"))
         r.put("state", "committed"); write(cardId, r)

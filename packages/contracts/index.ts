@@ -51,11 +51,13 @@ export type NativeBridge = {
   saveVoice(options: Partial<Voice> & { name: string }): Promise<VoiceState>;
   deleteVoice(options: { id: string }): Promise<VoiceState>;
   voiceAudio(options: { audioId: string }): Promise<{ dataUri: string }>;
+  voiceStoragePreview(): Promise<{ previewId: string; bytes: number; files: number; orphanBytes: number; orphanFiles: number; referencesComplete: boolean }>;
+  pruneVoiceAudio(options: { previewId: string; confirm: boolean }): ReturnType<NativeBridge['voiceStoragePreview']>;
   previewVoice(options: { voiceId?: string; draft?: Pick<Voice, 'type' | 'value'> }): Promise<Partial<MessageAudio> & import('./voice').VoiceResult>;
   backgroundState(): Promise<BackgroundState>;
   saveBackgroundPolicy(options: { enabled: boolean }): Promise<BackgroundState>;
   openBatterySettings(): Promise<void>;
-  pickVoiceAudio(): Promise<Partial<MessageAudio> & { cancelled?: boolean }>;
+  pickVoiceAudio(options?: { clipSeconds?: number }): Promise<Partial<MessageAudio> & { cancelled?: boolean; format?: string; sampleRate?: number; channels?: number; bytes?: number }>;
   startVoiceRecording(): Promise<void>;
   stopVoiceRecording(): Promise<MessageAudio>;
   cancelVoiceRecording(): Promise<void>;

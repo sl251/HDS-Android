@@ -35,4 +35,10 @@ class AuditWavTest {
         assertEquals(.1, WavAudio.duration(WavAudio.normalizeWav(chunked)), .000001)
         for (bad in listOf(original.copyOf(original.size - 1), original.clone().also { it[32] = 1 }, input(16, 1).also { it[34] = 8 })) assertThrows(IllegalArgumentException::class.java) { WavAudio.normalizeWav(bad) }
     }
+    @Test fun overlongInputIsRejectedUnlessTheUserExplicitlyChoseAPrefixClip() {
+        val long = WavAudio.pcm(ByteArray(24000 * 2 * 181), 24000, 1)
+        assertThrows(IllegalArgumentException::class.java) { WavAudio.normalizeWav(long) }
+        assertEquals(30.0, WavAudio.duration(WavAudio.normalizeWav(long, 30)), .000001)
+        assertThrows(IllegalArgumentException::class.java) { WavAudio.normalizeWav(long, 0) }
+    }
 }

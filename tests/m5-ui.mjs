@@ -116,7 +116,7 @@ try {
   await desk.getByRole('button', { name: '保存音色', exact: true }).click()
   await desk.getByText('晴天', { exact: true }).waitFor()
   await desk.getByLabel('创建方式', { exact: true }).selectOption('reference')
-  await desk.getByRole('button', { name: '导入 wav / mp3', exact: true }).click()
+  await desk.getByRole('button', { name: '导入 WAV / MP3 / M4A', exact: true }).click()
   await desk.getByText('参考音频 · 1 秒').waitFor()
   await desk.getByRole('button', { name: '开始录音', exact: true }).click()
   await desk.getByRole('button', { name: '结束录音', exact: true }).click()

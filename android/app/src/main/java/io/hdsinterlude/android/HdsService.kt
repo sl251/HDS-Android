@@ -24,6 +24,9 @@ class HdsService : Service() {
     @Volatile private var intentionalStop = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var healthySince = 0L
+    private val powerReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) { HdsRuntime.get(this@HdsService).recordBackground("power-or-screen-change") }
+    }
     private val network by lazy { getSystemService(android.net.ConnectivityManager::class.java) }
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(value: android.net.Network) { HdsRuntime.get(this@HdsService).networkChanged() }
@@ -96,6 +99,9 @@ class HdsService : Service() {
     override fun onCreate() {
         super.onCreate()
         active = this
+        HdsRuntime.get(this).recordBackground("service-created")
+        val powerEvents = android.content.IntentFilter().apply { addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF); addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED); addAction(Intent.ACTION_POWER_CONNECTED); addAction(Intent.ACTION_POWER_DISCONNECTED) }
+        androidx.core.content.ContextCompat.registerReceiver(this, powerReceiver, powerEvents, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         network.registerDefaultNetworkCallback(networkCallback)
         messages = CharacterNotifications(this)
         messages.createChannel()
@@ -119,6 +125,6 @@ class HdsService : Service() {
         if (intent == null) { if (!BackgroundPolicy(this).wantsRestore()) { stopSelf(); return START_NOT_STICKY }; restoreIfAllowed() }
         return if (BackgroundPolicy(this).wantsRestore()) START_STICKY else START_NOT_STICKY
     }
-    override fun onDestroy() { try { network.unregisterNetworkCallback(networkCallback) } catch (_: Exception) {}; if (HdsRuntime.get(this).messagePush === push) HdsRuntime.get(this).messagePush = null; messageIo.shutdownNow(); handler.removeCallbacksAndMessages(null); wakeLock?.let { if (it.isHeld) it.release() }; if (active === this) active = null; if (!intentionalStop) HdsRuntime.get(this).stopAsync(); super.onDestroy() }
+    override fun onDestroy() { HdsRuntime.get(this).recordBackground("service-destroyed"); try { unregisterReceiver(powerReceiver) } catch (_: Exception) {}; try { network.unregisterNetworkCallback(networkCallback) } catch (_: Exception) {}; if (HdsRuntime.get(this).messagePush === push) HdsRuntime.get(this).messagePush = null; messageIo.shutdownNow(); handler.removeCallbacksAndMessages(null); wakeLock?.let { if (it.isHeld) it.release() }; if (active === this) active = null; if (!intentionalStop) HdsRuntime.get(this).stopAsync(); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 }

@@ -243,6 +243,27 @@ test('watchdog: a stuck adapter still cleans processes and stops recovery within
   assert.equal(state.launches, 0)
 })
 
+test('watchdog: unavailable network suspends retries and manual stop prevents recovery on reconnection', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
+  const { qq, calls, state } = fixture(t)
+  qq.setNetwork(false); await qq.poll(); qq.handleOffline('network fixture', 'log'); await drain(qq)
+  t.mock.timers.tick(300000); await drain(qq)
+  assert.equal(calls.length, 0); assert.equal(state.launches, 0); assert.equal(qq.status().recovery.attempts, 0)
+  await qq.dispatch('qq.stop', {}); qq.setNetwork(true); await drain(qq)
+  t.mock.timers.tick(300000); await drain(qq); assert.equal(state.launches, 0); assert.equal(qq.status().phase, 'stopped')
+})
+
+test('watchdog: logged-in QQ repairs only a stale OneBot channel', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
+  const { qq, state, events } = fixture(t)
+  state.status = { isLogin: true, coreReady: true, isOffline: false }
+  qq.app.bots[0].status = 0; let disposed = 0
+  qq.fork = { dispose: async () => { disposed++ } }
+  await qq.poll(); t.mock.timers.tick(30001); await qq.poll()
+  assert.equal(disposed, 1); assert.equal(state.launches, 0); assert.equal(events.includes('cleanup'), false)
+  assert.equal(qq.status().loggedIn, true)
+})
+
 test('process cleanup kills a TERM-resistant descendant after its launcher exits, preserving unrelated processes', { timeout: 10000, skip: process.platform === 'win32' ? 'Android/Linux process groups require POSIX; run in Linux CI' : false }, async () => {
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
   const descendantScript = "process.on('SIGTERM', () => {}); console.log(process.pid); setInterval(() => {}, 1000)"

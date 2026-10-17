@@ -152,6 +152,8 @@ export class QQRuntime {
   private networkAvailable = true
   private lastHeartbeat = 0
   private networkPausedRecovery = false
+  private channelDisconnectedAt = 0
+  private channelRecoveries = 0
   setNetwork(available: boolean) {
     this.networkAvailable = available
     if (!available) {
@@ -394,6 +396,18 @@ export class QQRuntime {
         if (this.closing || generation !== this.generation) return
         const account = String(info.uin || '')
         if (!/^[1-9]\d{4,14}$/.test(account)) throw new Error('QQ 返回无效账号')
+        if (this.bot()?.status === 1) { this.channelDisconnectedAt = 0; this.channelRecoveries = 0 }
+        else if (this.networkAvailable) {
+          if (!this.channelDisconnectedAt) this.channelDisconnectedAt = Date.now()
+          if (this.fork && Date.now() - this.channelDisconnectedAt >= 30000 && this.channelRecoveries < 5) {
+            this.channelDisconnectedAt = Date.now(); this.channelRecoveries++
+            const old = this.fork; let timeout: ReturnType<typeof setTimeout> | undefined
+            try { await Promise.race([old.dispose(), new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('消息通道关闭超时')), 2000) })]) }
+            finally { clearTimeout(timeout) }
+            if (this.closing || generation !== this.generation) return
+            if (this.fork === old) this.fork = undefined
+          }
+        }
         if (this.account !== account || !this.fork) {
           if (this.fork) { await this.fork.dispose(); this.fork = undefined }
           this.account = account; this.nickname = String(info.nick || account).slice(0, 100)
@@ -506,7 +520,7 @@ export class QQRuntime {
   }
   async stop() {
     this.cancelRecovery()
-    this.networkPausedRecovery = false
+    this.networkPausedRecovery = false; this.channelDisconnectedAt = 0; this.channelRecoveries = 0
     this.generation++; this.closing = true; this.loginOnline = false; this.qrImage = ''; this.qr = ''
     this.cancellation?.abort(); await this.installation
     await this.cleanupProcesses()

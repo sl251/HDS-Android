@@ -44,6 +44,7 @@ try {
       nativePromise: async (plugin, method, options) => {
         if (plugin === 'CapacitorHttp' && method === 'get') {
           if (f.presetDelay) await new Promise(resolve => setTimeout(resolve, f.presetDelay))
+          if (f.presetError === '分享码不存在') return { status: 404, data: {}, headers: {}, url: options.url }
           if (f.presetError) throw new Error(f.presetError)
           return { status: 200, data: { code: options.url.split('/').at(-1), title: '生活预设 fixture', revision: 1, sections: ['agency', 'storyDefaults', 'model'], payload: { agency: { enabled: true, contactMode: 'balanced' }, ...(f.presetPatch ? { storyDefaults: { characterName: f.presetPatch.character.name, characterProfile: f.presetPatch.character.profile, world: f.presetPatch.world } } : {}), model: { apiKey: 'ignored-fixture' } } }, headers: {}, url: options.url }
         }
@@ -234,7 +235,7 @@ try {
   for (const message of ['分享码不存在', '测试：网络连接失败']) {
     await page.evaluate(message => { window.__storyFixture.presetError = message }, message)
     await checkCode.click()
-    await codeDialog.getByRole('alert').getByText(message, { exact: true }).waitFor()
+    await codeDialog.getByRole('alert').getByText(message, { exact: false }).waitFor()
     assert.equal(await codeInput.inputValue(), 'ABCDEFGH')
     assert.equal(await applyCode.count(), 0)
     assert.equal(await checkCode.isEnabled(), true)

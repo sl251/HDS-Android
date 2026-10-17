@@ -103,15 +103,19 @@ class VoiceStore(private val context: Context, private val today: () -> String =
         val duration = WavAudio.duration(bytes)
         require(bytes.size <= MAX_AUDIO && duration > 0 && duration <= 180) { "音频应在 180 秒、10 MiB 以内" }
         val id = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-        synchronized(lock) { val file = audioFile(id); if (!file.exists()) { val f = AtomicFile(file); val out = f.startWrite(); try { out.write(bytes); f.finishWrite(out) } catch (e: Throwable) { f.failWrite(out); throw e } } }
+        synchronized(lock) { val file = audioFile(id); if (!file.exists()) { val f = AtomicFile(file); val out = f.startWrite(); try { out.write(bytes); f.finishWrite(out) } catch (e: Throwable) { f.failWrite(out); throw e } }; file.setLastModified(System.currentTimeMillis()) }
         return JSONObject().put("audioId", id).put("duration", duration)
     }
-    fun import(uri: Uri): JSONObject {
+    fun import(uri: Uri, clipSeconds: Int? = null): JSONObject {
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readVoiceBytes(MAX_AUDIO) } ?: throw IllegalArgumentException("无法读取音频")
         require(bytes.size <= MAX_AUDIO) { "音频超过 10 MiB" }
-        return putAudio(WavAudio.normalize(context, bytes))
+        val normalized = WavAudio.normalize(context, bytes, clipSeconds)
+        return putAudio(normalized).put("format", "wav/pcm16").put("sampleRate", 24000).put("channels", 1).put("bytes", normalized.size).put("clipSeconds", clipSeconds ?: JSONObject.NULL)
     }
-    fun audio(id: String): JSONObject = JSONObject().put("dataUri", "data:audio/wav;base64," + Base64.encodeToString(audioFile(id).inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP))
+    fun audio(id: String): JSONObject {
+        val file = audioFile(id); require(file.isFile) { "该备份未包含音频，可展开文字稿" }
+        return JSONObject().put("dataUri", "data:audio/wav;base64," + Base64.encodeToString(file.inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP))
+    }
 
     fun synthesize(input: JSONObject, client: MimoTtsClient = MimoTtsClient()): JSONObject {
         val requestId = input.optString("requestId").ifEmpty { java.util.UUID.randomUUID().toString() }

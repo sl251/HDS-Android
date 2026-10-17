@@ -50,7 +50,18 @@ class HdsRuntime private constructor(private val context: Context) {
     @Volatile private var backgroundBudget = JSONObject()
     @Volatile private var serviceHealthFailed = false
     @Volatile private var backgroundDiagnostic = JSONObject()
+    @Synchronized fun recordBackground(event: String) {
+        try {
+            require(event.matches(Regex("[a-z0-9_-]{1,48}")))
+            val file = File(environment, "background-events.json")
+            val old = if (file.isFile) JSONObject(file.readText()).getJSONArray("events") else JSONArray()
+            val rows = JSONArray(); for (i in maxOf(0, old.length() - 59) until old.length()) rows.put(old.get(i))
+            rows.put(BackgroundPolicy(context).snapshot().put("event", event).put("at", System.currentTimeMillis()).put("appPid", android.os.Process.myPid()).put("nodeAlive", process?.isAlive == true).put("nodeState", state))
+            writeAtomic(file, JSONObject().put("events", rows))
+        } catch (_: Exception) { /* Diagnostics must not change service behavior. */ }
+    }
     fun networkChanged() { executor.execute {
+        recordBackground("network-change")
         val manager = context.getSystemService(ConnectivityManager::class.java)
         val dns = manager.activeNetwork?.let { manager.getLinkProperties(it)?.dnsServers }?.mapNotNull { it.hostAddress }?.filter { !it.contains('%') }.orEmpty()
         if (dns.isNotEmpty() && File(rootfs, "etc").isDirectory) try { File(rootfs, "etc/resolv.conf").writeText(dns.joinToString("\n") { "nameserver $it" } + "\n") } catch (_: Exception) { log("网络变化：DNS 更新失败") }
@@ -154,6 +165,7 @@ class HdsRuntime private constructor(private val context: Context) {
             .put("installed", manifestSummary(installedManifest())).put("installation", lastDiagnostic)
             .put("cleanupPending", cleanupPending).put("recoveryError", recoveryError).put("avc", "unavailable").put("layout", layoutDiagnostic).put("launch", launchDiagnostic)
             .put("contract", RuntimeContract.CONTRACT).put("background", backgroundDiagnostic).put("backgroundPolicy", BackgroundPolicy(context).snapshot())
+        try { val events = File(environment, "background-events.json"); if (events.isFile) report.put("backgroundEvents", JSONObject(events.readText()).getJSONArray("events")) } catch (_: Exception) {}
         if (probe) report.put("fileCapabilities", probeFiles())
         // Deliberately excludes runtime output, settings, cards, credentials and chat.
         return report

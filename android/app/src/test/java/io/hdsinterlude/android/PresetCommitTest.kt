@@ -39,7 +39,14 @@ class PresetCommitTest {
         assertEquals("committed", commit().apply(resume).getString("state")); assertEquals(1, applies)
         assertEquals(77, store.publicSettings().getJSONObject("mobileConfig").getInt("backgroundLimit"))
         commit().apply(resume); assertEquals(1, applies)
+        fail = true
+        assertThrows(java.net.SocketTimeoutException::class.java) { commit().apply(JSONObject(input.toString()).put("operationId", "fixture-conflict-operation").put("current", store.publicSettings().getJSONObject("mobileConfig"))) }
+        store.saveMobileConfig(JSONObject().put("backgroundLimit", 99))
+        val conflict = JSONObject().put("operationId", "fixture-conflict-operation").put("cardId", cardId).put("resume", true)
+        assertThrows(IllegalArgumentException::class.java) { commit().apply(conflict) }
+        commit().apply(conflict.put("keepLocal", true)); assertEquals(99, store.publicSettings().getJSONObject("mobileConfig").getInt("backgroundLimit"))
+        assertEquals(2, applies)
         val other = store.saveCard(JSONObject().put("name", "other").put("format", "v2"), "different-source".toByteArray()).getString("id"); store.select(other)
-        assertThrows(IllegalArgumentException::class.java) { commit().apply(resume) }; assertEquals(1, applies)
+        assertThrows(IllegalArgumentException::class.java) { commit().apply(resume) }; assertEquals(2, applies)
     }
 }

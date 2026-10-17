@@ -68,9 +68,11 @@ public class MainActivity extends BridgeActivity {
     @Override public void onResume() {
         super.onResume();
         AppVisibility.setForeground(true);
+        HdsRuntime.get(this).recordBackground("foreground");
     }
     @Override public void onPause() {
         AppVisibility.setForeground(false);
+        HdsRuntime.get(this).recordBackground("background");
         super.onPause();
     }
     @Override protected void onNewIntent(android.content.Intent intent) {

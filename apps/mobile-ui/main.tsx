@@ -115,7 +115,7 @@ function App() {
   const [importCodeOpen, setImportCodeOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [importCode, setImportCode] = useState('')
-  const [codePreview, setCodePreview] = useState<(PresetPreview & { current: string; storyRevision: number }) | null>(null)
+  const [codePreview, setCodePreview] = useState<(PresetPreview & { current: string; storyRevision: number; settingRevision?: string }) | null>(null)
   const [codeError, setCodeError] = useState('')
   const [detail, updateDetail] = useState<'story' | 'memory' | 'mind'>('story')
   const [switcher, setSwitcher] = useState(false)
@@ -436,15 +436,22 @@ function App() {
         : await inspectImportCode(importCode.trim(), current)
       ensureCurrent()
       if (apply) {
-        const result = await bridge.rpc({ method: 'preset.commit', payload: { operationId: crypto.randomUUID(), cardId: selectedRef.current, code: importCode.trim(), fingerprint: next.fingerprint, current } })
+        await saveQueue.current.catch(() => {})
+        const result = await bridge.rpc({ method: 'preset.commit', payload: { operationId: crypto.randomUUID(), cardId: selectedRef.current, code: importCode.trim(), fingerprint: next.fingerprint, current, ...(codePreview?.settingRevision ? { expectedRevision: codePreview.settingRevision } : {}) } })
         ensureCurrent()
         const committed = result.data as { config: ModelSettings['mobileConfig'] }
         const updated = { ...settingsRef.current, mobileConfig: committed.config }
+        const saved = JSON.parse(savedSettings.current || '{}')
+        savedSettings.current = JSON.stringify({ ...saved, mobileConfig: committed.config })
         settingsRef.current = updated; setSettings(updated)
         if (next.storyPatch) await refreshStory()
         setCodePreview(null); setImportCodeOpen(false); setImportCode('')
         setNotice(next.storyPatch ? '人设已同步到当前故事，生活设置已更新，重启后生效。' : '生活设置已更新，重启后生效。')
-      } else setCodePreview({ ...next, current: version, storyRevision: revision })
+      } else {
+        const snapshot = runtimeRef.current?.state === 'healthy' ? await bridge.rpc({ method: 'story.snapshot' }) : undefined
+        ensureCurrent()
+        setCodePreview({ ...next, current: version, storyRevision: revision, settingRevision: (snapshot?.data as { settingRevision?: string } | undefined)?.settingRevision })
+      }
     } catch (error) { setCodePreview(null); setCodeError(errorText(error)) }
     finally { setBusy(false) }
   }

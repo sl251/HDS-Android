@@ -40,16 +40,18 @@ object WavAudio {
         }
         val pcm = data ?: throw IllegalArgumentException("WAV 缺少音频数据")
         require(encoding != 0 && pcm.isNotEmpty() && pcm.size % (channels * bits / 8) == 0) { "WAV 采样数据无效" }
-        require(pcm.size.toDouble() / (rate * channels * bits / 8) <= 180) { "参考音频超过 180 秒，请先裁剪后重新导入" }
         return Wave(encoding, channels, rate, bits, pcm)
     }
     fun duration(bytes: ByteArray): Double {
         val w = wave(bytes); require(w.encoding == 1 && w.bits == 16) { "请使用规范化 PCM16 WAV" }
         return w.data.size.toDouble() / (w.rate * w.channels * 2)
     }
-    fun normalizeWav(bytes: ByteArray): ByteArray {
+    fun normalizeWav(bytes: ByteArray, clipSeconds: Int? = null): ByteArray {
         val w = wave(bytes); val b = ByteBuffer.wrap(w.data).order(ByteOrder.LITTLE_ENDIAN)
-        val frames = w.data.size / (w.channels * w.bits / 8)
+        require(clipSeconds == null || clipSeconds in 1..180) { "裁剪时长无效" }
+        val sourceFrames = w.data.size / (w.channels * w.bits / 8)
+        require(clipSeconds != null || sourceFrames.toDouble() / w.rate <= 180) { "参考音频超过 180 秒，请勾选裁剪后重新导入" }
+        val frames = minOf(sourceFrames, (clipSeconds ?: 180) * w.rate)
         val mono = FloatArray(frames)
         for (frame in 0 until frames) {
             var sum = 0.0
@@ -76,8 +78,9 @@ object WavAudio {
         return b.array()
     }
     /** MP3 / recorded AAC is decoded locally; clone always receives a WAV reference. */
-    fun normalize(context: Context, bytes: ByteArray): ByteArray {
-        if (bytes.size >= 12 && String(bytes, 0, 4) == "RIFF") return normalizeWav(bytes)
+    fun normalize(context: Context, bytes: ByteArray, clipSeconds: Int? = null): ByteArray {
+        require(clipSeconds == null || clipSeconds in 1..180) { "裁剪时长无效" }
+        if (bytes.size >= 12 && String(bytes, 0, 4) == "RIFF") return normalizeWav(bytes, clipSeconds)
         val file = File.createTempFile("voice-decode-", ".audio", context.cacheDir)
         val extractor = MediaExtractor(); var codec: MediaCodec? = null
         try {
@@ -106,12 +109,16 @@ object WavAudio {
                 }
                 if (index >= 0) {
                     val b = decoder.getOutputBuffer(index)!!; b.position(info.offset); b.limit(info.offset + info.size)
-                    require(rate in 8000..192000 && channels in 1..8 && out.size().toLong() + info.size <= 64L * 1024 * 1024 && out.size().toLong() + info.size <= rate.toLong() * channels * 2 * 180) { "参考音频解码超过 64 MiB 或 180 秒，请先裁剪后重新导入" }
-                    val chunk = ByteArray(info.size); b.get(chunk); out.write(chunk); decoder.releaseOutputBuffer(index, false)
+                    require(rate in 8000..192000 && channels in 1..8) { "音频采样参数不支持" }
+                    val clipBytes = rate.toLong() * channels * 2 * (clipSeconds ?: 180)
+                    val size = if (clipSeconds != null) minOf(info.size.toLong(), maxOf(0L, clipBytes - out.size())).toInt() else info.size
+                    require(out.size().toLong() + size <= 64L * 1024 * 1024 && out.size().toLong() + size <= clipBytes) { "参考音频解码超过 64 MiB 或 180 秒，请勾选裁剪后重新导入" }
+                    val chunk = ByteArray(size); b.get(chunk); out.write(chunk); decoder.releaseOutputBuffer(index, false)
+                    if (clipSeconds != null && out.size().toLong() >= clipBytes) break
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
                 }
             }
-            return normalizeWav(pcm(out.toByteArray(), rate, channels))
+            return normalizeWav(pcm(out.toByteArray(), rate, channels), clipSeconds)
         } finally { try { codec?.stop() } catch (_: Exception) {}; codec?.release(); extractor.release(); file.delete() }
     }
 }

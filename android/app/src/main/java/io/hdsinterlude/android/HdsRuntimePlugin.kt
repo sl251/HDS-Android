@@ -66,6 +66,8 @@ class HdsRuntimePlugin : Plugin() {
     @PluginMethod fun saveVoice(call: PluginCall) { run(call) { VoiceStore(context).saveVoice(call.data) } }
     @PluginMethod fun deleteVoice(call: PluginCall) { run(call) { VoiceStore(context).deleteVoice(call.getString("id") ?: "") } }
     @PluginMethod fun voiceAudio(call: PluginCall) { run(call) { VoiceStore(context).audio(call.getString("audioId") ?: "") } }
+    @PluginMethod fun voiceStoragePreview(call: PluginCall) { run(call) { VoiceStorage(context).preview() } }
+    @PluginMethod fun pruneVoiceAudio(call: PluginCall) { run(call) { VoiceStorage(context).prune(call.data) } }
     @PluginMethod fun previewVoice(call: PluginCall) {
         try { voiceIo.execute { try { resolve(call, VoiceStore(context).synthesize(JSONObject(call.data.toString()).put("preview", true).put("text", "你好，今天也想和你一起，把日子慢慢过好。"))) } catch (e: Exception) { call.reject(e.message ?: "试听失败") } } }
         catch (_: java.util.concurrent.RejectedExecutionException) { resolve(call, JSONObject().put("status", "skipped").put("reason", "queue_full").put("stage", "queue")) }
@@ -76,7 +78,7 @@ class HdsRuntimePlugin : Plugin() {
     @ActivityCallback private fun voicePicked(call: PluginCall?, result: ActivityResult) {
         if (call == null) return
         if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
-        run(call) { VoiceStore(context).import(result.data!!.data!!).put("cancelled", false) }
+        run(call) { VoiceStore(context).import(result.data!!.data!!, call.getInt("clipSeconds")).put("cancelled", false) }
     }
     @PluginMethod fun startVoiceRecording(call: PluginCall) {
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissionForAlias("microphone", call, "voicePermissionResult")
