@@ -39,7 +39,7 @@ class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v
             val status = c.responseCode
             if (status !in 200..299) throw Failure("provider_http_$status", status !in listOf(400, 401, 403, 404, 422, 429))
             val bytes = c.inputStream.use { it.readVoiceBytes(16 * 1024 * 1024) }; require(bytes.size <= 16 * 1024 * 1024)
-            val result = JSONObject(String(bytes, Charsets.UTF_8)); val usage = result.optJSONObject("usage")
+            val result = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { throw Failure("provider_invalid_json", true) }; val usage = result.optJSONObject("usage")
             val tokens = if (usage?.has("total_tokens") == true) usage.optLong("total_tokens", -1).takeIf { it >= 0 }
                 else if (usage?.has("prompt_tokens") == true && usage.has("completion_tokens")) (usage.optLong("prompt_tokens") + usage.optLong("completion_tokens")).takeIf { it >= 0 } else null
             val data = result.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optJSONObject("audio")?.optString("data")

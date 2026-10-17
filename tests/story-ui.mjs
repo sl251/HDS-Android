@@ -211,7 +211,7 @@ try {
   assert.equal(await codeDialog.getByRole('button', { name: '关闭导入码' }).isDisabled(), true)
   assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
   await codeDialog.getByText('生活预设 fixture · 修订 1', { exact: true }).waitFor()
-  await codeDialog.getByText('agency.enabled: false → true', { exact: true }).waitFor()
+  await codeDialog.getByText('agency.enabled: 默认 → true', { exact: true }).waitFor()
   await codeDialog.getByText('角色名："星禾"', { exact: true }).waitFor()
   await codeDialog.getByText('世界："海边"', { exact: true }).waitFor()
   await codeDialog.getByText('部分字段移动端不支持，已忽略：model', { exact: true }).waitFor()

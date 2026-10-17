@@ -17,7 +17,7 @@ import java.io.File
 @Config(sdk = [33])
 class NativeRpcContractTest {
     @Test fun nativePermissionBoundaryForwardsControlledStoryApplyOverAuthenticatedLoopback() {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>(); File(context.noBackupFilesDir, "hds").deleteRecursively()
+        val context = RuntimeEnvironment.getApplication(); File(context.noBackupFilesDir, "hds").deleteRecursively()
         val constructor = HdsRuntime::class.java.getDeclaredConstructor(android.content.Context::class.java).apply { isAccessible = true }
         val runtime = constructor.newInstance(context)
         val id = runtime.store.saveCard(JSONObject().put("name", "fixture").put("format", "v2"), "native-fixture".toByteArray()).getString("id")

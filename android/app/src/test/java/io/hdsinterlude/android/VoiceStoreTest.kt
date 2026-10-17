@@ -74,14 +74,14 @@ class VoiceStoreTest {
         val s = store(); s.saveSettings(settings().put("cooldown", 0))
         for (status in listOf(400, 401, 403, 429)) {
             server(status = status) { client -> val r = s.synthesize(reply(), client); assertEquals("failed", r.getString("status")); assertEquals("provider_http_$status", r.getString("reason")) }
-            assertEquals(0, s.state().getLong("usedTokens")); assertEquals(0, s.state().getLong("unknownTokens"))
+            assertEquals(0L, s.state().getLong("usedTokens")); assertEquals(0L, s.state().getLong("unknownTokens"))
         }
     }
     @Test fun replayUsesPersistedRequestReceiptAndDoesNotChargeAgain() {
         val s = store(); s.saveSettings(settings().put("cooldown", 0))
         val input = reply().put("requestId", "fixture-repeated-request")
         var id = ""; server { client -> id = s.synthesize(input, client).getString("audioId") }
-        assertEquals(id, store().synthesize(input).getString("audioId")); assertEquals(25, s.state().getLong("usedTokens"))
+        assertEquals(id, store().synthesize(input).getString("audioId")); assertEquals(25L, s.state().getLong("usedTokens"))
         assertThrows(IllegalArgumentException::class.java) { s.synthesize(reply().put("requestId", "fixture-repeated-request").put("text", "other")) }
     }
     @Test fun thresholdCooldownDisabledAndPerCharacterArePersistent() {

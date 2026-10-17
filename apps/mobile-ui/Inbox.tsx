@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { voiceResultLabel, type VoiceResult } from '../../packages/contracts'
 import { newQQUser, newQQGroup, newQQWillingness, type NativeBridge, type QQStatus, type QQConversation, type QQMessage, type QQPolicy, type QQUserAccount, type QQGroupRule, type QQWillingnessPreset } from '../../packages/contracts'
 
 const phases: Record<string, string> = { stopped: '尚未连接', installing: '准备组件', starting: '启动中', qr: '等待扫码', confirming: '等待确认', connecting: '连接消息通道', online: '在线', offline: '已离线', failed: '需要检查' }
@@ -14,6 +15,7 @@ export function Inbox({ bridge, healthy, native, configure, onRootBack, backHand
   const [policy, setPolicy] = useState<QQPolicy>({ enabled: false, users: [], groups: [] })
   const [accounts, setAccounts] = useState<{ uin: string; nickName: string; isQuickLogin: boolean }[]>([])
   const [githubProxy, setGithubProxy] = useState('')
+  const [voiceResult, setVoiceResult] = useState<VoiceResult>()
   const request = useRef<{ requestId: string; content: string; conversation: string } | null>(null)
   const scroll = useRef<HTMLDivElement>(null)
   const rpc = async <T,>(method: Parameters<NativeBridge['rpc']>[0]['method'], payload?: Record<string, unknown>) => (await bridge.rpc({ method, payload })).data as T
@@ -30,6 +32,8 @@ export function Inbox({ bridge, healthy, native, configure, onRootBack, backHand
         setStatus(next)
         const rows = await rpc<QQConversation[]>('qq.conversations')
         if (!cancelled) setConversations(rows)
+        const voice = await rpc<VoiceResult[]>('voice.status').catch(() => [])
+        if (!cancelled && Array.isArray(voice)) setVoiceResult(voice.at(-1))
         if (selected) { const history = await rpc<QQMessage[]>('qq.history', { conversation: selected }); if (!cancelled) setMessages(history) }
       } catch (error) { if (!cancelled) setNotice(error instanceof Error ? error.message : String(error)) } finally { running = false }
     }
@@ -65,6 +69,7 @@ export function Inbox({ bridge, healthy, native, configure, onRootBack, backHand
     <div className="page-heading"><div><div className="eyebrow">LETTERS FROM EVERYDAY LIFE</div><h1>信箱<span>。</span></h1><p>把故事，接进真实的日常。</p></div><span className="chapter">02 / QQ</span></div>
     {!selected && onRootBack && <button className="text-button" onClick={onRootBack}>返回空间</button>}
     {notice && <div className="notice" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="关闭 QQ 提示">×</button></div>}
+    {voiceResult && <p className="caption" role="status">最近语音：{voiceResultLabel(voiceResult)}</p>}
     {!healthy ? <div className="qq-onboarding"><span className="letter-stamp">待启封</span><h2>先让故事开始运行</h2><p>在设置中准备环境、保存模型并启动 HDS，然后回来下载 QQ 组件、扫码登录。</p><ol><li>准备本机环境与角色</li><li>下载 QQ 组件并扫码</li><li>选择允许角色回复的人</li></ol><button className="primary" onClick={configure}>前往设置 →</button><p className="caption">手机本地运行 · 无需电脑常驻或终端配置</p></div> : <>
       <div className="qq-account"><span className={`qq-indicator ${status?.online ? 'online' : ''}`} /><div><strong>{status?.nickname || 'QQ 本地连接'}{status?.account && <small>{status.account}</small>}</strong><span>{phases[status?.phase || 'stopped'] || '等待状态'} · {status?.policy.enabled ? '白名单自动回复' : '自动回复关闭'}</span></div><button onClick={() => setShowLogin(!showLogin)} aria-expanded={showLogin}>{showLogin ? '收起' : '管理'}</button></div>
       {showLogin && <section className="qq-login">

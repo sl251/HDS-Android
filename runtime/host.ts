@@ -17,7 +17,7 @@ import { QQRuntime } from './qq'
 import { imageStore } from './media'
 import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt } from './stickers'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProviders, type MobileConfig } from './mobile-config'
-import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, recordVoiceOutcome, voiceOutcomes, type VoiceBridgeConfig } from './voice'
+import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceOutcome, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
 import { BackgroundBudget } from './background-budget'
 import { inspectPreset } from './preset'
@@ -36,6 +36,11 @@ export async function startHost(input: HostConfig) {
   const endpoint = new URL(input.endpoint)
   if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('Invalid model endpoint')
   mkdirSync(input.dataDir, { recursive: true })
+  const voiceResultsFile = join(input.dataDir, 'voice-delivery-status.json')
+  let voiceResults: VoiceOutcome[] = []
+  try { const saved = JSON.parse(readFileSync(voiceResultsFile, 'utf8')); if (Array.isArray(saved)) voiceResults = saved.slice(-50) } catch { /* optional diagnostics */ }
+  const voiceReferences = new Set<string>()
+  const recordVoiceOutcome = (value: VoiceOutcome) => { voiceResults.push(value); if (voiceResults.length > 50) voiceResults.shift(); try { writeFileSync(voiceResultsFile + '.tmp', JSON.stringify(voiceResults)); renameSync(voiceResultsFile + '.tmp', voiceResultsFile) } catch { /* diagnostics never invalidate a receipt */ } }
   if (input.qqDir) mkdirSync(input.qqDir, { recursive: true })
   const restoreMarker = join(input.dataDir, 'restore-held.json')
   let restoreHeld = existsSync(restoreMarker)
@@ -77,15 +82,14 @@ export async function startHost(input: HostConfig) {
       const ids: string[] = []
       for (const row of rows) {
         if (row.content.trim()) row.audio = await localVoiceDelivery(input.voiceBridge, row.content, options?.mobileVoice?.willingness,
-          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000))
+          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), randomUUID(), recordVoiceOutcome)
         const id = randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
         this.lastMessageTime = occurredAt.getTime()
         await app.database.create('mobile_message' as never, { id, direction: 'character', ...row, occurredAt, status: 'delivered' } as never)
         if (row.audio) {
           const refsFile = join(input.dataDir, 'voice-references.json')
-          const refs = existsSync(refsFile) ? JSON.parse(readFileSync(refsFile, 'utf8')) as string[] : []
-          writeFileSync(refsFile + '.tmp', JSON.stringify([...new Set([...refs, row.audio.audioId])]))
-          renameSync(refsFile + '.tmp', refsFile)
+          voiceReferences.add(row.audio.audioId)
+          try { writeFileSync(refsFile + '.tmp', JSON.stringify([...voiceReferences])); renameSync(refsFile + '.tmp', refsFile) } catch { /* Export rebuilds the index from SQLite before packing. */ }
         }
         process.stdout.write(serializeMessagePush({ id, ...row, occurredAt }))
         ids.push(id)
@@ -156,7 +160,8 @@ export async function startHost(input: HostConfig) {
   const current = session()
   let story = await app.interlude.findStory(current) ?? await app.interlude.createStory(current)
   const historyAudio = await app.database.get('mobile_message' as never, {} as never) as { audio?: unknown }[]
-  writeFileSync(join(input.dataDir, 'voice-references.json'), JSON.stringify([...new Set(historyAudio.map(row => messageAudio(row.audio)?.audioId).filter(Boolean))]))
+  for (const row of historyAudio) { const audio = messageAudio(row.audio); if (audio) voiceReferences.add(audio.audioId) }
+  writeFileSync(join(input.dataDir, 'voice-references.json'), JSON.stringify([...voiceReferences]))
   if (restoreHeld) { await app.interlude.setDesktopRuntimePhase('paused'); story = await app.interlude.setStatus(story, 'paused') }
   const cardRevisionFile = join(input.dataDir, 'card-revision.json')
   const appliedRevision = existsSync(cardRevisionFile) ? JSON.parse(readFileSync(cardRevisionFile, 'utf8')).revision : 0
@@ -255,7 +260,7 @@ export async function startHost(input: HostConfig) {
       return { restartRequired: lifeRestartRequired || visionRestartRequired, visionRestartRequired, activeVision, reasons: [...(lifeRestartRequired ? ['mobile-config-changed'] : []), ...(visionRestartRequired ? ['vision-config-changed'] : [])] }
     }
     if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (section.key === 'embedding' ? config.model.embedding : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
-    if (method === 'voice.status') return voiceOutcomes.slice()
+    if (method === 'voice.status') return voiceResults.slice()
     if (method === 'health') return { build: buildInfo, budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.since') {
       const query = messagesSinceQuery(payload.since)

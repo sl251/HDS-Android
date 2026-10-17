@@ -16,7 +16,7 @@ class PresetCommitTest {
     private lateinit var store: HdsStore
     private lateinit var cardId: String
     @Before fun setup() {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>(); File(context.noBackupFilesDir, "hds").deleteRecursively()
+        val context = RuntimeEnvironment.getApplication(); File(context.noBackupFilesDir, "hds").deleteRecursively()
         store = HdsStore(context); cardId = store.saveCard(JSONObject().put("name", "fixture").put("format", "v2"), "fixture-source".toByteArray()).getString("id"); store.select(cardId)
     }
     @Test fun nativeCommitSurvivesLostHostReceiptAndReplayAndPinsTheSelectedCard() {

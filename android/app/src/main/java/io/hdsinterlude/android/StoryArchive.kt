@@ -14,6 +14,8 @@ import java.util.zip.ZipOutputStream
 
 /** Only the selected profile and its card are included. No credentials or shared QQ directory. */
 class StoryArchive(private val base: File) {
+    companion object { private val activeOperations = java.util.concurrent.ConcurrentHashMap.newKeySet<String>() }
+    private val operationKey get() = base.canonicalPath
     private val journal = File(base, "story-operation.json")
     private fun hash(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -131,7 +133,8 @@ class StoryArchive(private val base: File) {
         val voiceSettings = File(base, "voice/settings.json")
         if (voiceSettings.isFile) record.put("oldVoiceSettings", voiceSettings.readText())
         record.put("hadVoiceSettings", voiceSettings.isFile)
-        writeJournal(record)
+        activeOperations.add(operationKey)
+        try { writeJournal(record) } catch (failure: Throwable) { activeOperations.remove(operationKey); throw failure }
         try {
             require(profile.renameTo(File(backup, "profile"))) { "无法备份原故事" }
             if (stage != null) {
@@ -147,7 +150,7 @@ class StoryArchive(private val base: File) {
                     val config = if (voiceSettings.isFile) JSONObject(voiceSettings.readText()) else JSONObject()
                     val voices = config.optJSONArray("voices") ?: JSONArray().put(JSONObject().put("id", "builtin").put("name", "茉莉").put("type", "builtin").put("value", "茉莉"))
                     val voiceId = if (incoming.optString("type") == "builtin") "builtin" else "archive-" + hash(selection).take(32)
-                    if (voiceId != "builtin" && (0 until voices.length()).none { voices.getJSONObject(it).optString("id") == voiceId }) voices.put(JSONObject(incoming.toString()).put("id", voiceId))
+                    if (voiceId != "builtin" && (0 until voices.length()).none { voices.getJSONObject(it).optString("id") == voiceId }) { require(voices.length() < 64) { "音色库已满，请清理后恢复" }; voices.put(JSONObject(incoming.toString()).put("id", voiceId).put("verified", false)) }
                     val binding = row.getJSONObject("binding").put("voiceId", voiceId)
                     val chars = config.optJSONObject("characters") ?: JSONObject(); chars.put(id, binding)
                     config.put("voices", voices).put("characters", chars)
@@ -163,9 +166,10 @@ class StoryArchive(private val base: File) {
             return operation
         } catch (error: Throwable) { recover(); throw error }
     }
-    fun commit() { require(journal.delete()) { "无法完成存档操作" } }
+    fun commit() { require(journal.delete()) { "无法完成存档操作" }; activeOperations.remove(operationKey) }
+    fun recoverIfNeeded() { if (!activeOperations.contains(operationKey)) recover() }
     fun recover() {
-        if (!journal.exists()) return
+        if (!journal.exists()) { activeOperations.remove(operationKey); return }
         val record = JSONObject(journal.readText()); val id = record.getString("cardId"); val operation = record.getString("operation")
         require(operation.matches(Regex("[a-f0-9-]{36}"))) { "恢复清单无效" }
         val profile = current(id); val backup = File(base, "story-backups/$id/$operation/profile")
@@ -182,5 +186,6 @@ class StoryArchive(private val base: File) {
             try { stream.write(record.getString("oldVoiceSettings").toByteArray()); atomic.finishWrite(stream) } catch (e: Throwable) { atomic.failWrite(stream); throw e }
         } else if (record.has("hadVoiceSettings")) voiceSettings.delete()
         require(journal.delete()) { "无法清理恢复清单" }
+        activeOperations.remove(operationKey)
     }
 }

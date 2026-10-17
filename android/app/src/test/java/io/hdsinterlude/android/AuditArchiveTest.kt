@@ -41,6 +41,8 @@ class AuditArchiveTest {
             assertTrue(entries.contains("voice/$audioId.wav")); assertFalse(entries.contains("voice/${"c".repeat(64)}.wav"))
             val archive = StoryArchive(clean); val stage = archive.stage(id, ByteArrayInputStream(out.toByteArray()))
             archive.replace(id, stage)
+            StoryArchive(clean).recoverIfNeeded()
+            assertTrue("Opening another store must not roll back a live restore", File(clean, "story-operation.json").isFile)
             assertArrayEquals(wav, File(clean, "voice/$audioId.wav").readBytes())
             val restored = JSONObject(File(clean, "voice/settings.json").readText())
             assertFalse(restored.getJSONObject("characters").has(other)); assertTrue(restored.getJSONObject("characters").getJSONObject(id).getBoolean("enabled"))

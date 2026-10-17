@@ -164,6 +164,7 @@ class HdsRuntimePlugin : Plugin() {
         run(call) {
             val id = runtime().store.publicSettings().getString("activeCard")
             runtime().maintainStory(id) {
+                VoiceReferences.rebuild(runtime().store.profile())
                 context.contentResolver.openOutputStream(result.data!!.data!!, "wt")?.use { StoryArchive(runtime().store.base).export(id, it) } ?: throw IllegalArgumentException("无法写入存档")
             }
             JSONObject().put("cancelled", false)
