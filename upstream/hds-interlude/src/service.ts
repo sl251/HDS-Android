@@ -9198,6 +9198,10 @@ export class InterludeService extends Service {
     const stories = (await this.dbGet('interlude_story', { status: { $in: ['active', 'paused'] } })) as any[]
     for (const story of stories) {
       if (story?.id && story.selfId) addDraft(deriveStoryRoleEndpoint({ id: String(story.id), platform: String(story.platform ?? 'onebot'), selfId: String(story.selfId) }, now))
+      // Mobile patch: 'mobile-local' role endpoints never carry outbound transport (local
+      // delivery goes through the live session); registering them only creates registry
+      // ambiguity that outranks the real onebot row. Skip them at the source.
+      if (story?.id && story.selfId && String(story.platform) === 'mobile-local') continue
       for (const rule of this.config.onebot?.groupChats ?? []) {
         if (rule.enabled !== false) addDraft(deriveGroupEndpoint({ id: String(story.id), platform: String(story.platform ?? 'onebot'), selfId: String(story.selfId) }, rule, now))
       }
@@ -9384,6 +9388,12 @@ export class InterludeService extends Service {
       const now = new Date()
       const accountKey = endpointAccountKey(platform, account)
       const conflict = this.endpointRows.find(row => row.ownerKind === 'story-role' && row.accountKey === accountKey)
+      // Mobile patch: binding a QQ account retires any legacy mobile-local role row of the
+      // same story, so stale local rows can never win the ambiguous-address sort nor leak
+      // 'bot-not-found' for outbound QQ delivery.
+      for (const stale of this.endpointRows.filter(row => row.ownerKind === 'story-role' && row.ownerId === story.id && row.platform === 'mobile-local' && row.enabled)) {
+        await this.disableStoryEndpoint(stale.id).catch(() => undefined)
+      }
       if (conflict) {
         if (conflict.ownerId === story.id) return { ok: true, endpointId: conflict.id, error: '该账号已注册为本故事端点。' }
         return { ok: false, error: `账号 ${account} 已被故事 ${conflict.ownerId} 注册（唯一键 role:${accountKey}）。` }
