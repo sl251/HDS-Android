@@ -23,13 +23,13 @@ function readPatches(file) {
   }
   return patches
 }
-export const mobilePatches = readPatches('./mobile-hds-rc56.patch')
+export const mobilePatches = readPatches('./mobile-hds-rc57.patch')
 export const mobileTestPatches = readPatches('./mobile-hds-rc56-tests.patch')
 
 export function applyMobilePatches(source, name, patches = mobilePatches) {
   for (const [index, patch] of (patches[name] ?? []).entries()) {
     if (source.split(patch.after).length === 2) continue
-    if (source.split(patch.before).length !== 2) throw new Error(`Mobile rc56 unknown/ambiguous anchor: ${name} #${index + 1}`)
+    if (source.split(patch.before).length !== 2) throw new Error(`Mobile patch unknown/ambiguous anchor: ${name} #${index + 1}`)
     source = source.replace(patch.before, () => patch.after)
   }
   return source
@@ -48,7 +48,7 @@ export function patchMobile(directory = 'upstream/hds-interlude/src') {
     }
   }
   for (const [path, source] of outputs) writeFileSync(path, source)
-  console.log('Applied rc56 mobile patches: local channel, cards, management, drain, scheduled contact, budget, stickers and voice')
+  console.log('Applied rc57 mobile patches: local channel, cards, management, drain, scheduled contact, budget, stickers and voice')
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) patchMobile(process.argv[2] ?? 'upstream/hds-interlude/src')
