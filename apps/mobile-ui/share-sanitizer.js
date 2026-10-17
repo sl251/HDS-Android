@@ -46,6 +46,98 @@ function sanitizeSharePayload(raw) {
   }
   return { preset, removed };
 }
+function normalizeShareCode(input) {
+  const code = String(input ?? "").toUpperCase().replace(/[\s-]/g, "");
+  return /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$/.test(code) ? code : null;
+}
+async function fetchShare(ctx, baseUrl, rawCode) {
+  const code = normalizeShareCode(rawCode);
+  if (!code) throw new Error("\u5206\u4EAB\u7801\u683C\u5F0F\u4E0D\u6B63\u786E:\u5E94\u4E3A 8 \u4F4D\u5B57\u6BCD\u6570\u5B57(\u5927\u5C0F\u5199\u5747\u53EF,\u53EF\u5E26\u8FDE\u5B57\u7B26)\u3002");
+  const url = `${baseUrl.replace(/\/$/, "")}/api/share/${code}`;
+  let status;
+  let body;
+  try {
+    const response = await ctx.http.get(url, { timeout: 15e3, responseType: "json" });
+    status = 200;
+    body = response;
+  } catch (error) {
+    const response = error?.response;
+    if (response) {
+      status = response.status;
+      body = await response.json?.().catch(() => ({})) ?? {};
+    } else {
+      throw new Error(`\u65E0\u6CD5\u8FDE\u63A5\u5206\u4EAB\u7AD9(${baseUrl}):${error.message}`);
+    }
+  }
+  if (status === 404) throw new Error("\u5206\u4EAB\u7801\u4E0D\u5B58\u5728\u3001\u5DF2\u8FC7\u671F\u6216\u4E0D\u53EF\u7528\u3002\u4F5C\u8005\u4FEE\u6539\u9884\u8BBE\u540E\u65E7\u7801\u4F1A\u5931\u6548\u2014\u2014\u8BF7\u5230 typ0-site \u83B7\u53D6\u65B0\u5206\u4EAB\u7801\u3002");
+  if (status === 429) throw new Error("\u5206\u4EAB\u7AD9\u9650\u6D41:\u8BF7\u6C42\u8FC7\u4E8E\u9891\u7E41,\u8BF7\u7EA6 1 \u5206\u949F\u540E\u91CD\u8BD5\u3002");
+  if (status !== 200) throw new Error(`\u5206\u4EAB\u7AD9\u8FD4\u56DE\u5F02\u5E38\u72B6\u6001 ${status}\u3002`);
+  if (!isPlainObject(body)) throw new Error("\u5206\u4EAB\u7AD9\u54CD\u5E94\u683C\u5F0F\u5F02\u5E38\u3002");
+  const responseCode = normalizeShareCode(String(body.code ?? ""));
+  if (responseCode !== code) throw new Error("\u5206\u4EAB\u7AD9\u8FD4\u56DE\u7684\u5206\u4EAB\u7801\u4E0E\u8BF7\u6C42\u4E0D\u4E00\u81F4\u3002");
+  const revision = Number(body.revision);
+  if (!Number.isInteger(revision) || revision < 1) throw new Error("\u5206\u4EAB\u7AD9\u8FD4\u56DE\u7684 revision \u65E0\u6548\u3002");
+  const sectionsRaw = body.sections;
+  if (!Array.isArray(sectionsRaw) || !sectionsRaw.every((s) => typeof s === "string")) {
+    throw new Error("\u5206\u4EAB\u7AD9\u8FD4\u56DE\u7684 sections \u65E0\u6548\u3002");
+  }
+  const author = isPlainObject(body.author) ? body.author : {};
+  const { preset, removed } = sanitizeSharePayload(body.payload);
+  if (!Object.keys(preset).length) throw new Error("\u8BE5\u9884\u8BBE\u7ECF\u63D2\u4EF6\u4FA7\u6E05\u6D17\u540E\u6CA1\u6709\u53EF\u5E94\u7528\u7684\u5206\u533A\u3002");
+  return {
+    info: {
+      code: String(body.code ?? code),
+      slug: String(body.slug ?? ""),
+      title: String(body.title ?? "(untitled)"),
+      type: String(body.type ?? ""),
+      nsfw: body.nsfw === true,
+      author: { id: Number(author.id ?? 0), name: String(author.name ?? "") },
+      hdsi_version: String(body.hdsi_version ?? ""),
+      revision,
+      sections: Object.keys(preset),
+      payload: preset
+    },
+    removed
+  };
+}
+function storyDefaultsToSettingPatch(defaults) {
+  const d = isPlainObject(defaults) ? defaults : {};
+  const clip = (v, max) => typeof v === "string" && v.trim() ? v.slice(0, max) : void 0;
+  const patch = {};
+  const name = clip(d.characterName, 60);
+  const profile = clip(d.characterProfile, 2e4);
+  const character = {};
+  if (name) character.name = name;
+  if (profile) character.profile = profile;
+  if (Object.keys(character).length) patch.character = character;
+  const userProfile = clip(d.userProfile, 2e4);
+  if (userProfile) patch.user = { displayName: "", profile: userProfile };
+  const relationship = clip(d.relationship, 4e3);
+  if (relationship) patch.relationship = relationship;
+  const world = clip(d.world, 2e4);
+  if (world) patch.world = world;
+  const perspective = clip(d.perspective, 1200);
+  if (perspective) patch.perspective = perspective;
+  if (Array.isArray(d.perspectives)) {
+    const perspectives = d.perspectives.filter((p) => typeof p === "string" && !!p.trim()).map((p) => p.slice(0, 800)).slice(0, 12);
+    if (perspectives.length) patch.perspectives = perspectives;
+  }
+  if (Array.isArray(d.supplementaryFacts)) {
+    const supplementaryFacts = d.supplementaryFacts.filter((f) => typeof f === "string" && !!f.trim()).map((f) => f.slice(0, 800)).slice(0, 20);
+    if (supplementaryFacts.length) patch.supplementaryFacts = supplementaryFacts;
+  }
+  const supportingCast = clip(d.supportingCast, 2e4);
+  if (supportingCast) patch.supportingCast = supportingCast;
+  const location = clip(d.location, 500);
+  if (location) patch.location = location;
+  const style = clip(d.style, 2e4);
+  if (style) patch.style = style;
+  const timezone = clip(d.timezone, 60);
+  if (timezone) patch.timezone = timezone;
+  return patch;
+}
 export {
-  sanitizeSharePayload
+  fetchShare,
+  sanitizeSharePayload,
+  storyDefaultsToSettingPatch
 };

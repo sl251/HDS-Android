@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises'
 import { sanitizeSharePayload as browserSanitize } from '../apps/mobile-ui/share-sanitizer.js'
 import { buildPresetPayload, buildTavernCard, createCharacterExport, saveCharacterExport } from '../apps/mobile-ui/character-export'
 import { parseJsonCard } from '../packages/card-format'
+import { parsePersona } from '../packages/persona-format'
 import { storyDefaultsToSettingPatch } from '../upstream/hds-interlude/src/share-sync'
 
 const setting = {
@@ -20,6 +21,23 @@ const config = { sections: {
   runtime: { autoAdvanceEnabled: false }, model: { apiKey: 'MODEL_SECRET' }, onebot: { token: 'QQ_SECRET' }, embedding: { enabled: true },
 } }
 const forbidden = /apiKey|endpoint|token|SECRET|secret\.example|13800138000|123456789|987654321|13900139000/i
+
+test('empty profiles round trip through HDS YAML and JSON using prose fallbacks or a placeholder', () => {
+  for (const format of ['yaml', 'preset'] as const) {
+    for (const [extra, expected] of [
+      [{}, '（此角色未填写人设档案）'],
+      [{ description: '修理师', personality: '温和' }, '修理师'],
+      [{ description: '  ', personality: '温和' }, '温和'],
+    ] as const) {
+      const source = { characterName: '星禾', character: { name: '星禾', profile: '' }, world: '小镇', ...extra }
+      const file = createCharacterExport(format, source, { sections: {} })
+      const [card] = parsePersona(new TextEncoder().encode(file.content))
+      assert.equal(card.name, '星禾'); assert.equal(card.description, expected)
+      assert.equal(card.hds?.storyDefaults.world, '小镇')
+      assert.equal(source.character.profile, '')
+    }
+  }
+})
 
 test('ST V2 exports current story fields, a compatible book and no connection or contact fields', () => {
   const before = JSON.stringify(setting)

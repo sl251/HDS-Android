@@ -2,8 +2,58 @@ package io.hdsinterlude.android
 
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Assume.assumeTrue
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 class ProotLaunchTest {
+    @Test fun probeWrapperPreservesArgumentsAndEmitsARealGroupLeader() {
+        // Execute the wrapper on Unix hosts; Android uses the same setsid/sh
+        // protocol, with /system/bin paths supplied by isolatedProbeArgs.
+        val setsid = listOf("/usr/bin/setsid", "/bin/setsid").firstOrNull { File(it).canExecute() }
+        assumeTrue(setsid != null && File("/bin/sh").canExecute() && File("/proc/self/stat").isFile)
+        val args = ProotLaunch.isolatedProbeArgs(listOf("/bin/sh", "-c",
+            "read pid comm state parent group rest < /proc/\$\$/stat; printf '%s\\n%s\\n' \"\$group\" \"\$1\"", "probe", "argument with spaces")).toMutableList()
+        args[0] = setsid!!; args[1] = "/bin/sh"
+        val child = ProcessBuilder(args).redirectErrorStream(true).start()
+        try {
+            assertTrue(child.waitFor(5, TimeUnit.SECONDS))
+            val lines = child.inputStream.bufferedReader().readLines()
+            assertEquals(0, child.exitValue())
+            assertEquals(3, lines.size)
+            val group = ProotLaunch.probeGroupId(lines[0])
+            assertNotNull(group)
+            assertEquals(group.toString(), lines[1])
+            assertEquals("argument with spaces", lines[2])
+        } finally { child.destroyForcibly() }
+    }
+
+    @Test fun isolatesProbeAndKillsOnlyItsVerifiedProcessGroup() {
+        val args = listOf("/native/libhds_proot.so", "argument with spaces") + ProotLaunch.guestArgs(true)
+        val isolated = ProotLaunch.isolatedProbeArgs(args)
+        assertEquals(listOf("/system/bin/setsid", "/system/bin/sh", "-c"), isolated.take(3))
+        assertTrue(isolated[3].contains("exec \"\$@\""))
+        assertEquals(args, isolated.drop(5))
+        val killed = mutableListOf<Int>()
+        assertEquals(1234, ProotLaunch.probeGroupId("${ProotLaunch.PROBE_GROUP}1234"))
+        for (line in listOf("1234", "${ProotLaunch.PROBE_GROUP}0", "${ProotLaunch.PROBE_GROUP}-10", "${ProotLaunch.PROBE_GROUP}1", "${ProotLaunch.PROBE_GROUP}oops")) assertNull(ProotLaunch.probeGroupId(line))
+        for (pid in listOf(0, 1, -1, 1234)) ProotLaunch.killProbeGroup(pid) { killed.add(it) }
+        assertEquals(listOf(-1234), killed)
+    }
+
+    @Test fun unkillableProbeContinuesWithWarningButSpawnFailureStillStops() {
+        val attempts = mutableListOf<Boolean>()
+        val result = ProotLaunch.ProbeResult(null, true, "HDS_GUEST_PROBE_WARNING stage=cleanup degraded=true", degraded = true)
+        assertFalse(result.passed)
+        assertTrue(ProotLaunch.selectProfile { attempts.add(it); result })
+        assertEquals(listOf(true), attempts)
+        var calls = 0
+        assertThrows(IllegalStateException::class.java) {
+            ProotLaunch.selectProfile { calls++; ProotLaunch.ProbeResult(null, false, "HDS_GUEST_PROBE_FAILED stage=spawn code=IOException", degraded = true) }
+        }
+        assertEquals(1, calls)
+    }
+
     @Test fun preservesMainLaunchEnvironmentAndSeparatesHostTemporaryDirectory() {
         val environment = mutableMapOf("TMPDIR" to "/android/cache", "LD_LIBRARY_PATH" to "/host/lib")
         ProotLaunch.configure(environment, "/native", "/cache/proot")

@@ -25,7 +25,7 @@ function settingRecord(value: unknown) {
 export function buildPresetPayload(value: unknown, config: unknown = {}): Record<string, unknown> {
   const { setting, name, description } = settingRecord(value)
   const { character, user, ...rest } = setting
-  const storyDefaults = { ...rest, characterName: name, characterProfile: description, userProfile: text(record(user).profile, setting.userProfile) }
+  const storyDefaults = { ...rest, characterName: name, characterProfile: text(description, record(character).personality, setting.personality) || '（此角色未填写人设档案）', userProfile: text(record(user).profile, setting.userProfile) }
   // Mobile settings wrap upstream sections; typ0 expects sections at the root.
   return privateScrub(sanitizeSharePayload({ ...record(record(config).sections), storyDefaults }).preset) as Record<string, unknown>
 }

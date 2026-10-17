@@ -28,7 +28,9 @@ function hdsCard(config: Record<string, unknown>, instance: string): Card {
     if (!Array.isArray(value) || value.length > count || value.some(item => typeof item !== 'string' || item.length > 800)) throw new Error(`storyDefaults.${key} 列表格式或长度不支持`)
     defaults[key] = value
   }
-  if (!String(defaults.characterName ?? '').trim() || !String(defaults.characterProfile ?? '').trim()) throw new Error('HDS 人设需要 characterName 和 characterProfile；纯状态机文件暂不能单独导入')
+  if (!String(defaults.characterName ?? '').trim() && !String(defaults.characterProfile ?? '').trim()) throw new Error('HDS 人设需要 characterName 或 characterProfile；纯状态机文件暂不能单独导入')
+  if (!String(defaults.characterName ?? '').trim()) defaults.characterName = '未命名角色'
+  if (!String(defaults.characterProfile ?? '').trim()) defaults.characterProfile = '（此角色未填写人设档案）'
   if (defaults.timezone) { try { new Intl.DateTimeFormat('zh-CN', { timeZone: String(defaults.timezone) }) } catch { throw new Error('人设时区无效') } }
   const ignored = Object.keys(config).filter(key => key !== 'storyDefaults')
   const unknown = Object.keys(config.storyDefaults).filter(key => !(key in defaults))

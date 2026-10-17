@@ -17,6 +17,7 @@ import { MemoryTools, type Fact } from './MemoryTools'
 import { StoryManagement } from './StoryManagement'
 import { BackgroundImage } from './BackgroundImage'
 import { LifeSettings, storyFields, type PresetPreview } from './LifeSettings'
+import { inspectImportCode } from './preset-preview'
 import { MessageStatus, TypingBubble } from './MessageStatus'
 import { createReplyWatermarks } from './message-state'
 import { NotificationSettings } from './NotificationSettings'
@@ -415,20 +416,22 @@ function App() {
     setPreview(null); await storyChanged()
   }, '角色已加入你的空间，随时可以开始故事。')
   const syncImportCode = async (apply: boolean) => {
-    if (busy || !native || !settingsReady || runtimeRef.current?.state !== 'healthy' || !selectedRef.current || !importCode.trim() || (apply && !codePreview)) return
+    if (busy || !native || !settingsReady || !selectedRef.current || !importCode.trim() || (apply && (runtimeRef.current?.state !== 'healthy' || !codePreview))) return
     setBusy(true); setCodeError('')
+    // Capture before the fetch, including while resting; cache only if unchanged.
     const revision = profileRevision.current
     const current = settingsRef.current.mobileConfig ?? {}
     const version = JSON.stringify(current)
     const ensureCurrent = () => {
-      if (revision !== profileRevision.current || runtimeRef.current?.state !== 'healthy') throw new Error('当前故事或运行状态已变化，请重新检查。')
+      if (revision !== profileRevision.current || (apply && runtimeRef.current?.state !== 'healthy')) throw new Error('当前故事或运行状态已变化，请重新检查。')
       if (JSON.stringify(settingsRef.current.mobileConfig ?? {}) !== version) throw new Error('生活设置已修改，请重新检查；你的修改已保留。')
     }
     try {
       if (apply && codePreview?.storyRevision !== revision) throw new Error('当前故事已变化，请重新检查。')
       if (apply && codePreview?.current !== version) throw new Error('生活设置已修改，请重新检查；你的修改已保留。')
-      const result = await bridge.rpc({ method: 'preset.sync', payload: { code: importCode.trim(), current, ...(apply && codePreview ? { fingerprint: codePreview.fingerprint } : {}) } })
-      const next = result.data as PresetPreview
+      const next = apply
+        ? (await bridge.rpc({ method: 'preset.sync', payload: { code: importCode.trim(), current, ...(codePreview ? { fingerprint: codePreview.fingerprint } : {}) } })).data as PresetPreview
+        : await inspectImportCode(importCode.trim(), current)
       ensureCurrent()
       if (apply) {
         if (next.storyPatch) { await bridge.rpc({ method: 'story.applySetting', payload: next.storyPatch }); ensureCurrent() }
@@ -612,9 +615,9 @@ function App() {
     {importCodeOpen && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="用导入码同步" aria-describedby="import-code-caption" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); if (!busy) setImportCodeOpen(false) } }}><div className="section-title"><h2>用导入码同步</h2><button autoFocus aria-label="关闭导入码" disabled={busy} onClick={() => setImportCodeOpen(false)}>×</button></div>
       <p id="import-code-caption" className="caption">输入 typ0.space 导入码，同步人设与生活配置到当前故事。{characterName && <>当前故事：{characterName}。</>}人设将同步到当前故事，生活设置保存后重启生效。</p>
       <label>typ0.space 导入码<input value={importCode} disabled={busy} maxLength={24} placeholder="8 位分享码" onChange={event => { setImportCode(event.target.value); setCodePreview(null); setCodeError('') }} /></label>
-      {(!healthy || !selected) && <p className="caption">请先选择角色并唤醒故事，再检查导入码。</p>}
+      {!selected ? <p className="caption">请先选择角色，再检查导入码。</p> : !healthy && <p className="caption">可以先检查预览，应用前需要唤醒故事。</p>}
       {codeError && <p className="error" role="alert">{codeError}</p>}
-      <div className="actions"><button className="secondary" disabled={busy || !native || !settingsReady || !healthy || !selected || !importCode.trim()} onClick={() => void syncImportCode(false)}>检查</button></div>
+      <div className="actions"><button className="secondary" disabled={busy || !native || !settingsReady || !selected || !importCode.trim()} onClick={() => void syncImportCode(false)}>检查</button></div>
       {codePreview && <div><h3>{codePreview.title} · 修订 {codePreview.revision}</h3>
         {codePreview.changes.length ? <ul>{codePreview.changes.map(row => <li key={`${row.section}.${row.field}`}>{row.section}.{row.field}: {JSON.stringify(row.before) ?? '默认'} → {JSON.stringify(row.after)}</li>)}</ul> : <p className="caption">生活配置没有差异。</p>}
         {codePreview.storyPatch && <><h3>将同步的人设</h3><ul>{Object.entries(storyFields(codePreview.storyPatch)).filter(([, value]) => Array.isArray(value) ? value.length > 0 : typeof value === 'string' && !!value.trim()).map(([label, value]) => <li key={label}>{label}：{JSON.stringify(value)}</li>)}</ul></>}

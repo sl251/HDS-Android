@@ -288,15 +288,17 @@ class HdsRuntime private constructor(private val context: Context) {
             "-b", "$nativeDir:$nativeDir", "-b", "${profile.absolutePath}:/hds-data", "-b", "${qqData.absolutePath}:/qq-data", "-b", "${voiceDir.absolutePath}:/hds-voice")
         val attempts = JSONArray()
         launchDiagnostic = JSONObject().put("attempts", attempts)
+        var degradedProbe = false
         val disableSeccomp = ProotLaunch.selectProfile { disabled ->
             checkCancellation()
             val label = if (disabled) "完整追踪" else "seccomp 加速追踪"
             progress = "检查本机 Node / 文件读写（$label）"
             log("PRoot 启动探测：$label")
             val result = probeGuest(args, nativeDir, temporary, disabled)
+            degradedProbe = result.degraded
             attempts.put(JSONObject().put("disableSeccomp", disabled).put("exitCode", result.exitCode ?: JSONObject.NULL)
-                .put("timedOut", result.timedOut).put("passed", result.passed).put("output", result.output))
-            log("PRoot 探测${if (result.passed) "通过" else "失败"}：$label，退出码 ${result.exitCode}，超时 ${result.timedOut}")
+                .put("timedOut", result.timedOut).put("passed", result.passed).put("degraded", result.degraded).put("output", result.output))
+            log("PRoot 探测${if (result.degraded) "降级警告" else if (result.passed) "通过" else "失败"}：$label，退出码 ${result.exitCode}，超时 ${result.timedOut}")
             result.output.lineSequence().filter { it.isNotBlank() }.forEach { log(it) }
             result
         }
@@ -306,8 +308,8 @@ class HdsRuntime private constructor(private val context: Context) {
         secrets = (0 until providers.length()).map { providers.getJSONObject(it).optString("apiKey") }
         val builder = ProcessBuilder(args + ProotLaunch.guestArgs()).directory(context.filesDir).redirectErrorStream(true)
         ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath, disableSeccomp)
-        log("启动 PRoot：采用已通过探测的${if (disableSeccomp) "完整追踪" else "seccomp 加速追踪"}，直接启动 Node，访客目录 /opt/hds")
-        progress = "本机 Node 检查已通过，正在验证 HDS / SQLite"
+        log("启动 PRoot：采用${if (degradedProbe) "探测降级的" else "已通过探测的"}${if (disableSeccomp) "完整追踪" else "seccomp 加速追踪"}，直接启动 Node，访客目录 /opt/hds")
+        progress = if (degradedProbe) "本机探测降级，正在验证 HDS / SQLite" else "本机 Node 检查已通过，正在验证 HDS / SQLite"
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
         val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data").put("qqDir", "/qq-data")
@@ -350,19 +352,35 @@ class HdsRuntime private constructor(private val context: Context) {
         }, "hds-exit").start()
     }
     private fun probeGuest(args: List<String>, nativeDir: String, temporary: File, disableSeccomp: Boolean): ProotLaunch.ProbeResult {
-        val builder = ProcessBuilder(args + ProotLaunch.guestArgs(true)).directory(context.filesDir).redirectErrorStream(true)
+        val isolated = File("/system/bin/setsid").canExecute()
+        val probeArgs = args + ProotLaunch.guestArgs(true)
+        val builder = ProcessBuilder(if (isolated) ProotLaunch.isolatedProbeArgs(probeArgs) else probeArgs).directory(context.filesDir).redirectErrorStream(true)
         ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath, disableSeccomp)
         builder.environment()["HDS_MOBILE_MAIN"] = "0"
         val child = try { builder.start() } catch (failure: Exception) {
             return ProotLaunch.ProbeResult(null, false, "HDS_GUEST_PROBE_FAILED stage=spawn code=${failure.javaClass.simpleName}")
         }
         val tail = StringBuilder()
+        val warnings = mutableListOf<String>()
+        if (!isolated) warnings.add("HDS_GUEST_PROBE_WARNING stage=group setsid unavailable; using direct cleanup")
+        val groupId = java.util.concurrent.atomic.AtomicInteger(0)
+        val groupReady = java.util.concurrent.CountDownLatch(1)
         val reader = Thread({
             try {
                 child.inputStream.reader().use { input ->
                     val buffer = CharArray(1024)
+                    val prefix = StringBuilder()
                     while (true) {
                         val count = input.read(buffer); if (count < 0) break
+                        // The wrapper emits its marker first. Bound parsing even
+                        // if a broken translator writes an unterminated line.
+                        if (isolated && groupReady.count > 0) {
+                            prefix.append(buffer, 0, minOf(count, 128 - prefix.length))
+                            if (prefix.contains("\n") || prefix.length == 128) {
+                                ProotLaunch.probeGroupId(prefix.toString().substringBefore('\n'))?.let { groupId.set(it) }
+                                groupReady.countDown()
+                            }
+                        }
                         synchronized(tail) { tail.append(buffer, 0, count); if (tail.length > 4096) tail.delete(0, tail.length - 4096) }
                     }
                 }
@@ -370,6 +388,7 @@ class HdsRuntime private constructor(private val context: Context) {
         }, "hds-probe").apply { isDaemon = true; start() }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25)
         var timedOut = false
+        var stopped = false
         try {
             child.outputStream.close()
             while (!child.waitFor(250, TimeUnit.MILLISECONDS)) {
@@ -377,13 +396,24 @@ class HdsRuntime private constructor(private val context: Context) {
                 if (System.nanoTime() >= deadline) { timedOut = true; break }
             }
         } finally {
+            if (isolated) {
+                groupReady.await(1, TimeUnit.SECONDS)
+                if (groupId.get() == 0) warnings.add("HDS_GUEST_PROBE_WARNING stage=group no group marker; using direct cleanup")
+                try { ProotLaunch.killProbeGroup(groupId.get()) { pid -> Os.kill(pid, OsConstants.SIGKILL) } }
+                catch (failure: android.system.ErrnoException) {
+                    if (failure.errno != OsConstants.ESRCH) warnings.add("HDS_GUEST_PROBE_WARNING stage=kill-group errno=${failure.errno}")
+                }
+            }
             if (child.isAlive) { child.destroy(); if (!child.waitFor(1, TimeUnit.SECONDS)) child.destroyForcibly() }
-            require(child.waitFor(2, TimeUnit.SECONDS)) { "本机探测进程无法停止，已取消继续启动" }
+            stopped = child.waitFor(2, TimeUnit.SECONDS)
+            if (!stopped) warnings.add("HDS_GUEST_PROBE_WARNING stage=cleanup degraded=true 本机探测进程无法停止；继续主启动验证")
             reader.join(1000)
-            child.inputStream.close()
+            // Closing a stream still blocked in read can itself hang on some
+            // Android implementations. Its reader is a daemon and holds no secrets.
+            if (!reader.isAlive) try { child.inputStream.close() } catch (_: java.io.IOException) { }
         }
-        val output = synchronized(tail) { tail.toString().replace(store.base.absolutePath, "[app-data]").replace(nativeDir, "[native]") }
-        return ProotLaunch.ProbeResult(child.exitValue(), timedOut, output)
+        val output = (synchronized(tail) { tail.toString() } + warnings.joinToString("\n")).replace(store.base.absolutePath, "[app-data]").replace(nativeDir, "[native]")
+        return ProotLaunch.ProbeResult(if (stopped) child.exitValue() else null, timedOut, output, degraded = !stopped)
     }
     fun stopAsync() { cancelRequested = true; executor.execute { stopNow() } }
     fun stopBlocking() { cancelRequested = true; executor.submit { stopNow(true) }.get(345, TimeUnit.SECONDS) }

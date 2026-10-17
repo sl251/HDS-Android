@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const source = await readFile(new URL('../../upstream/hds-interlude/src/share-sync.ts', import.meta.url))
 const result = await build({
-  stdin: { contents: "export { sanitizeSharePayload } from './upstream/hds-interlude/src/share-sync'", resolveDir: root },
+  stdin: { contents: "export { sanitizeSharePayload, fetchShare, storyDefaultsToSettingPatch } from './upstream/hds-interlude/src/share-sync'", resolveDir: root },
   absWorkingDir: root, tsconfig: 'tsconfig.json', bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022',
   plugins: [{ name: 'omit-unused-node-helpers', setup(plugin) {
     plugin.onResolve({ filter: /^node:/ }, args => ({ path: args.path, external: true, sideEffects: false }))

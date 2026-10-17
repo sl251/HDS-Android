@@ -30,6 +30,18 @@ const download = `plugins:
       runtime:
         autoAdvanceEnabled: true
 `
+test('native persona accepts name-only and profile-only cards but still rejects files without character information', () => {
+  for (const characterProfile of [undefined, '', '  ']) {
+    const [card] = parsePersona(encode(JSON.stringify({ storyDefaults: { characterName: '星禾', characterProfile } })))
+    assert.equal(card.name, '星禾'); assert.equal(card.description, '（此角色未填写人设档案）')
+    assert.equal(parsePersona(importBytes(card, new Uint8Array()))[0].description, card.description)
+  }
+  const [unnamed] = parsePersona(encode(JSON.stringify({ storyDefaults: { characterProfile: '海边修理师' } })))
+  assert.equal(unnamed.name, '未命名角色'); assert.equal(unnamed.description, '海边修理师')
+  for (const storyDefaults of [{}, { world: '小镇' }, { characterName: ' ', characterProfile: '\n' }]) {
+    assert.throws(() => parsePersona(encode(JSON.stringify({ storyDefaults, runtime: { autoAdvanceEnabled: true } }))), /纯状态机/)
+  }
+})
 test('typ0-style koishi YAML keeps native persona semantics and never persists connection secrets', () => {
   const [card] = parsePersona(encode(download))
   assert.equal(card.format, 'hds'); assert.equal(card.name, '星禾'); assert.match(card.description, /\n保留换行/)

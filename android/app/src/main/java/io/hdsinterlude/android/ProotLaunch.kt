@@ -1,15 +1,32 @@
 package io.hdsinterlude.android
 
-/** Both profiles are verified by the real guest before any credentials are sent. */
+/** Probe the guest before sending credentials; degraded probes defer to main health checks. */
 object ProotLaunch {
     const val PROBE_OK = "HDS_GUEST_PROBE_OK"
     fun guestArgs(probe: Boolean = false) = listOf("-w", "/opt/hds", "/opt/node/bin/node", if (probe) "/opt/hds/guest-probe.cjs" else "/opt/hds/host.cjs")
 
-    data class ProbeResult(val exitCode: Int?, val timedOut: Boolean, val output: String) {
-        val passed: Boolean get() = !timedOut && exitCode == 0 && output.lineSequence().any { it.trim() == PROBE_OK }
+    // Process.pid() and Os.setpgid are not public APIs on our Android SDK.
+    // Emit the group leader PID after setsid, before exec preserves that PID.
+    const val PROBE_GROUP = "HDS_GUEST_PROBE_PGID="
+    fun isolatedProbeArgs(args: List<String>) = listOf("/system/bin/setsid", "/system/bin/sh", "-c",
+        "printf '${PROBE_GROUP}%s\\n' \"\$\$\"; exec \"\$@\"", "hds-probe") + args
+    fun probeGroupId(line: String): Int? = if (line.startsWith(PROBE_GROUP)) line.removePrefix(PROBE_GROUP).toIntOrNull()?.takeIf { it > 1 } else null
+    fun killProbeGroup(groupId: Int, kill: (Int) -> Unit) {
+        // Never signal group 0 (the app's group), PID 1, or an unverified PID.
+        if (groupId > 1) kill(-groupId)
+    }
+
+    data class ProbeResult(val exitCode: Int?, val timedOut: Boolean, val output: String, val degraded: Boolean = false) {
+        val passed: Boolean get() = !degraded && !timedOut && exitCode == 0 && output.lineSequence().any { it.trim() == PROBE_OK }
     }
     fun selectProfile(probe: (Boolean) -> ProbeResult): Boolean {
-        for (disableSeccomp in listOf(true, false)) if (probe(disableSeccomp).passed) return disableSeccomp
+        for (disableSeccomp in listOf(true, false)) {
+            val result = probe(disableSeccomp)
+            if (result.output.lineSequence().any { it.startsWith("HDS_GUEST_PROBE_FAILED stage=spawn") }) throw IllegalStateException("本机 Node 探测进程无法启动；请提供下方探测日志")
+            // An unkillable probe is inconclusive. Avoid starting a second probe;
+            // let the main launch's own timeout and health checks decide.
+            if (result.passed || result.degraded) return disableSeccomp
+        }
         throw IllegalStateException("本机 Node 兼容性检查未通过；两种 PRoot 追踪模式均失败，请提供下方探测日志")
     }
 
