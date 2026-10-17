@@ -29,7 +29,7 @@ class VoiceStore(private val context: Context, private val today: () -> String =
     private fun usage(): JSONObject = read("usage.json").apply {
         if (optString("day") != today()) { put("day", today()); put("tokens", 0); put("notified", false); put("requests", JSONObject()) }
         if (!has("characters")) put("characters", JSONObject())
-        if (!has("requests")) put("requests", JSONObject())
+        if (!has("requests")) { val legacy = optLong("tokens"); put("requests", JSONObject().apply { if (legacy > 0) put("legacy-migration", JSONObject().put("state", "unknown").put("tokens", legacy)) }) }
         val requests = getJSONObject("requests")
         requests.keys().forEach { id -> val r = requests.getJSONObject(id); if (r.optString("state") == "reserved" && !active.contains(base.absolutePath + id)) r.put("state", "unknown") }
         val pendingCards = requests.keys().asSequence().map { requests.getJSONObject(it) }.filter { it.optString("state") == "reserved" }.map { it.optString("cardId") }.toSet()
@@ -124,7 +124,7 @@ class VoiceStore(private val context: Context, private val today: () -> String =
         fun outcome(status: String, reason: String) = JSONObject().put("requestId", requestId).put("status", status).put("stage", "synthesis").put("reason", reason)
         lateinit var selected: JSONObject; lateinit var key: String; lateinit var value: String; lateinit var text: String
         var reservation = 0L; var requestDay = ""; var replyNumber = 0L
-        val signature = MessageDigest.getInstance("SHA-256").digest(input.toString().toByteArray()).joinToString("") { "%02x".format(it) }
+        val signature = MessageDigest.getInstance("SHA-256").digest(canonicalJson(input).toByteArray()).joinToString("") { "%02x".format(it) }
         synchronized(lock) {
         val c = config(); val u = usage(); val preview = input.optBoolean("preview"); val cardId = input.optString("cardId")
         val requests = u.getJSONObject("requests"); val previous = requests.optJSONObject(requestId)

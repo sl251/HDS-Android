@@ -82,6 +82,8 @@ class VoiceStoreTest {
         val input = reply().put("requestId", "fixture-repeated-request")
         var id = ""; server { client -> id = s.synthesize(input, client).getString("audioId") }
         assertEquals(id, store().synthesize(input).getString("audioId")); assertEquals(25L, s.state().getLong("usedTokens"))
+        val reordered = JSONObject(); input.keys().asSequence().toList().reversed().forEach { reordered.put(it, input.get(it)) }
+        assertEquals(id, store().synthesize(reordered).getString("audioId")); assertEquals(25L, s.state().getLong("usedTokens"))
         assertThrows(IllegalArgumentException::class.java) { s.synthesize(reply().put("requestId", "fixture-repeated-request").put("text", "other")) }
     }
     @Test fun thresholdCooldownDisabledAndPerCharacterArePersistent() {
