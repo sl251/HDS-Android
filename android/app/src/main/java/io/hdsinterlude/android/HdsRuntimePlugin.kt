@@ -281,6 +281,24 @@ class HdsRuntimePlugin : Plugin() {
             else -> runtime().rpc(method, payload)
         }
     } }
+    @PluginMethod fun exportCharacter(call: PluginCall) {
+        try {
+            val document = CharacterDocument.from(call.data)
+            startActivityForResult(call, Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(document.mime).putExtra(Intent.EXTRA_TITLE, document.name), "characterDestination")
+        } catch (failure: Exception) { call.reject(failure.message ?: "无法打开保存位置", failure) }
+    }
+    @ActivityCallback private fun characterDestination(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }
+        val uri = result.data!!.data!!
+        run(call) {
+            val document = CharacterDocument.from(call.data)
+            val output = context.contentResolver.openOutputStream(uri, "wt") ?: throw IllegalArgumentException("无法写入所选位置")
+            document.writeTo(output)
+            JSONObject().put("cancelled", false).put("name", document.name)
+        }
+    }
     @PluginMethod fun pickCard(call: PluginCall) {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
         intent.putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "application/x-json", "text/json", "image/png", "application/octet-stream", "text/plain", "text/yaml", "application/yaml", "application/x-yaml", "application/zip", "application/x-zip-compressed"))
