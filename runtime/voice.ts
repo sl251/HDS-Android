@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { constants } from 'node:fs'
@@ -16,16 +17,24 @@ export function localVoiceCapability(bridge?: VoiceBridgeConfig) {
     return { enabled: true, threshold: typeof binding.threshold === 'number' && Number.isFinite(binding.threshold) ? Math.max(0, Math.min(1, binding.threshold)) : .7 }
   } catch { return undefined }
 }
-export async function localVoiceDelivery(bridge: VoiceBridgeConfig | undefined, content: string, willingness: unknown, style: string): Promise<MessageAudio | undefined> {
-  if (!bridge || !voiceText(content)) return undefined
+type VoiceOutcome = { requestId: string; status: 'skipped' | 'failed' | 'generated'; stage: string; reason?: string; elapsedMs?: number }
+export async function localVoiceDelivery(bridge: VoiceBridgeConfig | undefined, content: string, willingness: unknown, style: string, requestId = randomUUID(), report: (value: VoiceOutcome) => void = () => {}): Promise<MessageAudio | undefined> {
+  const started = Date.now(), sink = report
+  report = value => sink({ ...value, elapsedMs: Date.now() - started })
+  if (!bridge || !voiceText(content)) { report({ requestId, status: 'skipped', stage: 'bridge', reason: !bridge ? 'no_bridge' : 'no_text' }); return undefined }
   try {
     const url = new URL(bridge.url)
-    if (url.hostname !== '127.0.0.1' || url.protocol !== 'http:' || url.pathname !== '/synthesize') return undefined
+    if (url.hostname !== '127.0.0.1' || url.protocol !== 'http:' || url.pathname !== '/synthesize') { report({ requestId, status: 'failed', stage: 'bridge', reason: 'invalid_bridge' }); return undefined }
     const response = await fetch(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30000), headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bridge.token}` },
       body: JSON.stringify({ text: voiceText(content), willingness: typeof willingness === 'number' && Number.isFinite(willingness) ? willingness : -1, style }) })
-    if (!response.ok) return undefined
-    return messageAudio(await response.json())
-  } catch { return undefined }
+    if (!response.ok) { report({ requestId, status: 'failed', stage: 'bridge', reason: 'bridge_rejected' }); return undefined }
+    const result = await response.json() as { diagnostic?: { status?: string; reason?: string } }
+    const audio = messageAudio(result)
+    const reason = result?.diagnostic?.reason
+    report({ requestId, status: audio ? 'generated' : result?.diagnostic?.status === 'skipped' ? 'skipped' : 'failed', stage: 'synthesis',
+      reason: typeof reason === 'string' && /^[a-z_0-9]{1,80}$/.test(reason) ? reason : audio ? undefined : 'provider_missing_audio' })
+    return audio
+  } catch { report({ requestId, status: 'failed', stage: 'bridge', reason: 'provider_timeout_or_network' }); return undefined }
 }
 
 /** Choose one transport before sending. A confirmed record receipt is the reply

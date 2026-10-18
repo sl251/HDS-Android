@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { HostConfig } from '../runtime/host'
@@ -45,6 +45,15 @@ test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and 
     const history = await host.dispatch('messages.history', {}) as { direction: string }[]
     assert.equal(history.filter(row => row.direction === 'user').length, 1)
     assert.ok(history.some(row => row.direction === 'character'), 'A model fixture is only useful if HDS confirms visible local delivery')
+    const trace = await host.dispatch('diagnostics.messages', { messageId: message.requestId }) as { events: { stage: string; outcome: string; requestIds: string[]; messageId?: string }[] }
+    for (const stage of ['submission', 'processing', 'model', 'decision', 'commit', 'voice', 'delivery']) assert.ok(trace.events.some(row => row.stage === stage), `Actual host emits ${stage}`)
+    const delivered = trace.events.find(row => row.stage === 'delivery' && row.outcome === 'delivered')!
+    assert.ok(delivered.messageId)
+    const byReply = await host.dispatch('diagnostics.messages', { messageId: delivered.messageId }) as typeof trace
+    assert.ok(byReply.events.some(row => row.stage === 'submission'))
+    assert.ok(byReply.events.every(row => row.requestIds.includes(message.requestId)))
+    assert.ok(trace.events.every(row => row.requestIds.includes(message.requestId)))
+    assert.doesNotMatch(readFileSync(join(config.dataDir, 'message-diagnostics.json'), 'utf8'), /MARKER_PROFILE|EXAMPLE_MARKER|LORE_MARKER|收音机|test-token/)
     // Exercise the real RPC/database projection, including a page boundary with
     // equal timestamps (strict > must not drop a second message in the same ms).
     const base = '2099-01-01T00:00:00.000Z'

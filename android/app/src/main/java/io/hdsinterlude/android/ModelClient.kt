@@ -29,8 +29,7 @@ class ModelClient {
             require(status in 200..299) {
                 val hint = when (status) {
                     404, 405 -> if (body == null) "供应商可能不支持模型列表；可以直接填写模型名或设置列表地址。" else "接口路径或模型路由不存在，404 不代表密钥无效。"
-                    401, 403 -> "服务商拒绝认证或访问，请核对密钥权限。"
-                    429 -> "服务商限流或额度不足。"
+                    401, 402, 403, 429 -> ProviderFailure.label(ProviderFailure.reason(connection, status))
                     in 300..399 -> "服务商返回重定向，请填写最终 API 地址。"
                     else -> "服务商未接受请求，请核对接口协议与模型。"
                 }

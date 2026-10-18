@@ -66,7 +66,7 @@ export type NativeBridge = {
   pickImage(options?: { limit?: number }): Promise<{ cancelled: boolean; dataUri?: string; images?: { dataUri: string }[]; errors?: { index: number; message: string }[]; truncated?: boolean }>;
   pickStickers(options: { directory: boolean }): Promise<{ cancelled: boolean; name?: string; assets?: { id: string; path: string; size: number; mime: string }[]; skipped?: number }>;
   stickerImage(options: { id: string }): Promise<{ dataUri: string }>;
-  syncStickerLibrary(options: { packs: { id: string; name: string; ids: string[] }[] }): Promise<void>;
+  syncStickerLibrary(options: { packs: { id: string; name: string; ids: string[]; pool?: 'user' | 'character' }[] }): Promise<void>;
   pruneStickers(options: { keep: string[] }): Promise<void>;
   exportStory(): Promise<{ cancelled: boolean }>;
   restoreStory(options: { cardId: string }): Promise<{ cancelled: boolean }>;
@@ -78,6 +78,7 @@ export type NativeBridge = {
   diagnostics(options?: { probe?: boolean }): Promise<Record<string, unknown>>;
   copyDiagnostics(): Promise<void>;
   saveDiagnostics(): Promise<{ cancelled: boolean }>;
+  saveMessageDiagnostics(options?: { messageId?: string }): Promise<{ cancelled: boolean }>;
   saveQQQr(options: { base64: string }): Promise<{ cancelled: boolean }>;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -159,7 +160,7 @@ export function mergeMessages(previous: Message[], incoming: Message[]): Message
 /** Read receipts are a local view; never add a read status to stored messages. */
 export function messageStatusLabel(message: Pick<Message, 'direction' | 'status'> & Partial<Pick<Message, 'occurredAt'>>, lastCharacterReplyTs = 0): string {
   if (message.status === 'card-opening') return '角色卡开场白 · 本地已展示'
-  if (message.direction === 'user' && message.status === 'accepted') return lastCharacterReplyTs > Date.parse(message.occurredAt ?? '') ? '已读' : '已送达'
+  if (message.direction === 'user' && message.status === 'accepted') return '核心已接收'
   return message.status === 'failed' ? '未送达·点击重试' : ''
 }
 

@@ -48,7 +48,7 @@ test('M4 pack sync excludes message-only assets and original media remains reada
     const asset = { id: hash, path: '/private/ignored.gif', mime: 'image/gif', size: bytes.length }
     const library = importIntoPack(emptyLibrary(), 'pack', '开心包', [asset, asset]).library
     library.messages['old:message'] = { ...asset, id: '0'.repeat(64) }
-    assert.deepEqual(stickerSyncPacks(library), [{ id: 'pack', name: '开心包', ids: [hash] }])
+    assert.deepEqual(stickerSyncPacks(library), [{ id: 'pack', name: '开心包', pool: 'user', ids: [hash] }])
     const group = join(dir, 'stickers', '开心包'); mkdirSync(group, { recursive: true })
     const file = join(group, `${hash}.gif`); writeFileSync(file, bytes)
     const config = localStickerConfig(dir); assert.equal(config.enabled, true)

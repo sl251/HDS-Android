@@ -210,6 +210,48 @@ class HdsRuntimePlugin : Plugin() {
         intent.putExtra(Intent.EXTRA_TITLE, "HDS-install-diagnostic.json")
         startActivityForResult(call, intent, "diagnosticDestination")
     }
+    @PluginMethod fun saveMessageDiagnostics(call: PluginCall) {
+        // Capture before opening the picker, so switching roles cannot export a different story.
+        io.execute {
+            var snapshot: java.io.File? = null
+            try {
+                val payload = JSONObject()
+                call.getString("messageId")?.let { payload.put("messageId", it) }
+                val report = runtime().rpc("diagnostics.messages", payload)
+                // Keep large reports out of the Activity state/IPC bundle.
+                context.cacheDir.listFiles()?.filter { it.name.startsWith("message-diagnostic-") && it.name.endsWith(".json") && System.currentTimeMillis() - it.lastModified() > 86400000 }?.forEach { it.delete() }
+                val file = java.io.File.createTempFile("message-diagnostic-", ".json", context.cacheDir)
+                snapshot = file
+                file.writeText(report.toString(2), Charsets.UTF_8)
+                call.data.put("diagnosticSnapshotFile", file.name)
+                activity.runOnUiThread {
+                    try {
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE)
+                        intent.putExtra(Intent.EXTRA_TITLE, "HDS-message-diagnostic.json")
+                        startActivityForResult(call, intent, "messageDiagnosticDestination")
+                    } catch (_: Exception) { file.delete(); call.reject("无法打开系统文件保存窗口") }
+                }
+            } catch (_: Exception) { snapshot?.delete(); call.reject("无法读取当前故事的消息诊断") }
+        }
+    }
+    @ActivityCallback private fun messageDiagnosticDestination(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        run(call) {
+            val name = call.getString("diagnosticSnapshotFile").orEmpty()
+            require(name.matches(Regex("message-diagnostic-[a-zA-Z0-9-]+\\.json"))) { "诊断快照已失效，请重新导出" }
+            val file = java.io.File(context.cacheDir, name)
+            require(file.canonicalFile.parentFile == context.cacheDir.canonicalFile) { "诊断快照路径无效" }
+            try {
+                val uri = result.data?.data
+                if (result.resultCode != Activity.RESULT_OK || uri == null) JSONObject().put("cancelled", true)
+                else {
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { out -> file.inputStream().use { it.copyTo(out) }; out.flush() }
+                        ?: throw IllegalArgumentException("无法写入所选文档")
+                    JSONObject().put("cancelled", false)
+                }
+            } finally { file.delete() }
+        }
+    }
     @ActivityCallback private fun diagnosticDestination(call: PluginCall?, result: ActivityResult) {
         if (call == null) return
         if (result.resultCode != Activity.RESULT_OK || result.data?.data == null) { resolve(call, JSONObject().put("cancelled", true)); return }

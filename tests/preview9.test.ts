@@ -9,18 +9,18 @@ import { MessageStatus, TypingBubble } from '../apps/mobile-ui/MessageStatus'
 const user: Message = { id: 'preview9-user-001', direction: 'user', content: '你好', occurredAt: '2026-10-16T10:00:00Z', status: 'accepted' }
 const reply: Message = { ...user, id: 'preview9-reply-001', direction: 'character', status: 'delivered', occurredAt: '2026-10-16T10:00:01Z' }
 
-test('Preview 9 accepted messages derive delivered/read labels without mutating stored status', () => {
+test('Preview 9 accepted messages report core receipt independently of later replies', () => {
   const original = structuredClone(user)
-  assert.equal(messageStatusLabel(user), '已送达')
-  assert.equal(messageStatusLabel(user, Date.parse(user.occurredAt)), '已送达', 'Equal timestamps are not read')
-  assert.equal(messageStatusLabel(user, Date.parse(reply.occurredAt)), '已读')
-  assert.equal(messageStatusLabel(user, Date.parse('2026-10-16T18:00:01+08:00')), '已读')
-  assert.equal(messageStatusLabel({ ...user, occurredAt: 'invalid' }, Date.parse(reply.occurredAt)), '已送达')
+  assert.equal(messageStatusLabel(user), '核心已接收')
+  assert.equal(messageStatusLabel(user, Date.parse(user.occurredAt)), '核心已接收', 'Equal timestamps are not read')
+  assert.equal(messageStatusLabel(user, Date.parse(reply.occurredAt)), '核心已接收')
+  assert.equal(messageStatusLabel(user, Date.parse('2026-10-16T18:00:01+08:00')), '核心已接收')
+  assert.equal(messageStatusLabel({ ...user, occurredAt: 'invalid' }, Date.parse(reply.occurredAt)), '核心已接收')
   assert.deepEqual(user, original)
   for (const ts of [0, Date.parse(reply.occurredAt)]) {
     const markup = renderToStaticMarkup(React.createElement(MessageStatus, { message: user, lastCharacterReplyTs: ts }))
     assert.match(markup, /<svg[^>]*class="delivery-checks"/)
-    assert.ok(markup.includes(ts ? '已读' : '已送达'))
+    assert.ok(markup.includes(ts ? '核心已接收' : '核心已接收'))
   }
 })
 
@@ -47,25 +47,25 @@ test('Preview 9 local reply watermarks isolate cards, survive reload and the his
   assert.equal(watermarks.observe('first', [user]), ts, 'A moving history window must not regress read receipts')
   assert.deepEqual([...values], [['hds-lastCharacterReplyTs-first', String(ts)]], 'Only a reply timestamp is persisted')
   const reloaded = createReplyWatermarks(storage)
-  assert.equal(messageStatusLabel(user, reloaded.get('first')), '已读')
-  assert.equal(messageStatusLabel(user, reloaded.get('second')), '已送达')
+  assert.equal(messageStatusLabel(user, reloaded.get('first')), '核心已接收')
+  assert.equal(messageStatusLabel(user, reloaded.get('second')), '核心已接收')
   reloaded.clear('first')
   assert.equal(createReplyWatermarks(storage).get('first'), 0)
   values.set('hds-lastCharacterReplyTs-broken', 'not-a-number')
   assert.equal(reloaded.get('broken'), 0)
 })
 
-test('Preview 9 read receipts still work when local storage is unavailable', () => {
+test('Preview 9 receipt labels stay honest when local storage is unavailable', () => {
   const watermarks = createReplyWatermarks(() => { throw new Error('storage unavailable') })
   watermarks.observe('first', [reply])
-  assert.equal(messageStatusLabel(user, watermarks.get('first')), '已读')
+  assert.equal(messageStatusLabel(user, watermarks.get('first')), '核心已接收')
   watermarks.clear('first')
   assert.equal(watermarks.get('first'), 0)
 })
 
-test('Preview 9 typing bubble has three static dots only during a send request', () => {
+test('Preview 9 submission bubble has three static dots only during a send request', () => {
   const markup = renderToStaticMarkup(React.createElement(TypingBubble, { requestState: 'sending' }))
-  assert.match(markup, /role="status" aria-label="正在输入…"/)
+  assert.match(markup, /role="status" aria-label="正在提交消息…"/)
   assert.equal((markup.match(/<i>/g) ?? []).length, 3)
   for (const requestState of ['idle', 'accepted', 'failed', 'unknown']) assert.equal(renderToStaticMarkup(React.createElement(TypingBubble, { requestState })), '')
 })

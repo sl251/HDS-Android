@@ -74,7 +74,9 @@ class StickerStore(private val context: Context) {
             val pack = packs.getJSONObject(index)
             val ids = pack.getJSONArray("ids")
             require((0 until ids.length()).all { Regex("[a-f0-9]{64}").matches(ids.getString(it)) }) { "无效贴纸编号" }
-            clean.put(JSONObject().put("id", pack.getString("id")).put("name", pack.getString("name")).put("ids", ids))
+            val pool = pack.optString("pool", "user")
+            require(pool in listOf("user", "character")) { "无效表情包池" }
+            clean.put(JSONObject().put("id", pack.getString("id")).put("name", pack.getString("name")).put("ids", ids).put("pool", pool))
         }
         val file = AtomicFile(File(root.parentFile, "sticker-library.json"))
         val output = file.startWrite()
@@ -97,6 +99,8 @@ class StickerStore(private val context: Context) {
         try {
             for (index in 0 until packs.length()) {
                 val pack = packs.getJSONObject(index)
+                // Legacy unscoped packs belong to the user. Never expose them to the model.
+                if (pack.optString("pool", "user") != "character") continue
                 val name = pack.getString("name").map { if (it == '/' || it == '\\' || it == ':' || it.isISOControl()) '_' else it }.joinToString("").trim().take(80).ifEmpty { "我的表情" }
                 val base = if (name == "." || name == "..") "我的表情" else name
                 var group = base

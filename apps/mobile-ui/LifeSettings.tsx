@@ -33,7 +33,7 @@ function NumericField({ value, array, min, max, step, change, label }: { value: 
     setError(''); change(array ? values : values[0])
   }} />{error && <small role="alert">{error}</small>}</>
 }
-export function LifeSettings({ value = {}, change, bridge, healthy, native, notify, area }: { area?: 'daily' | 'world' | 'system'; value?: MobileConfig; change: (value: MobileConfig) => void; bridge: NativeBridge; healthy: boolean; native: boolean; notify: (text: string) => void }) {
+export function LifeSettings({ value = {}, change, bridge, healthy, native, notify, area }: { area?: 'daily' | 'world' | 'system' | 'advanced'; value?: MobileConfig; change: (value: MobileConfig) => void; bridge: NativeBridge; healthy: boolean; native: boolean; notify: (text: string) => void }) {
   const [budget, setBudget] = useState<Budget | null>(null)
   const [code, setCode] = useState('')
   const [preview, setPreview] = useState<PresetPreview | null>(null)
@@ -70,11 +70,11 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
     } catch (error) { setPreview(null); notify(error instanceof Error ? error.message : '检查预设失败') }
     finally { setWorking(false) }
   }
-  const areas: Record<string, string[]> = { daily: ['runtime', 'urge', 'agency', 'chatActions', 'alterSystem'], world: ['schedulePreplan', 'timelineDirector', 'memory', 'worldSeeder', 'longHorizon', 'weather'], system: [] }
+  const areas: Record<string, string[]> = { daily: ['agency', 'alterSystem'], advanced: ['runtime', 'urge', 'chatActions', 'schedulePreplan', 'timelineDirector', 'memory', 'worldSeeder', 'longHorizon', 'weather'], world: ['schedulePreplan', 'timelineDirector', 'memory', 'worldSeeder', 'longHorizon', 'weather'], system: [] }
   const selectedSections = schema.sections.filter(section => section.key !== 'embedding' && (!area || areas[area].includes(section.key)))
   return <section className="life-settings accordion">
     {!area && <h2>生活节奏与表达</h2>}
-    {(!area || area === 'daily') && <details data-config-section="budget"><summary>后台预算<span className="tag">{value.backgroundLimit ?? 120} 次 / 日</span></summary>
+    {(!area || area === 'advanced') && <details data-config-section="budget"><summary>后台预算<span className="tag">{value.backgroundLimit ?? 120} 次 / 日</span></summary>
       <label>24 小时后台模型请求上限<NumericField value={value.backgroundLimit ?? 120} array={false} min={0} max={10000} step={1} label="24 小时后台模型请求上限" change={item => change({ ...value, backgroundLimit: item as number })} /></label>
       <p className="caption">滚动 24 小时统计，0 为不限。失败与重试计数，重启不清零；直接聊天和手动整理不占后台额度。修改自动保存，重启后生效。</p>
       {budget && <p role="status">已用 {budget.used} / {budget.limit || '不限'} 次{budget.exhausted ? ` · 后台额度已用完，最早 ${new Date(budget.resumesAt!).toLocaleString()} 恢复` : ''}</p>}
@@ -101,10 +101,10 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
         </label>
       })}</div>
 
-        {section.key === 'memory' && <><p className="caption">原始条目与事实默认 20 条，上限 20 条。向量检索与模型分工联动：请在「模型与系统 → 任务分工」指定向量模型；实时检索默认关闭，后台向量补齐不受影响。</p>
+        {section.key === 'memory' && <><p className="caption">原始条目与事实默认 20 条，上限 20 条。向量检索与模型分工联动：请在「模型连接 → 任务分工」指定向量模型；实时检索默认关闭，后台向量补齐不受影响。</p>
           {schema.sections.find(row => row.key === 'embedding')!.fields.filter(field => field.key !== 'providerId').map(field => <label className="toggle" key={field.key}><input type="checkbox" checked={(value.sections?.embedding?.[field.key] ?? field.default) === true} onChange={event => update('embedding', field.key, event.target.checked)} /><span>{field.key === 'enabled' ? '长期记忆向量检索' : '对话中实时检索'}</span></label>)}
         </>}
-        {section.key === 'worldSeeder' && <p className="caption">事件源为外部事件与配角；需在「模型与系统 → 任务分工」指定世界播种模型。</p>}
+        {section.key === 'worldSeeder' && <p className="caption">事件源为外部事件与配角；需在「模型连接 → 任务分工」指定世界播种模型。</p>}
         {section.key === 'longHorizon' && <p className="caption">审查周期由新增叙事证据分数决定；指导强度控制长期方向的表达程度。</p>}
         {section.key === 'runtime' && <p className="caption">承诺最长 12 小时。扫描用于漏唤醒后的兜底，不会唤醒被系统强制停止的应用；显式约定仍受预算与暂停约束。</p>}
         </details>}

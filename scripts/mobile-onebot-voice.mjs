@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { withMessageDiagnostics } from './mobile-diagnostics.mjs'
 
 // Host-owned build overlay against the already replayed rc57 mobile delta.
 // Never writes upstream/. Each edit must match exactly once (or be applied).
@@ -50,6 +51,10 @@ export function withOneBotVoice(source) {
 export const oneBotVoiceOverlay = {
   name: 'mobile-onebot-voice',
   setup(build) {
-    build.onLoad({ filter: /[\\/]upstream[\\/]hds-interlude[\\/]src[\\/]service\.ts$/ }, async ({ path }) => ({ contents: withOneBotVoice(await readFile(path, 'utf8')), loader: 'ts' }))
+    build.onLoad({ filter: /[\\/]upstream[\\/]hds-interlude[\\/]src[\\/](service|narrator|turn-engine)\.ts$/ }, async ({ path }) => {
+      const kind = path.split(/[\\/]/).at(-1).replace('.ts', '')
+      const source = await readFile(path, 'utf8')
+      return { contents: withMessageDiagnostics(kind === 'service' ? withOneBotVoice(source) : source, kind), loader: 'ts' }
+    })
   },
 }
