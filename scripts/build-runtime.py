@@ -238,7 +238,7 @@ def main():
     archive = ASSETS / 'rootfs.bundle'  # .gz suffix is stripped by AAPT; contents remain gzip.
     audit = pack_guest(GUEST, archive)
     expanded = audit['expandedBytes']
-    manifest = {'version': LOCK['version'], 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK, 'qqLibraries': qq_libs}
+    manifest = {'version': LOCK['version'], 'sourceSha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK, 'qqLibraries': qq_libs}
     (ASSETS / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     (WORK / 'runtime-manifest.json').write_text(json.dumps(manifest, indent=2))
     print(f'Built runtime: {archive.stat().st_size // 1024 // 1024} MiB compressed / {expanded // 1024 // 1024} MiB expanded', flush=True)
