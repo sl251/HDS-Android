@@ -24,10 +24,15 @@ try {
   await f.load()
   await page.getByRole('button', { name: '故事', exact: true }).click()
   await page.getByText('诊断测试消息', { exact: true }).waitFor()
+  assert.equal(await page.locator('.message-diagnostic-link').count(), 0)
   await page.getByText('诊断测试消息', { exact: true }).click({ button: 'right' })
+  assert.equal(await page.getByRole('dialog', { name: '消息诊断', exact: true }).count(), 0)
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^消息诊断/ }).click()
   const dialog = page.getByRole('dialog', { name: '消息诊断', exact: true })
   await dialog.waitFor()
-  assert.equal(await dialog.getByLabel('查看范围').inputValue(), 'fixture-request-first')
+  assert.equal(await dialog.getByLabel('查看范围').inputValue(), '')
+  await dialog.getByLabel('查看范围').selectOption('fixture-request-first')
   assert.equal(await dialog.locator('ol > li').count(), 100)
   await dialog.getByRole('button', { name: /显示更早记录/ }).click()
   assert.equal(await dialog.locator('ol > li').count(), 125)
@@ -36,7 +41,6 @@ try {
   // Returning from a native picker can leave keyboard focus outside the modal.
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'detached' })
-  await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^消息诊断/ }).click()
   for (const width of [320, 360, 390, 740]) {
     await page.setViewportSize({ width, height: 844 })
@@ -55,5 +59,5 @@ try {
   assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
   await dialog.waitFor({ state: 'detached' })
   assert.deepEqual(f.errors, [])
-  console.log('PASS message diagnostics: message context, pagination, export filter, 320/360/390/740 layouts, focus, clear and native back.')
+  console.log('PASS message diagnostics: space-only entry, pagination, export filter, 320/360/390/740 layouts, focus, clear and native back.')
 } finally { await f.close() }
