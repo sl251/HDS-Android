@@ -464,11 +464,11 @@ class HdsRuntime private constructor(private val context: Context) {
     fun rpc(method: String, payload: JSONObject): JSONObject {
         require(!profileMaintenance || method == "health") { "故事正在备份或维护" }
         require(method in RuntimeContract.methods) { "不允许的本机 API 方法" }
+        require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         if (method == "story.applySetting") {
             require(state == "healthy" && runningCardId == store.publicSettings().optString("activeCard")) { "当前角色或运行状态已改变" }
             require(payload.optString("operationId").matches(Regex("[a-zA-Z0-9-]{8,64}")) && payload.optString("expectedRevision").matches(Regex("[a-f0-9]{64}")) && payload.optString("expectedStoryId").length in 1..128 && payload.optJSONObject("patch") != null) { "人设提交字段无效" }
         }
-        require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         val connection = URL("http://127.0.0.1:$port/rpc").openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"; connection.connectTimeout = 3000; connection.readTimeout = 20000; connection.doOutput = true
