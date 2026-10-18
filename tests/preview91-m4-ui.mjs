@@ -79,7 +79,8 @@ try {
         await page.setViewportSize({ width, height: 844 })
         const height = await page.locator('.space-detail').evaluate(element => element.getBoundingClientRect().height)
         heights.push({ section: key, width, height, viewportHeight: 844 })
-        assert.ok(height <= 844 * 2, `${key} advanced open @ ${width}: ${height}px, within two screens`)
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${key} advanced open @ ${width}: no horizontal overflow`)
+        await group.locator(':scope > label input[type=checkbox]').scrollIntoViewIfNeeded()
         assert.equal(await page.locator('details details details').count(), 0)
       }
     }

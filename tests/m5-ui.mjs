@@ -166,7 +166,7 @@ try {
   assert.equal(await page.locator('.voice-message').count(), 1)
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^语音与音色/ }).click()
-  await page.getByText('角色语音与音色', { exact: true }).click(); await toggle.click()
+  await toggle.click()
   await page.waitForFunction(() => {
     const toggle = document.querySelector('.voice-settings input[type="checkbox"]')
     return toggle && !toggle.checked && !toggle.disabled

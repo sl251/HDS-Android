@@ -203,7 +203,7 @@ try {
   await page.getByText('已自动保存', { exact: true }).waitFor()
   assert.equal(await page.evaluate(() => window.__storyFixture.prefs.providers.find(x => x.id === 'light').useForCompaction), true)
   await page.getByRole('button', { name: '立即重启生效', exact: true }).waitFor()
-  await page.getByText('管理模型连接 · 2 条', { exact: true }).click()
+  await openGroup('管理模型连接 · 2 条')
   await page.getByRole('button', { name: '＋ 添加连接', exact: true }).click()
   await page.waitForTimeout(900)
   assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), '自定义连接')
