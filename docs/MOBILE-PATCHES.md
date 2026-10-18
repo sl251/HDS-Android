@@ -1,6 +1,6 @@
 # 移动宿主与上游边界
 
-HDS 原始版本为 1.0.1-rc56，固定提交 b683bafcac42c99a45929e0516195f033f969665。原始 AGPL LICENSE 和文档保留；宿主不重写叙事协议、事实提交或记忆层。
+当前上游基线为 **HDS-Interlude `1.0.1-rc57`**，固定提交 `ab512ec6b9dc00b9f738c062fe576e711a739151`。原始 AGPL LICENSE 和文档保留；宿主不重写叙事协议、事实提交或记忆层。**下文 Preview 9.1 / rc56 为历史迁移记录，不代表现行上游版本。**
 
 - endpoints.ts、types.ts、service.ts：增加 local 通道类型，mobile-local 端点不冒用 QQ 身份。
 - narrator.ts：增加可选角色卡上下文钩子。原始引擎系统指令保持第一条，角色/示例/世界书与引擎契约分开，creator_notes 不注入。
@@ -15,6 +15,12 @@ preview.4 的模型分工直接使用原 HDS provider flags / failover / SSE 路
 
 Preview7：复用原版 sidecar/native 识图路由，原生桥接新增图片压缩、外观文件与故事存档事务。见闻管理复用原版事实、待办、overlay 和 compact API；`mobileManageFact` 在修改前失效旧叙事工作并刷新连续性缓存。详见 `docs/PREVIEW7.md`。
 
+
+## 当前 rc57 基线（Preview 9.2 / 9.3）
+
+- `scripts/vendor-hds.mjs` 固定使用上游 tag `1.0.1-rc57` 和提交 `ab512ec6b9dc00b9f738c062fe576e711a739151`。
+- `scripts/patch-mobile-hds.mjs` 当前重放 `scripts/mobile-hds-rc57.patch`；历史 `mobile-hds-rc56.patch` 和仍被引用的 `mobile-hds-rc56-tests.patch` 文件名不应仅为消除旧版文案而改名。
+- 更新上游时需重新验证固定提交、补丁上下文、宿主构建和自动测试。历史 rc56 章节保持原样，便于追踪迁移决策。
 
 ## preview.8 model request budget
 
