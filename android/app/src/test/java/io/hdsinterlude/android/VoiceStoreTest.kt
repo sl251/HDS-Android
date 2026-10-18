@@ -31,7 +31,7 @@ class VoiceStoreTest {
     private fun settings(enabled: Boolean = true, threshold: Double = .7, voiceId: String = "") = JSONObject().put("cardId", card).put("binding", JSONObject().put("enabled", enabled).put("threshold", threshold).put("voiceId", voiceId))
     private fun reply(w: Double = 1.0, id: String = card) = JSONObject().put("cardId", id).put("willingness", w).put("text", "最后的文字稿").put("style", "温柔自然")
     private data class Request(val headers: Map<String, String>, val body: JSONObject)
-    private fun server(status: Int = 200, tokens: Long? = 25, delay: Long = 0, invalid: Boolean = false, test: (MimoTtsClient) -> Unit): Request {
+    private fun server(status: Int = 200, tokens: Long? = 25, delay: Long = 0, invalid: Boolean = false, providerErrorCode: String? = null, test: (MimoTtsClient) -> Unit): Request {
         val socket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")); val executor = Executors.newSingleThreadExecutor()
         val task = executor.submit<Request> {
             socket.accept().use { client ->
@@ -42,6 +42,10 @@ class VoiceStoreTest {
                 val body = ByteArray(headers.getValue("content-length").toInt()); var offset = 0
                 while (offset < body.size) { val n = input.read(body, offset, body.size - offset); require(n > 0); offset += n }
                 val result = JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("audio", JSONObject().put("data", Base64.encodeToString(if (invalid) "bad".toByteArray() else wav(), Base64.NO_WRAP))))))
+                if (providerErrorCode != null) {
+                    result.remove("choices")
+                    result.put("error", JSONObject().put("code", providerErrorCode))
+                }
                 if (tokens != null) result.put("usage", JSONObject().put("total_tokens", tokens))
                 Thread.sleep(delay)
                 val bytes = result.toString().toByteArray()
@@ -117,6 +121,14 @@ class VoiceStoreTest {
         server { client -> assertTrue(s.synthesize(reply(), client).has("audioId")) }
         assertEquals(25, s.state().getInt("usedTokens"))
         assertEquals("generated", s.state().getJSONObject("lastResult").getString("status"))
+    }
+    @Test fun providerResourceExhaustedIsNotReportedAsAccountQuota() {
+        val s = store(); s.saveSettings(settings().put("cooldown", 0))
+        server(status = 429, providerErrorCode = "RESOURCE_EXHAUSTED") { client ->
+            val response = s.synthesize(reply(), client)
+            assertEquals("provider_resource_exhausted", response.getJSONObject("diagnostic").getString("reason"))
+            assertFalse(response.has("audioId"))
+        }
     }
     @Test fun safImportRenameDeleteAndHistoricalStorageRejectTraversalAndInvalidWav() {
         val s = store(); val file = File(context.cacheDir, "reference.wav").apply { writeBytes(wav()) }
