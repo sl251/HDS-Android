@@ -22,7 +22,7 @@ class VoiceStore(private val context: Context, private val today: () -> String =
     fun config(): JSONObject = synchronized(lock) { read("settings.json").apply {
         if (!has("voices")) put("voices", JSONArray().put(JSONObject().put("id", "builtin").put("name", "茉莉").put("type", "builtin").put("value", "茉莉")))
         if (!has("defaultVoiceId")) put("defaultVoiceId", "builtin")
-        if (!has("dailyLimit")) put("dailyLimit", 50000)
+        if (!has("dailyLimit")) put("dailyLimit", 0)
         if (!has("cooldown")) put("cooldown", 5)
         if (!has("characters")) put("characters", JSONObject())
     } }
@@ -132,7 +132,7 @@ class VoiceStore(private val context: Context, private val today: () -> String =
         val selected = voice ?: findVoice(c, c.getString("defaultVoiceId")) ?: findVoice(c, "builtin")!!
         val key = credential(); if (key.isBlank()) return skip("missing_key")
         val model = when (selected.getString("type")) { "design" -> "mimo-v2.5-tts-voicedesign"; "reference" -> "mimo-v2.5-tts-voiceclone"; else -> "mimo-v2.5-tts" }
-        val value = if (selected.getString("type") == "reference") Base64.encodeToString(audioFile(selected.getString("value")).inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP) else selected.getString("value")
+        val value = if (selected.getString("type") == "reference") "data:audio/wav;base64," + Base64.encodeToString(audioFile(selected.getString("value")).inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP) else selected.getString("value")
         // Reserve before IO. Unknown/timeout billing stays conservatively charged, across restart.
         val reservation = if (limit > 0) minOf(4096L, limit - used) else 4096L
         u.put("tokens", used + reservation); write("usage.json", u)
