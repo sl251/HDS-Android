@@ -25,12 +25,17 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - run: npm run build
+      - name: Runtime archive policy and OpenSSL fixture checks
+        run: |
+          python3 tests/runtime-pack.test.py
+          python3 tests/guest-openssl-config.test.py
       - run: npx playwright-core install --with-deps chromium
       - name: Exercise character and media controls
         run: |
           node tests/import-code-ui.mjs
           node tests/character-export-ui.mjs
           node tests/media-controls-ui.mjs
+          node tests/message-diagnostics-ui.mjs
       - name: Exercise chat, sticker and voice flows
         run: |
           export HDS_BROWSER="$(node --input-type=module -e "import { chromium } from 'playwright-core'; console.log(chromium.executablePath())")"
@@ -38,15 +43,14 @@ jobs:
           vite_pid=$!
           trap 'kill "$vite_pid"' EXIT
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:5173 >/dev/null && break; sleep 1; done
-          node tests/story-ui.mjs
-          node tests/m5-ui.mjs
+          npm run test:ui
       - run: npx cap sync android
       - name: Android compilation and persistence tests
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
           chmod +x android/gradlew
           cd android
-          ./gradlew --no-daemon compileReleaseKotlin testReleaseUnitTest --tests '*CharacterDocumentTest' --tests '*StickerStoreTest' --tests '*StickerImportPolicyTest'
+          ./gradlew --no-daemon compileReleaseKotlin lintRelease testReleaseUnitTest
       - name: Retain UI screenshots and Android test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

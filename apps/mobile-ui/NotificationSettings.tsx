@@ -22,7 +22,7 @@ export function NotificationSettings({ bridge, native, notify }: { bridge: Nativ
     catch (error) { notify(error instanceof Error ? error.message : String(error)) }
     finally { setBusy(false) }
   }
-  return <section className="settings-group"><details><summary><span><b>消息与提醒</b><small>后台通知与夜间安静</small></span></summary>
+  return <section className="settings-group"><details open><summary><span><b>消息与提醒</b><small>后台通知与夜间安静</small></span></summary>
     <label className="toggle"><input type="checkbox" aria-label="角色消息通知" checked={value.enabled} disabled={!native || !ready || busy} onChange={event => void change(event.target.checked)} /><div><b>角色消息通知</b><p>离开应用时，提醒你角色的新消息。23:00–08:00 只显示通知，不响铃或振动。</p></div></label>
     <p className="caption" role="status">{!native ? '界面预览 · 请在 Android 应用中设置' : blocked ? '系统通知权限或角色消息渠道未开启' : value.enabled && value.available ? '已开启 · 前台阅读时不提醒' : '默认关闭 · 开启时申请系统通知权限'}</p>
     {native && blocked && <button className="text-button" onClick={() => void bridge.openNotificationSettings().catch(error => notify(String(error)))}>去系统设置</button>}

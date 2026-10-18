@@ -59,7 +59,7 @@ try {
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
   console.log('M4: actual App and host loaded.')
   await page.getByRole('button', { name: '空间', exact: true }).click()
-  await page.getByRole('button', { name: /^生活与世界/ }).click()
+  await page.getByRole('button', { name: /^高级设置/ }).click()
   assert.equal(await page.locator('details details details').count(), 0)
   await page.screenshot({ path: 'artifacts/preview9.1-m4/life-world.png', fullPage: true })
   // All six shipped sections render from their schema and persist actual inputs.
@@ -79,7 +79,8 @@ try {
         await page.setViewportSize({ width, height: 844 })
         const height = await page.locator('.space-detail').evaluate(element => element.getBoundingClientRect().height)
         heights.push({ section: key, width, height, viewportHeight: 844 })
-        assert.ok(height <= 844 * 2, `${key} advanced open @ ${width}: ${height}px, within two screens`)
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${key} advanced open @ ${width}: no horizontal overflow`)
+        await group.locator(':scope > label input[type=checkbox]').scrollIntoViewIfNeeded()
         assert.equal(await page.locator('details details details').count(), 0)
       }
     }
@@ -97,6 +98,8 @@ try {
     await group.locator(':scope > summary').click()
   }
   console.log('M4: opening runtime story editor.')
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^角色与故事/ }).click()
   await page.getByRole('button', { name: '修改故事设定', exact: false }).click()
   const editor = page.getByRole('dialog', { name: '修改故事设定' })
   await editor.getByLabel('主角名称', { exact: true }).fill('星禾')
@@ -135,7 +138,7 @@ try {
   await editor.waitFor()
   await editor.getByRole('button', { name: '关闭编辑' }).click()
   await page.getByRole('button', { name: '返回空间', exact: true }).click()
-  await page.getByRole('button', { name: /^模型与系统/ }).click()
+  await page.getByRole('button', { name: /^模型连接/ }).click()
   await page.getByText('任务分工', { exact: true }).click()
   await page.getByLabel('向量模型', { exact: true }).selectOption('writer')
   await page.getByLabel('世界播种模型', { exact: true }).selectOption('writer')

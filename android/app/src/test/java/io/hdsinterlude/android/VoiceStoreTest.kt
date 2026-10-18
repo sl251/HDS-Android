@@ -70,33 +70,51 @@ class VoiceStoreTest {
         assertEquals(75, s.state().getInt("usedTokens"))
     }
     @Test fun thresholdCooldownDisabledAndPerCharacterArePersistent() {
-        val s = store(); assertFalse(s.config().getJSONObject("characters").has(card)); assertEquals(0, s.synthesize(reply()).length())
-        s.saveSettings(settings()); assertEquals(0, s.synthesize(reply(.699)).length())
+        val s = store(); assertFalse(s.config().getJSONObject("characters").has(card)); assertFalse(s.synthesize(reply()).has("audioId"))
+        s.saveSettings(settings()); assertEquals("threshold", s.synthesize(reply(.699)).getJSONObject("diagnostic").getString("reason"))
         server { client -> assertTrue(s.synthesize(reply(.7), client).has("audioId")) }
-        repeat(4) { assertEquals(0, store().synthesize(reply()).length()) }
+        repeat(4) { assertEquals("cooldown", store().synthesize(reply()).getJSONObject("diagnostic").getString("reason")) }
         server { client -> assertTrue(store().synthesize(reply(), client).has("audioId")) }
         s.saveSettings(settings().put("cardId", other)); server { client -> assertTrue(s.synthesize(reply(id = other), client).has("audioId")) }
-        s.saveSettings(settings(enabled = false).put("cooldown", 0)); assertEquals(0, s.synthesize(reply()).length())
+        s.saveSettings(settings(enabled = false).put("cooldown", 0)); assertFalse(s.synthesize(reply()).has("audioId"))
         s.saveSettings(settings().put("cooldown", 0)); server { client -> assertTrue(s.synthesize(reply(), client).has("audioId")) }
-        assertEquals(0, s.synthesize(reply(1.1)).length())
+        assertEquals("missing_decision", s.synthesize(reply(1.1)).getJSONObject("diagnostic").getString("reason"))
     }
     @Test fun quotaCountsPreviewsStopsBothPathsNotifiesOnceAndRollsOverWithoutDeleting() {
         val s = store(); s.saveSettings(settings().put("cooldown", 0).put("dailyLimit", 50))
         var id = ""; server { client -> id = s.synthesize(reply(), client).getString("audioId") }
         server { client -> assertTrue(s.synthesize(JSONObject().put("preview", true).put("voiceId", "builtin").put("text", "试听"), client).has("audioId")) }
-        assertEquals(0, s.synthesize(reply()).length()); assertEquals(0, s.synthesize(reply().put("preview", true)).length())
+        assertEquals("quota", s.synthesize(reply()).getJSONObject("diagnostic").getString("reason")); assertEquals("quota", s.synthesize(reply().put("preview", true)).getJSONObject("diagnostic").getString("reason"))
         assertTrue(s.state().has("notice")); assertFalse(store().state().has("notice")); assertEquals(50, s.state().getInt("usedTokens"))
         day = "2026-10-18"; assertEquals(0, store().state().getInt("usedTokens")); assertTrue(s.audio(id).getString("dataUri").startsWith("data:audio/wav;base64,"))
         s.saveSettings(JSONObject().put("dailyLimit", 0)); server(tokens = 100000) { client -> assertTrue(s.synthesize(reply(), client).has("audioId")) }; assertFalse(s.state().has("notice"))
     }
     @Test fun failuresAndTimeoutFallBackChargeConservativelyAndNeverProduceAnAudioId() {
         val s = store(); s.saveSettings(settings().put("cooldown", 0).put("dailyLimit", 0))
-        server(status = 503) { client -> assertEquals(0, s.synthesize(reply(), client).length()) }
+        server(status = 503) { client -> assertFalse(s.synthesize(reply(), client).has("audioId")) }
         assertEquals(4096, s.state().getInt("usedTokens"))
-        server(delay = 250) { client -> assertEquals(0, s.synthesize(reply(), client).length()) }
+        server(delay = 250) { client -> assertFalse(s.synthesize(reply(), client).has("audioId")) }
         assertEquals(8192, s.state().getInt("usedTokens"))
-        server(invalid = true) { client -> assertEquals(0, s.synthesize(reply(), client).length()) }; assertEquals(8217, s.state().getInt("usedTokens"))
+        server(invalid = true) { client -> assertFalse(s.synthesize(reply(), client).has("audioId")) }; assertEquals(8217, s.state().getInt("usedTokens"))
         server(tokens = null) { client -> assertTrue(s.synthesize(reply(), client).has("audioId")) }; assertEquals(12313, s.state().getInt("usedTokens"))
+    }
+    @Test fun explicitRejectionReleasesReservationAndMissingDecisionIsNotLowWillingness() {
+        val s = store(); s.saveSettings(settings().put("cooldown", 0).put("dailyLimit", 100))
+        val missing = s.synthesize(reply().apply { remove("willingness") })
+        assertEquals("missing_decision", missing.getJSONObject("diagnostic").getString("reason"))
+        assertEquals("threshold", s.synthesize(reply(.1)).getJSONObject("diagnostic").getString("reason"))
+        for (status in listOf(401, 402, 403, 429)) {
+            server(status = status) { client ->
+                val result = s.synthesize(reply(), client)
+                assertFalse(result.has("audioId"))
+                assertEquals("failed", result.getJSONObject("diagnostic").getString("status"))
+                if (status == 402) assertEquals("provider_quota", result.getJSONObject("diagnostic").getString("reason"))
+            }
+            assertEquals(0, s.state().getInt("usedTokens"))
+        }
+        server { client -> assertTrue(s.synthesize(reply(), client).has("audioId")) }
+        assertEquals(25, s.state().getInt("usedTokens"))
+        assertEquals("generated", s.state().getJSONObject("lastResult").getString("status"))
     }
     @Test fun safImportRenameDeleteAndHistoricalStorageRejectTraversalAndInvalidWav() {
         val s = store(); val file = File(context.cacheDir, "reference.wav").apply { writeBytes(wav()) }
@@ -166,7 +184,7 @@ class VoiceStoreTest {
                 connection.requestMethod = "POST"; connection.doOutput = true; connection.readTimeout = 5000
                 connection.setRequestProperty("Authorization", "Bearer private-fixture")
                 connection.outputStream.use { it.write(reply(id = other).toString().toByteArray()) }
-                assertEquals(200, connection.responseCode); assertEquals("{}", connection.inputStream.bufferedReader().use { it.readText() })
+                assertEquals(200, connection.responseCode); assertEquals("disabled", JSONObject(connection.inputStream.bufferedReader().use { it.readText() }).getJSONObject("diagnostic").getString("reason"))
             } finally { connection.disconnect() }
             val counts = JSONObject(File(store().base, "usage.json").readText()).getJSONObject("characters")
             assertTrue(counts.has(card)); assertFalse(counts.has(other))

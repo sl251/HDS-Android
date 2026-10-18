@@ -84,7 +84,7 @@ class StickerStoreTest {
         val id = asset.getString("id")
         val data = File(context.cacheDir, "m4-profile").apply { deleteRecursively(); mkdirs() }
         val history = File(data, "images/$id.png").apply { parentFile!!.mkdirs(); writeBytes(bytes) }
-        val packs = org.json.JSONArray().put(org.json.JSONObject().put("id", "first").put("name", "开心包").put("ids", org.json.JSONArray().put(id)))
+        val packs = org.json.JSONArray().put(org.json.JSONObject().put("id", "first").put("pool", "character").put("name", "开心包").put("ids", org.json.JSONArray().put(id)))
         store.saveLibrary(packs)
         // A new instance models startup after WebView metadata synchronization.
         assertEquals(1, StickerStore(context).exportTo(data))
@@ -94,6 +94,27 @@ class StickerStoreTest {
         assertTrue(File(data, "stickers").listFiles()!!.isEmpty())
         assertArrayEquals(bytes, history.readBytes())
         assertArrayEquals(bytes, File(asset.getString("path")).readBytes())
+    }
+    @Test fun onlyCharacterPoolExportsAndLegacyUserAssetsSurviveClearingCharacterPool() {
+        provider.files["one"] = png()
+        val store = StickerStore(context)
+        val asset = store.import(listOf(Uri.parse("content://hds.sticker.fixture/document/one"))).getJSONArray("assets").getJSONObject(0)
+        val id = asset.getString("id")
+        fun pack(name: String, pool: String? = null) = org.json.JSONObject().put("id", name).put("name", name).put("ids", org.json.JSONArray().put(id)).apply { if (pool != null) put("pool", pool) }
+        val data = File(context.cacheDir, "pool-profile").apply { deleteRecursively(); mkdirs() }
+        val users = org.json.JSONArray().put(pack("旧用户包")).put(pack("用户包", "user"))
+        store.saveLibrary(users)
+        assertEquals(0, store.exportTo(data))
+        store.saveLibrary(org.json.JSONArray(users.toString()).put(pack("角色包", "character")))
+        assertEquals(1, StickerStore(context).exportTo(data))
+        assertTrue(File(data, "stickers/角色包/$id.png").isFile)
+        assertFalse(File(data, "stickers/用户包").exists())
+        store.saveLibrary(users)
+        assertEquals(0, store.exportTo(data))
+        store.prune(emptySet())
+        assertTrue(File(asset.getString("path")).isFile)
+        assertTrue(File(data, "stickers").listFiles()!!.isEmpty())
+        assertThrows(IllegalArgumentException::class.java) { store.saveLibrary(org.json.JSONArray().put(pack("错误池", "other"))) }
     }
 
     @Test fun registeredMediaRpcCanReadLargeOriginalStickerDataUri() {
@@ -137,7 +158,7 @@ class StickerStoreTest {
         val store = StickerStore(context)
         val id = store.import(listOf(Uri.parse("content://hds.sticker.fixture/document/gif"))).getJSONArray("assets").getJSONObject(0).getString("id")
         val data = File(context.cacheDir, "m4-gif").apply { deleteRecursively(); mkdirs() }
-        fun pack(name: String) = org.json.JSONObject().put("id", name).put("name", name).put("ids", org.json.JSONArray().put(id))
+        fun pack(name: String) = org.json.JSONObject().put("id", name).put("pool", "character").put("name", name).put("ids", org.json.JSONArray().put(id))
         store.saveLibrary(org.json.JSONArray().put(pack("../开心")).put(pack("../开心")))
         assertEquals(2, store.exportTo(data))
         val exported = File(data, "stickers").walkTopDown().filter { it.isFile }.toList()
@@ -147,7 +168,7 @@ class StickerStoreTest {
             store.saveLibrary(org.json.JSONArray().put(org.json.JSONObject().put("id", "bad").put("name", "bad").put("ids", org.json.JSONArray().put("../bad"))))
         }
         // Failed sync must preserve the last complete export.
-        store.saveLibrary(org.json.JSONArray().put(org.json.JSONObject().put("id", "missing").put("name", "missing").put("ids", org.json.JSONArray().put("0".repeat(64)))))
+        store.saveLibrary(org.json.JSONArray().put(org.json.JSONObject().put("id", "missing").put("pool", "character").put("name", "missing").put("ids", org.json.JSONArray().put("0".repeat(64)))))
         assertThrows(IllegalArgumentException::class.java) { store.exportTo(data) }
         exported.forEach { assertTrue(it.exists()) }
     }

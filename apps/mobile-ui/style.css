@@ -177,3 +177,24 @@ nav .nav-unread { background:#c23e43; color:white; border-radius:9px; transform:
 .voice-workbench .actions{display:flex;flex-wrap:wrap;gap:10px}
 .voice-workbench .actions button{min-height:44px;padding:10px 14px}
 @media(max-width:360px){.sticker-manager .media-import-actions{grid-template-columns:1fr}.sticker-manager .sticker-group>.actions .danger{margin-left:0}}
+/* Keep the existing glass palette; make frequent settings reachable in one step. */
+.settings-directory { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 16px; }
+.settings-directory .settings-entry { align-items:flex-start; height:100%; padding:16px 4px; }
+.settings-entry>span:first-child { min-width:0; overflow-wrap:anywhere; }
+.settings-secondary { margin-top:20px; border-top:1px solid var(--line); }
+.settings-secondary .settings-entry { color:var(--muted); }
+.space-detail { padding-bottom:24px; scroll-margin-bottom:calc(var(--nav-height, 90px) + 24px); }
+.space-detail input, .space-detail select, .space-detail textarea { max-width:100%; min-width:0; }
+.pool-tabs { display:flex; gap:8px; margin:12px 0; }
+.pool-tabs button { flex:1; min-height:44px; }
+.pool-tabs button[aria-pressed=true] { background:var(--accent); color:var(--paper); }
+.message-diagnostic-link { align-self:flex-end; min-height:28px; font-size:11px; opacity:.7; }
+.message-diagnostics { max-height:calc(100dvh - 32px); overflow-y:auto; overscroll-behavior:contain; }
+.diagnostic-events { list-style:none; padding:0; }
+.diagnostic-events li { border-left:2px solid var(--line); padding:12px 0 12px 16px; overflow-wrap:anywhere; }
+.diagnostic-events li>div { display:flex; justify-content:space-between; gap:12px; }
+.diagnostic-events small { display:block; color:var(--muted); margin-top:6px; }
+.diagnostic-events p { margin:8px 0; }
+.diagnostic-events [data-outcome=failed] { border-left-color:#bd5951; }
+.diagnostic-events [data-outcome=delivered] { border-left-color:var(--accent); }
+@media(max-width:380px) { .settings-directory, .config-fields { grid-template-columns:1fr; } .space-detail .actions { flex-wrap:wrap; } }

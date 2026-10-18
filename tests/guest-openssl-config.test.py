@@ -69,7 +69,7 @@ class GuestOpensslConfigTest(unittest.TestCase):
             (guest / 'etc/ssl').mkdir(parents=True)
             (guest / 'opt/node/bin').mkdir(parents=True)
             (guest / 'opt/hds').mkdir(parents=True)
-            (guest / 'etc/ssl/openssl.cnf').write_text(guest_openssl_config())
+            (guest / 'etc/ssl/openssl.cnf').write_bytes(guest_openssl_config().encode())
             (guest / 'opt/node/bin/node').write_bytes(b'node')
             (guest / 'opt/hds/host.cjs').write_bytes(b'host')
             audit = builder.pack_guest(guest, Path(directory) / 'guest.gz')

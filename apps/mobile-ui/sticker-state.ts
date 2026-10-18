@@ -12,17 +12,20 @@ export function stickerImportReason(settings: Pick<ModelSettings, 'providers' | 
 
 export type StickerAsset = { id: string; path: string; size: number; mime: string }
 export type Sticker = StickerAsset & { lastUsed: number }
-export type StickerPack = { id: string; name: string; createdAt: number; stickers: Sticker[] }
+export type StickerPool = 'user' | 'character'
+export type StickerPack = { id: string; name: string; createdAt: number; stickers: Sticker[]; pool?: StickerPool }
 export type StickerLibrary = { packs: StickerPack[]; messages: Record<string, StickerAsset> }
 export const emptyLibrary = (): StickerLibrary => ({ packs: [], messages: {} })
-export const stickerEntryVisible = (library: StickerLibrary) => library.packs.some(pack => pack.stickers.length > 0)
+export const poolLibrary = (library: StickerLibrary, pool: StickerPool): StickerLibrary => ({ ...library, packs: library.packs.filter(pack => (pack.pool ?? 'user') === pool) })
+export const stickerEntryVisible = (library: StickerLibrary) => poolLibrary(library, 'user').packs.some(pack => pack.stickers.length > 0)
 export const sortedPacks = (library: StickerLibrary) => [...library.packs].sort((a, b) => Math.max(0, ...b.stickers.map(s => s.lastUsed)) - Math.max(0, ...a.stickers.map(s => s.lastUsed)) || b.createdAt - a.createdAt)
 export function recentStickers(library: StickerLibrary) {
   const seen = new Set<string>()
   return library.packs.flatMap(pack => pack.stickers.map(sticker => ({ packId: pack.id, sticker }))).filter(item => item.sticker.lastUsed > 0).sort((a, b) => b.sticker.lastUsed - a.sticker.lastUsed).filter(({ sticker }) => { if (seen.has(sticker.id)) return false; seen.add(sticker.id); return true }).slice(0, 16)
 }
-export function importIntoPack(library: StickerLibrary, packId: string, name: string, assets: StickerAsset[], now = Date.now()) {
-  const pack = library.packs.find(pack => pack.id === packId) ?? { id: packId, name: name.trim() || '我的表情', createdAt: now, stickers: [] }
+export function importIntoPack(library: StickerLibrary, packId: string, name: string, assets: StickerAsset[], now = Date.now(), pool: StickerPool = 'user') {
+  if (library.packs.some(pack => pack.id === packId && (pack.pool ?? 'user') !== pool)) throw new Error('表情包属于另一个素材池，请重新选择导入位置')
+  const pack = library.packs.find(pack => pack.id === packId && (pack.pool ?? 'user') === pool) ?? { id: packId, name: name.trim() || '我的表情', createdAt: now, stickers: [], pool }
   const ids = new Set(pack.stickers.map(s => s.id)), added: Sticker[] = []
   for (const asset of assets) if (!ids.has(asset.id)) { ids.add(asset.id); added.push({ ...asset, lastUsed: 0 }) }
   return { library: { ...library, packs: [...library.packs.filter(p => p.id !== packId), { ...pack, stickers: [...pack.stickers, ...added] }] }, imported: added.length, skipped: assets.length - added.length }
@@ -39,4 +42,4 @@ export function readLibrary(storage: Pick<Storage, 'getItem'>): StickerLibrary {
 }
 
 /** Send IDs only; native code resolves private paths and exports current packs at startup. */
-export const stickerSyncPacks = (library: StickerLibrary) => library.packs.map(pack => ({ id: pack.id, name: pack.name, ids: [...new Set(pack.stickers.map(asset => asset.id))] }))
+export const stickerSyncPacks = (library: StickerLibrary) => library.packs.map(pack => ({ id: pack.id, name: pack.name, pool: pack.pool ?? 'user', ids: [...new Set(pack.stickers.map(asset => asset.id))] }))

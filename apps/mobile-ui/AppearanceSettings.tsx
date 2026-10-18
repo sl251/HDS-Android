@@ -53,7 +53,7 @@ type Props = { appearance: ReturnType<typeof useAppearance>; native: boolean; bu
 export function AppearanceSettings({ appearance, native, busy, act }: Props) {
   const { value, save, pick } = appearance
   const update = (patch: Partial<Appearance>) => save({ ...value, ...patch })
-  return <section className="settings-group"><details><summary><span><b>界面与阅读</b><small>字体、背景、透明度与主题</small></span></summary>
+  return <section className="settings-group"><details open><summary><span><b>界面与阅读</b><small>字体、背景、透明度与主题</small></span></summary>
     <p className="caption" role="status">{appearance.status} · 全局应用于所有角色</p>
     <fieldset disabled={busy || !appearance.ready}>
       <details><summary>字体与字号</summary><label>界面字体<select aria-label="界面字体" value={value.font} onChange={event => update({ font: event.target.value as Appearance['font'] })}><option value="default">默认字体</option><option value="sans">系统无衬线</option><option value="serif">衬线阅读</option>{value.fontData && <option value="custom">{value.fontName || '自定义字体'}</option>}</select></label>

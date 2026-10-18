@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { NativeBridge, VoiceState, MessageAudio, VoiceBinding, Voice } from '../../packages/contracts'
-import { emptyVoiceState, messageAudio } from '../../packages/contracts'
+import { emptyVoiceState, messageAudio, voiceResultLabel } from '../../packages/contracts'
 import { MessageContent } from './MessageContent'
 
 export function useVoices(bridge: NativeBridge, native: boolean, notify: (text: string) => void) {
@@ -49,12 +49,13 @@ export function VoiceSettings({ bridge, state, accept, cardId, name, native, not
     setBusy(true); try { accept(await bridge.saveVoiceSettings(input)); return true } catch (e) { notify(String(e)); return false } finally { setBusy(false) }
   }
   const bind = (patch: Partial<VoiceBinding>) => save({ cardId, binding: { ...binding, ...patch } })
-  return <section className="settings-group voice-settings"><details><summary><span><b>角色语音与音色</b><small>为合适的时刻，多留一种表达</small></span></summary>
+  return <section className="settings-group voice-settings"><details open><summary><span><b>角色语音与音色</b><small>为合适的时刻，多留一种表达</small></span></summary>
     <label className="toggle"><input type="checkbox" disabled={!native || !cardId || busy} checked={binding.enabled} onChange={e => void bind({ enabled: e.target.checked })} /><div><b>允许角色发语音</b><p>{name || '当前角色'} · 默认关闭，保存后影响后续回复</p></div></label>
     {binding.enabled && <><p className="caption">角色自主选择文字、语音或表情包。语音发送成功时不再附带同内容文字；App 内可按需展开文字稿。合成不可用时回退文字。</p><label>角色音色<select aria-label="角色音色" disabled={busy} value={binding.voiceId} onChange={e => void bind({ voiceId: e.target.value })}><option value="">跟随全局默认音色</option>{state.voices.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label><label>语音意愿阈值<input type="number" min="0" max="1" step="0.05" defaultValue={binding.threshold} key={`${cardId}:${binding.threshold}`} onBlur={e => { if (Number(e.target.value) !== binding.threshold) void bind({ threshold: Number(e.target.value) }) }} /></label></>}
     <button className="settings-entry" onClick={() => setWorkbench(true)}><span>音色工作台<small>录音、导入、试听与命名保存</small></span><span aria-hidden="true">→</span></button>
     <label>全局默认音色<select disabled={!native || busy} value={state.defaultVoiceId} onChange={e => void save({ defaultVoiceId: e.target.value })}>{state.voices.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
-    <p className="caption">每日已用 {state.usedTokens.toLocaleString()} token · 试听同样计费。达到日限后暂停语音，文字继续。0 表示关闭对应护栏。</p>
+    <p className="caption">本机今日语音预算占用 {state.usedTokens.toLocaleString()} token。这不是供应商账户余额；试听同样计费，请求中断且用量未知时暂时保留预留额度。0 表示关闭对应护栏。</p>
+    {state.lastResult && <p role="status">{voiceResultLabel(state.lastResult)}</p>}
     <label>语音日 token 上限<input type="number" min="0" max="100000000" key={`limit:${state.dailyLimit}`} defaultValue={state.dailyLimit} disabled={!native || busy} onBlur={e => { if (Number(e.target.value) !== state.dailyLimit) void save({ dailyLimit: Number(e.target.value) }) }} /></label>
     <label>每 N 条回复最多一条语音<input type="number" min="0" max="1000" key={`cooldown:${state.cooldown}`} defaultValue={state.cooldown} disabled={!native || busy} onBlur={e => { if (Number(e.target.value) !== state.cooldown) void save({ cooldown: Number(e.target.value) }) }} /></label>
     <label>Mimo 语音 API Key<input type="password" autoComplete="off" value={key} onChange={e => setKey(e.target.value)} placeholder={state.credentialPresent ? '密钥已保存；留空保留' : '填写你的 Mimo 密钥'} maxLength={8192} /></label><div className="actions"><button disabled={!native || busy || !key.trim()} onClick={async () => { if (await save({ apiKey: key })) setKey('') }}>保存语音密钥</button>{state.credentialPresent && <button disabled={busy} onClick={() => void save({ clearKey: true })}>移除语音密钥</button>}</div>

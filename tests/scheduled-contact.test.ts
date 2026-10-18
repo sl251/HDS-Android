@@ -87,6 +87,9 @@ test('real 10-second due timer delivers without another user message while autoA
     await until(async () => (await host!.app.database.get('interlude_intent', { storyId: snapshot.story.id, type: 'delayed-reply' }))[0]?.status === 'completed')
     const delivered = (await host.dispatch('messages.history', {}) as any[]).filter(row => row.direction === 'character')
     assert.equal(delivered.length, 1, 'the future plan and due reconciliation must not both deliver')
+    const delayedTrace = (await host.dispatch('diagnostics.messages', { messageId: 'scheduled-timer-0001' }) as any).events
+    assert.ok(delayedTrace.some((row: any) => row.stage === 'decision' && row.outcome === 'delayed'))
+    assert.ok(delayedTrace.some((row: any) => row.stage === 'delivery' && row.messageId === delivered[0].id), 'Delayed delivery retains the original local request via its committed script entry')
     assert.ok(new Date(delivered[0].occurredAt).getTime() >= new Date(snapshot.intents[0].notBefore).getTime(), 'a scheduled contact must never be delivered before its due time')
     const intents = await host.app.database.get('interlude_intent', { storyId: snapshot.story.id, type: 'delayed-reply' })
     assert.equal(intents[0].status, 'completed')
@@ -105,6 +108,9 @@ test('real 10-second due timer delivers without another user message while autoA
     await host.dispatch('messages.sendLocal', { requestId: 'scheduled-generic-0001', content: '留个普通计划' })
     await until(async () => (await host!.dispatch('story.snapshot', {}) as any).intents.some((row: any) => row.summary === 'generic-reserved-field'))
     const generic = (await host.dispatch('story.snapshot', {}) as any).intents.find((row: any) => row.summary === 'generic-reserved-field')
+    const silentTrace = (await host.dispatch('diagnostics.messages', { messageId: 'scheduled-generic-0001' }) as any).events
+    assert.ok(silentTrace.some((row: any) => row.stage === 'decision' && row.outcome === 'none'))
+    assert.equal(silentTrace.some((row: any) => row.stage === 'delivery'), false, 'A recorded none decision must not invent a delivery')
     assert.equal(generic.payload.purpose, undefined, 'a generic model intent cannot claim the reserved explicit-contact purpose')
     // A new user message still cancels ordinary delayed plans, while preserving the explicit commitment.
     await host.app.database.create('interlude_intent', { storyId: seven.storyId, participantId: seven.participantId, type: 'delayed-reply', summary: 'ordinary', notBefore: new Date(Date.now() + 60000), status: 'pending', payload: { content: 'ordinary', userInitiated: true }, createdAt: new Date(), updatedAt: new Date() } as any)

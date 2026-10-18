@@ -124,24 +124,25 @@ test('real Koishi model requests stop at budget, retain quota after restart, and
   } finally { await host?.stop(); await new Promise<void>(resolve => api.close(() => resolve())) }
 })
 
-test('rc56 mobile patches apply baseline fixtures, is idempotent and rejects unknown anchors', async () => {
+test('rc57 mobile patches apply LF and CRLF fixtures, are idempotent and reject unknown anchors', async () => {
   // Import is read-only; use isolated strings/temporary source files, never mutate vendored sources.
   const { mobilePatches, mobileTestPatches, applyMobilePatches, patchMobile } = await import('../scripts/patch-mobile-hds.mjs')
   const { writeFileSync, rmSync } = await import('node:fs')
   const directory = mkdtempSync(join(tmpdir(), 'hds-patch81-'))
   try {
     for (const [name, patches] of Object.entries(mobilePatches) as [string, { before: string; after: string }[]][]) {
-      const actual = readFileSync(`upstream/hds-interlude/src/${name}`, 'utf8')
+      const actual = readFileSync(`upstream/hds-interlude/src/${name}`, 'utf8').replace(/\r\n/g, '\n')
       let baseline = actual
       for (const patch of [...patches].reverse()) { assert.ok(baseline.includes(patch.after)); baseline = baseline.replace(patch.after, () => patch.before) }
       const applied = applyMobilePatches(baseline, name)
       assert.equal(applied, actual, name)
+      assert.equal(applyMobilePatches(baseline.replace(/\n/g, '\r\n'), name), actual)
       assert.equal(applyMobilePatches(applied, name), applied)
       assert.throws(() => applyMobilePatches(baseline.replace(patches[0].before, 'unknown-source'), name), /unknown\/ambiguous anchor/)
       writeFileSync(join(directory, name), baseline)
     }
     for (const [name, patches] of Object.entries(mobileTestPatches) as [string, { before: string; after: string }[]][]) {
-      const actual = readFileSync(`upstream/hds-interlude/test/${name}`, 'utf8')
+      const actual = readFileSync(`upstream/hds-interlude/test/${name}`, 'utf8').replace(/\r\n/g, '\n')
       let baseline = actual
       for (const patch of [...patches].reverse()) baseline = baseline.replace(patch.after, () => patch.before)
       assert.equal(applyMobilePatches(baseline, name, mobileTestPatches), actual)

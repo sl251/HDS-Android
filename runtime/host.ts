@@ -20,6 +20,7 @@ import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProvider
 import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
 import { BackgroundBudget } from './background-budget'
+import { MessageDiagnostics, runMessageDiagnostics, diagnosticEvent, diagnosticError, diagnosticCall, hasMessageDiagnostics, withDeliveryDiagnostics } from './message-diagnostics'
 import { inspectPreset } from './preset'
 import { messagePush, serializeMessagePush, messagesSinceQuery, type PushRow } from './message-push'
 export { messagePush, serializeMessagePush, messagesSinceQuery } from './message-push'
@@ -33,6 +34,7 @@ export async function startHost(input: HostConfig) {
   const endpoint = new URL(input.endpoint)
   if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('Invalid model endpoint')
   mkdirSync(input.dataDir, { recursive: true })
+  const diagnostics = new MessageDiagnostics(join(input.dataDir, 'message-diagnostics.json'))
   if (input.qqDir) mkdirSync(input.qqDir, { recursive: true })
   const restoreMarker = join(input.dataDir, 'restore-held.json')
   let restoreHeld = existsSync(restoreMarker)
@@ -51,7 +53,12 @@ export async function startHost(input: HostConfig) {
     constructor(ctx: Context) { super(ctx, {}, 'mobile-local'); this.user = { id: 'local-role', name: input.card.name } }
     async start() { this.online() }
     dispose() { if (this.disposed) return; super.dispose(); this.disposed = true }
-    async sendMessage(channelId: string, content: unknown, _referrer?: unknown, options?: SendOptions & { mobileVoice?: { willingness: number } }) {
+    async sendMessage(channelId: string, content: unknown, _referrer?: unknown, options?: SendOptions & { mobileTraceEntry?: number; mobileVoice?: { willingness: number } }) {
+      const deliver = () => diagnosticCall('delivery', () => this.deliverLocal(channelId, content, options))
+      return withDeliveryDiagnostics(diagnostics, options?.mobileTraceEntry ? [options.mobileTraceEntry] : [], () =>
+        hasMessageDiagnostics() ? deliver() : runMessageDiagnostics(diagnostics, [randomUUID()], deliver))
+    }
+    private async deliverLocal(channelId: string, content: unknown, options?: SendOptions & { mobileTraceEntry?: number; mobileVoice?: { willingness: number } }) {
       if (restoreHeld) throw new Error('恢复的故事需先明确恢复运行')
       if (!['private:local-user', 'local-user'].includes(channelId)) throw new Error('Local transport target is not authorized')
       const elements = h.parse(String(content))
@@ -73,11 +80,15 @@ export async function startHost(input: HostConfig) {
       if (!rows.length) rows.push({ content: '', images: [] })
       const ids: string[] = []
       for (const row of rows) {
-        if (row.content.trim()) row.audio = await localVoiceDelivery(input.voiceBridge, row.content, options?.mobileVoice?.willingness,
-          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000))
+        if (row.content.trim()) {
+          diagnosticEvent('voice', 'started')
+          row.audio = await localVoiceDelivery(input.voiceBridge, row.content, options?.mobileVoice?.willingness,
+          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), randomUUID(), value => { diagnosticEvent('voice', value.status, { reason: value.reason, elapsedMs: value.elapsedMs }) })
+        }
         const id = randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
         this.lastMessageTime = occurredAt.getTime()
         await app.database.create('mobile_message' as never, { id, direction: 'character', ...row, occurredAt, status: 'delivered' } as never)
+        diagnosticEvent('delivery', 'delivered', { messageId: id, mode: row.audio ? 'voice' : row.images.length ? 'sticker' : 'text' })
         process.stdout.write(serializeMessagePush({ id, ...row, occurredAt }))
         ids.push(id)
       }
@@ -104,6 +115,7 @@ export async function startHost(input: HostConfig) {
   })
   config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
   ;(config.model as any).mobileStickerDelivery = oneBotStickerDelivery
+  Object.assign(config.model, { mobileDiagnostics: diagnostics })
   const voiceTasks = new Set<Promise<unknown>>()
   const drainVoice = async () => { while (voiceTasks.size) await Promise.allSettled([...voiceTasks]) }
   ;(config.model as any).mobileOneBotVoiceDelivery = async (bot: Bot, channelId: string, content: string, willingness: unknown, sendText: () => Promise<unknown>) => {
@@ -184,6 +196,8 @@ export async function startHost(input: HostConfig) {
   }) : undefined
   const dispatch = async (method: string, payload: Record<string, unknown>) => {
     if (closing) throw new Error('核心正在关闭，请稍后再试')
+    if (method === 'diagnostics.messages') return diagnostics.list(typeof payload.messageId === 'string' ? payload.messageId : undefined)
+    if (method === 'diagnostics.clear') { diagnostics.clear(); return { cleared: true } }
     if (method.startsWith('qq.')) { if (!qq) throw new Error('QQ 本机目录未配置'); return qq.dispatch(method, payload) }
     if (method === 'images.upload') return { id: media.save(payload.dataUri).id }
     if (method === 'images.get') return { dataUri: media.get(String(payload.id)) }
@@ -280,16 +294,20 @@ export async function startHost(input: HostConfig) {
       const run = async () => {
         const old = (await app.database.get('mobile_request' as never, { id } as never))[0] as { content: string; status: string } | undefined
         if (old && old.content !== signature) throw new Error('requestId conflicts with another message')
-        if (old?.status === 'accepted') return { requestId: id, accepted: true, duplicate: true }
+        if (old?.status === 'accepted') { diagnosticEvent('submission', 'accepted', { reason: 'duplicate' }); return { requestId: id, accepted: true, duplicate: true } }
+        diagnosticEvent('submission', 'queued')
         if (!old) await app.database.create('mobile_request' as never, { id, content: signature, status: 'receiving', occurredAt: new Date() } as never)
         const accepted = await app.interlude.receive(session(id, content, images))
-        if (!accepted) throw new Error('故事未接受消息；如果已暂停，请先在见闻恢复故事')
+        if (!accepted) throw Object.assign(new Error('故事未接受消息；如果已暂停，请先在见闻恢复故事'), { code: 'HDS_NOT_ACCEPTED' })
         const visible = await app.database.get('mobile_message' as never, { id } as never)
         if (!visible.length) await app.database.create('mobile_message' as never, { id, direction: 'user', content, images: imageIds, occurredAt: new Date(), status: 'accepted' } as never)
         await app.database.set('mobile_request' as never, { id } as never, { status: 'accepted' } as never)
+        diagnosticEvent('submission', 'accepted')
         return { requestId: id, accepted: true }
       }
-      const result = queue.then(run)
+      const result = queue.then(() => runMessageDiagnostics(diagnostics, [id], async () => {
+        try { return await run() } catch (error) { diagnosticEvent('submission', 'failed', { reason: diagnosticError(error) }); throw error }
+      }))
       queue = result.then(() => {}, () => {})
       return result
     }

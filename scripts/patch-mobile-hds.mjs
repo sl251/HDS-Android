@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 function readPatches(file) {
   const patches = {}
   let name, hunk
-  for (const line of readFileSync(new URL(file, import.meta.url), 'utf8').split('\n')) {
+  for (const line of readFileSync(new URL(file, import.meta.url), 'utf8').replace(/\r\n/g, '\n').split('\n')) {
     if (line.startsWith('--- a/')) continue
     if (line.startsWith('+++ b/')) {
       name = line.slice(6)
@@ -27,6 +27,7 @@ export const mobilePatches = readPatches('./mobile-hds-rc57.patch')
 export const mobileTestPatches = readPatches('./mobile-hds-rc56-tests.patch')
 
 export function applyMobilePatches(source, name, patches = mobilePatches) {
+  source = source.replace(/\r\n/g, '\n')
   for (const [index, patch] of (patches[name] ?? []).entries()) {
     if (source.split(patch.after).length === 2) continue
     if (source.split(patch.before).length !== 2) throw new Error(`Mobile patch unknown/ambiguous anchor: ${name} #${index + 1}`)

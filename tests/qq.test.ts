@@ -39,7 +39,7 @@ test('complete policy roundtrips identity cards, per-group rules, custom gate an
   for (const patch of [{ qq: 12345 }, { profile: 42 }, { enabled: 'false' }]) assert.throws(() => qqPolicy({ enabled: true, users: [{ qq: '12345', ...patch }], groups: [] }))
 })
 
-test('real OneBot adapter and HDS enforce whitelist, persist inbox and send literal text once', { timeout: 90000 }, async () => {
+test('real OneBot adapter and HDS enforce whitelist, persist inbox and send literal text once', { timeout: 90000, skip: process.platform !== 'linux' && 'QQ launcher teardown requires Linux /proc and POSIX process groups; exercised in Linux CI' }, async () => {
   const calls: any[] = [], delivered: any[] = []
   let loggedIn = false, loginActions = 0, receiptId = 70000
   const http = createServer(async (req, res) => {

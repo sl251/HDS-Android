@@ -243,7 +243,7 @@ test('watchdog: a stuck adapter still cleans processes and stops recovery within
   assert.equal(state.launches, 0)
 })
 
-test('process cleanup kills a TERM-resistant descendant after its launcher exits, preserving unrelated processes', { timeout: 10000 }, async () => {
+test('process cleanup kills a TERM-resistant descendant after its launcher exits, preserving unrelated processes', { timeout: 10000, skip: process.platform !== 'linux' && 'requires Linux /proc and POSIX process groups' }, async () => {
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
   const descendantScript = "process.on('SIGTERM', () => {}); console.log(process.pid); setInterval(() => {}, 1000)"
   const launcherScript = `const { spawn } = require('node:child_process'); spawn(process.execPath, ['-e', ${JSON.stringify(descendantScript)}], { stdio: ['ignore', 'inherit', 'inherit'] }); setInterval(() => {}, 1000)`
@@ -264,7 +264,7 @@ test('process cleanup kills a TERM-resistant descendant after its launcher exits
   }
 })
 
-test('process cleanup is bounded for failed spawns and escalates an uncooperative live launcher', { timeout: 10000 }, async () => {
+test('process cleanup is bounded for failed spawns and escalates an uncooperative live launcher', { timeout: 10000, skip: process.platform !== 'linux' && 'requires Linux /proc and POSIX process groups' }, async () => {
   const failed = spawn('/no-such-qq-watchdog-executable', [], { detached: true, stdio: 'ignore' })
   await once(failed, 'error')
   await terminateQQProcesses([failed], 50)

@@ -7,6 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v1/chat/completions", private val timeout: Int = 25000) {
+    class Failure(val reason: String, val billingUnknown: Boolean) : Exception(reason)
     data class Result(val wav: ByteArray, val tokens: Long?)
     fun synthesize(key: String, model: String, voice: String, text: String, style: String): Result {
         val c = URL(endpoint).openConnection() as HttpURLConnection
@@ -19,7 +20,8 @@ class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", style.ifBlank { "自然、克制地说话，忠实朗读正文。" }))
                     .put(JSONObject().put("role", "assistant").put("content", text)))
             c.outputStream.use { it.write(body.toString().toByteArray()) }
-            require(c.responseCode in 200..299) { "语音服务暂不可用" }
+            val status = c.responseCode
+            if (status !in 200..299) throw Failure(ProviderFailure.reason(c, status), status !in listOf(400, 401, 402, 403, 404, 422, 429))
             val bytes = c.inputStream.use { it.readVoiceBytes(16 * 1024 * 1024) }; require(bytes.size <= 16 * 1024 * 1024)
             val result = JSONObject(String(bytes, Charsets.UTF_8)); val usage = result.optJSONObject("usage")
             val tokens = if (usage?.has("total_tokens") == true) usage.optLong("total_tokens", -1).takeIf { it >= 0 }

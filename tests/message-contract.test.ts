@@ -14,7 +14,7 @@ test('message merge retains identity and detects a moving 200-row window', async
   assert.equal(mergeMessages(rows, structuredClone(rows)), rows)
   const next = mergeMessages(rows, [...rows.slice(1), { ...rows[0], id: '200' }])
   assert.equal(next.length, 200); assert.equal(next[0], rows[1]); assert.equal(next.at(-1)?.id, '200')
-  assert.equal(messageStatusLabel(rows[0]), '已送达')
+  assert.equal(messageStatusLabel(rows[0]), '核心已接收')
   assert.equal(messageStatusLabel({ direction: 'character', status: 'delivered' }), '')
 })
 test('refresh coordinator shares reads, follows dirty mutations and isolates revisions', async () => {
