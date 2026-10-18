@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v1/chat/completions", private val timeout: Int = 25000) {
+class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v1/chat/completions", private val timeout: Int = 60000) {
     class Failure(val reason: String, val billingUnknown: Boolean) : Exception(reason)
     data class Result(val wav: ByteArray, val tokens: Long?)
     fun synthesize(key: String, model: String, voice: String, text: String, style: String): Result {
@@ -16,8 +16,15 @@ class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v
         try {
             c.requestMethod = "POST"; c.connectTimeout = timeout; c.readTimeout = timeout; c.instanceFollowRedirects = false; c.doOutput = true
             c.setRequestProperty("api-key", key); c.setRequestProperty("Content-Type", "application/json")
-            val body = JSONObject().put("model", model).put("audio", JSONObject().put("format", "wav").put("voice", voice))
-                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", style.ifBlank { "自然、克制地说话，忠实朗读正文。" }))
+            // Voice design uses a user-message description rather than audio.voice.
+            val design = model == "mimo-v2.5-tts-voicedesign"
+            val audio = JSONObject().put("format", "wav")
+            if (!design) audio.put("voice", voice)
+            val instruction = if (design) {
+                voice.trim() + if (style.isBlank()) "" else "\n朗读语气：${style.trim()}"
+            } else style.ifBlank { "自然、克制地说话，忠实朗读正文。" }
+            val body = JSONObject().put("model", model).put("audio", audio)
+                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", instruction))
                     .put(JSONObject().put("role", "assistant").put("content", text)))
             c.outputStream.use { it.write(body.toString().toByteArray()) }
             val status = c.responseCode
