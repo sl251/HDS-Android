@@ -40,15 +40,6 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
   const [importPersona, setImportPersona] = useState(true)
   const [storyBefore, setStoryBefore] = useState<Record<string, unknown>>({})
   const [working, setWorking] = useState(false)
-  const [settingRevision, setSettingRevision] = useState<string>()
-  const [pendingImport, setPendingImport] = useState<{ operationId: string; cardId: string } | null>(null)
-  useEffect(() => {
-    if (!native) return
-    let alive = true
-    const read = () => bridge.rpc({ method: 'preset.commitStatus' }).then(result => { const value = result.data as { state: string; operationId: string; cardId: string }; if (alive) setPendingImport(['prepared', 'story-applied'].includes(value.state) ? value : null) }).catch(() => {})
-    void read(); const timer = setInterval(() => void read(), 5000)
-    return () => { alive = false; clearInterval(timer) }
-  }, [native, bridge])
   const currentValue = useRef(value)
   currentValue.current = value
   useEffect(() => {
@@ -68,29 +59,24 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
       let before: Record<string, unknown> = {}
       if (!apply && next.storyPatch) {
         const snapshot = await bridge.rpc({ method: 'story.snapshot' })
-        setSettingRevision((snapshot.data as { settingRevision?: string }).settingRevision)
         before = storyFields((snapshot.data as { story: { setting: StoryPatch } }).story.setting)
       }
       if (JSON.stringify(currentValue.current) !== startedWith) throw new Error('检查期间生活设置已修改，请重新检查；你的修改已保留。')
       if (apply) {
-        const settings = await bridge.settings()
-        const result = await bridge.rpc({ method: 'preset.commit', payload: { operationId: crypto.randomUUID(), cardId: settings.activeCard, code, fingerprint: next.fingerprint, current: value, importPersona, ...(importPersona && next.storyPatch && settingRevision ? { expectedRevision: settingRevision } : {}) } })
-        change((result.data as { config: MobileConfig }).config); setPreview(null)
-        notify(importPersona && next.storyPatch ? '人设与生活设置已保存到当前故事；重启后生活设置生效。' : '生活设置已保存；重启后生效。')
+        if (importPersona && next.storyPatch) {
+          const snapshot = await bridge.rpc({ method: 'story.snapshot' })
+          const snapshotData = snapshot.data as { story?: { id: string }, settingRevision?: string }
+          await bridge.rpc({ method: 'story.applySetting', payload: { operationId: crypto.randomUUID(), expectedStoryId: snapshotData.story?.id, expectedRevision: snapshotData.settingRevision, patch: next.storyPatch } })
+        }
+        change(next.config); setPreview(null)
+        notify(importPersona && next.storyPatch ? '角色人设已导入当前故事；生活设置自动保存后重启生效。' : '预设已加入生活设置；自动保存后重启生效。')
       } else { setStoryBefore(before); setImportPersona(true); setPreview(next) }
     } catch (error) { setPreview(null); notify(error instanceof Error ? error.message : '检查预设失败') }
     finally { setWorking(false) }
   }
   const areas: Record<string, string[]> = { daily: ['runtime', 'urge', 'agency', 'chatActions', 'alterSystem'], world: ['schedulePreplan', 'timelineDirector', 'memory', 'worldSeeder', 'longHorizon', 'weather'], system: [] }
   const selectedSections = schema.sections.filter(section => section.key !== 'embedding' && (!area || areas[area].includes(section.key)))
-  const finishPending = async (keepLocal = false) => {
-    if (!pendingImport) return
-    setWorking(true)
-    try { const result = await bridge.rpc({ method: 'preset.commit', payload: { ...pendingImport, resume: true, keepLocal } }); change((result.data as { config: MobileConfig }).config); setPendingImport(null); notify(keepLocal ? '上次人设导入已完成，保留当前生活设置。' : '上次导入已完成。') }
-    catch (e) { notify(String(e)) } finally { setWorking(false) }
-  }
   return <section className="life-settings accordion">
-    {pendingImport && <div role="alert"><p>上次导入尚未完成。唤醒原角色后可继续保存。</p><button disabled={!healthy || working} onClick={() => void finishPending()}>恢复上次导入</button><button disabled={!healthy || working} onClick={() => void finishPending(true)}>完成上次人设导入并保留当前生活设置</button></div>}
     {!area && <h2>生活节奏与表达</h2>}
     {(!area || area === 'daily') && <details data-config-section="budget"><summary>后台预算<span className="tag">{value.backgroundLimit ?? 120} 次 / 日</span></summary>
       <label>24 小时后台模型请求上限<NumericField value={value.backgroundLimit ?? 120} array={false} min={0} max={10000} step={1} label="24 小时后台模型请求上限" change={item => change({ ...value, backgroundLimit: item as number })} /></label>

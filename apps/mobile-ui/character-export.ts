@@ -1,7 +1,10 @@
 import { stringify } from 'yaml'
 import { sanitizeSharePayload } from './share-sanitizer.js'
+import type { Card } from '../../packages/card-format'
+import type { NativeBridge } from '../../packages/contracts'
+import { parsePersona } from '../../packages/persona-format'
 
-export type ExportFormat = 'tavern' | 'preset' | 'yaml'
+export type ExportFormat = 'original' | 'tavern' | 'preset' | 'yaml'
 export type CharacterExport = { filename: string; mime: string; content: string }
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const text = (...values: unknown[]) => values.find(value => typeof value === 'string' && value.trim()) as string | undefined ?? ''
@@ -25,7 +28,7 @@ function settingRecord(value: unknown) {
 export function buildPresetPayload(value: unknown, config: unknown = {}): Record<string, unknown> {
   const { setting, name, description } = settingRecord(value)
   const { character, user, ...rest } = setting
-  const storyDefaults = { ...rest, characterName: name, characterProfile: text(description, record(character).personality, setting.personality) || '（此角色未填写人设档案）', userProfile: text(record(user).profile, setting.userProfile) }
+  const storyDefaults = { ...rest, characterName: name, characterProfile: text(description, record(character).personality, setting.personality) || '（此角色未填写人设档案）', ...(typeof record(user).profile === 'string' || typeof setting.userProfile === 'string' ? { userProfile: text(record(user).profile, setting.userProfile) } : {}) }
   // Mobile settings wrap upstream sections; typ0 expects sections at the root.
   return privateScrub(sanitizeSharePayload({ ...record(record(config).sections), storyDefaults }).preset) as Record<string, unknown>
 }
@@ -52,22 +55,44 @@ export function buildTavernCard(value: unknown) {
     post_history_instructions: '', alternate_greetings: [], tags: [], creator: 'HDS-Interlude', character_version: '1.0', extensions: {}, ...(book ? { character_book: book } : {}),
   } }
 }
-export function createCharacterExport(format: ExportFormat, setting: unknown, config: unknown = {}): CharacterExport {
+export function createCharacterExport(format: Exclude<ExportFormat, 'original'>, setting: unknown, config: unknown = {}): CharacterExport {
   const { name } = settingRecord(setting)
   const basename = name.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').replace(/^\.+|[. ]+$/g, '').slice(0, 60) || '角色'
   const payload = format === 'tavern' ? buildTavernCard(setting) : buildPresetPayload(setting, config)
   return { filename: `${basename}-${format === 'tavern' ? 'st-v2' : 'hdsi'}.${format === 'yaml' ? 'yaml' : 'json'}`, mime: format === 'yaml' ? 'text/yaml' : 'application/json', content: format === 'yaml' ? stringify(payload, { lineWidth: 0 }) : JSON.stringify(payload, null, 2) + '\n' }
 }
 
-export async function saveCharacterExport(file: CharacterExport, native: boolean): Promise<string> {
+/** Library exports use the saved card, not an unrelated/running story snapshot. */
+export function createSavedCharacterExport(format: ExportFormat, card: Card, config: unknown = {}): CharacterExport {
+  if (!card?.name?.trim()) throw new Error('请先选择要导出的角色卡。')
+  const setting = card.format === 'hds'
+    ? { ...card.hds?.storyDefaults, characterName: card.name, characterProfile: card.description, world: card.scenario }
+    : { character: { name: card.name, profile: card.description, personality: card.personality }, world: card.scenario,
+      firstMessage: card.firstMessage, examples: card.examples, systemPrompt: card.systemPrompt, character_book: card.lorebook }
+  if (format === 'preset' || format === 'yaml' || (format === 'tavern' && card.format === 'hds')) return createCharacterExport(format, setting, config)
+  let payload: Record<string, unknown>
+  if (card.format === 'hds') payload = { storyDefaults: setting }
+  else {
+    const raw = structuredClone(card.raw)
+    const data = { ...(card.format === 'v1' ? raw : record(raw.data)), name: card.name, description: card.description, personality: card.personality,
+      scenario: card.scenario, first_mes: card.firstMessage, alternate_greetings: card.alternateGreetings, mes_example: card.examples,
+      system_prompt: card.systemPrompt, post_history_instructions: card.postHistoryInstructions, creator_notes: card.creatorNotes,
+      ...(card.lorebook ? { character_book: card.lorebook } : {}) }
+    payload = format === 'tavern' ? { spec: 'chara_card_v2', spec_version: '2.0', data }
+      : card.format === 'v1' ? data : { ...raw, data }
+  }
+  const content = JSON.stringify(privateScrub(payload), null, 2) + '\n'
+  // Do not offer a successful export that our own import cannot read.
+  parsePersona(new TextEncoder().encode(content))
+  const basename = card.name.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').replace(/^\.+|[. ]+$/g, '').slice(0, 60) || '角色'
+  return { filename: `${basename}-${format === 'tavern' ? 'st-v2' : card.format}.json`, mime: 'application/json', content }
+}
+
+export async function saveCharacterExport(file: CharacterExport, native: boolean, save?: NativeBridge['exportCharacter']): Promise<string> {
   if (native) {
-    if (!navigator.storage?.getDirectory) throw new Error('此 WebView 不支持私有文件保存，请升级 Android System WebView；仍可复制下方内容。')
-    const root = await navigator.storage.getDirectory()
-    const directory = await root.getDirectoryHandle('hds-exports', { create: true })
-    const handle = await directory.getFileHandle(file.filename, { create: true })
-    const writer = await handle.createWritable()
-    try { await writer.write(file.content); await writer.close() } catch (error) { await writer.abort().catch(() => {}); throw error }
-    return `opfs:/hds-exports/${file.filename}`
+    if (!save) throw new Error('当前安装版本不支持系统文件保存，请升级 App；仍可复制下方内容。')
+    const result = await save(file)
+    return result.cancelled ? '已取消保存，可重新导出或复制内容。' : `已保存：${result.name || file.filename}`
   }
   const url = URL.createObjectURL(new Blob([file.content], { type: `${file.mime};charset=utf-8` }))
   const link = document.createElement('a')

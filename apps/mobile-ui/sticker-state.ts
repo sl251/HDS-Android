@@ -1,3 +1,15 @@
+import { visionProjection, visionRouteReason, type ModelSettings } from '../../packages/contracts'
+
+export function stickerImportReason(settings: Pick<ModelSettings, 'providers' | 'modelOptions'>): string | undefined {
+  if (!settings.modelOptions.visionEnabled) return '请先到模型设置开启图片理解，并配置可用的识图模型，再导入表情包。'
+  try {
+    const route = visionProjection(settings)
+    const reason = visionRouteReason(route)
+    if (reason) return `${reason}，暂不能导入表情包。`
+    if (route.candidates.some(row => !row.model || !/^https?:\/\//.test(row.endpoint))) return '请补全识图模型的 API 地址和模型名称，再导入表情包。'
+  } catch { return '请补全识图模型的 API 地址和模型名称，再导入表情包。' }
+}
+
 export type StickerAsset = { id: string; path: string; size: number; mime: string }
 export type Sticker = StickerAsset & { lastUsed: number }
 export type StickerPack = { id: string; name: string; createdAt: number; stickers: Sticker[] }

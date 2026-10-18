@@ -88,24 +88,12 @@ test('minimal and alias fields export safely; absent optional fields stay empty 
   assert.doesNotMatch(createCharacterExport('preset', { name: '../A:/卡' }).filename, /[/\\:]/)
 })
 
-test('App export writes and closes a private file, and aborts failed writes without reporting a path', async t => {
-  const events: unknown[] = []
-  let fail = false
-  const writer = { write: async (content: string) => { events.push(content); if (fail) throw new Error('disk full') }, close: async () => { events.push('close') }, abort: async () => { events.push('abort') } }
-  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
-  t.after(() => { if (original) Object.defineProperty(globalThis, 'navigator', original); else Reflect.deleteProperty(globalThis, 'navigator') })
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { storage: { getDirectory: async () => ({ getDirectoryHandle: async (directory: string) => {
-    assert.equal(directory, 'hds-exports')
-    return { getFileHandle: async (filename: string) => { events.push(filename); return { createWritable: async () => writer } } }
-  } }) } } })
+test('native export delegates to system save and distinguishes cancellation from failure', async () => {
   const file = createCharacterExport('preset', setting)
-  assert.equal(await saveCharacterExport(file, true), `opfs:/hds-exports/${file.filename}`)
-  assert.deepEqual(events, [file.filename, file.content, 'close'])
-  fail = true; events.length = 0
-  await assert.rejects(saveCharacterExport(file, true), /disk full/)
-  assert.deepEqual(events, [file.filename, file.content, 'abort'])
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} })
-  await assert.rejects(saveCharacterExport(file, true), /WebView/)
+  assert.equal(await saveCharacterExport(file, true, async input => { assert.deepEqual(input, file); return { cancelled: false, name: 'saved.json' } }), '已保存：saved.json')
+  assert.match(await saveCharacterExport(file, true, async () => ({ cancelled: true })), /已取消保存/)
+  await assert.rejects(saveCharacterExport(file, true, async () => { throw new Error('disk full') }), /disk full/)
+  await assert.rejects(saveCharacterExport(file, true), /升级 App/)
 })
 
 test('browser sanitizer stays generated from the exact upstream source', async () => {

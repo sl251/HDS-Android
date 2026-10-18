@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -12,11 +13,12 @@ import java.security.MessageDigest
 
 /** Original bytes stay private and animated. Only a JPEG proxy enters the existing image RPC. */
 class StickerStore(private val context: Context) {
+    companion object { private val storageLock = Any() }
     private val root = File(context.noBackupFilesDir, "hds/stickers").apply { mkdirs() }
     private val filename = Regex("[a-f0-9]{64}\\.(gif|png|webp|jpg)")
     private fun displayName(uri: Uri): String = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "我的表情"
 
-    fun import(uris: List<Uri>, tree: Uri? = null): JSONObject {
+    fun import(uris: List<Uri>, tree: Uri? = null): JSONObject = synchronized(storageLock) {
         val assets = JSONArray()
         var skipped = 0
         fun copy(uri: Uri) {
@@ -62,11 +64,11 @@ class StickerStore(private val context: Context) {
             }
         } else uris.forEach { copy(it) }
         val name = if (tree != null) displayName(DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))) else "我的表情"
-        return JSONObject().put("cancelled", false).put("name", name).put("assets", assets).put("skipped", skipped)
+        JSONObject().put("cancelled", false).put("name", name).put("assets", assets).put("skipped", skipped)
     }
 
     /** Metadata only: WebView owns pack edits; message-only originals are not part of the catalog. */
-    fun saveLibrary(packs: JSONArray) {
+    fun saveLibrary(packs: JSONArray) = synchronized(storageLock) {
         val clean = JSONArray()
         for (index in 0 until packs.length()) {
             val pack = packs.getJSONObject(index)
@@ -74,16 +76,16 @@ class StickerStore(private val context: Context) {
             require((0 until ids.length()).all { Regex("[a-f0-9]{64}").matches(ids.getString(it)) }) { "无效贴纸编号" }
             clean.put(JSONObject().put("id", pack.getString("id")).put("name", pack.getString("name")).put("ids", ids))
         }
-        val file = File(root.parentFile, "sticker-library.json")
-        val temporary = File(root.parentFile, "sticker-library.json.tmp")
-        temporary.writeText(clean.toString())
-        check(temporary.renameTo(file)) { "表情包清单保存失败" }
+        val file = AtomicFile(File(root.parentFile, "sticker-library.json"))
+        val output = file.startWrite()
+        try { output.write(clean.toString().toByteArray(Charsets.UTF_8)); file.finishWrite(output) }
+        catch (failure: Throwable) { file.failWrite(output); throw failure }
     }
 
     /** Called with the runtime stopped. Replace only the disposable export, never originals/history. */
-    fun exportTo(dataDir: File): Int {
+    fun exportTo(dataDir: File): Int = synchronized(storageLock) {
         val manifest = File(root.parentFile, "sticker-library.json")
-        val packs = if (manifest.exists()) JSONArray(manifest.readText()) else JSONArray()
+        val packs = if (manifest.exists() || File(manifest.path + ".bak").exists()) AtomicFile(manifest).openRead().bufferedReader().use { JSONArray(it.readText()) } else JSONArray()
         val staging = File(dataDir, ".stickers-next")
         val previous = File(dataDir, ".stickers-previous")
         val destination = File(dataDir, "stickers")
@@ -118,17 +120,27 @@ class StickerStore(private val context: Context) {
                 error("表情包同步失败")
             }
             previous.deleteRecursively()
-            return count
+            count
         } finally { staging.deleteRecursively() }
     }
 
-    fun image(id: String): JSONObject {
+    fun image(id: String): JSONObject = synchronized(storageLock) {
         require(Regex("[a-f0-9]{64}").matches(id)) { "无效贴纸编号" }
         val file = root.listFiles()?.firstOrNull { filename.matches(it.name) && it.name.startsWith("$id.") } ?: throw IllegalArgumentException("贴纸文件已移除")
-        return JSONObject().put("dataUri", AppearanceStore(context).image(Uri.fromFile(file)))
+        JSONObject().put("dataUri", AppearanceStore(context).image(Uri.fromFile(file)))
     }
-    fun prune(keep: Set<String>) {
+    fun prune(keep: Set<String>) = synchronized(storageLock) {
         require(keep.all { Regex("[a-f0-9]{64}").matches(it) })
-        root.listFiles()?.filter { filename.matches(it.name) && it.name.substringBefore('.') !in keep }?.forEach { check(it.delete()) { "贴纸文件清理失败" } }
+        // A stale WebView cleanup must not delete files in the committed catalog.
+        val retained = keep.toMutableSet()
+        val manifest = File(root.parentFile, "sticker-library.json")
+        if (manifest.exists() || File(manifest.path + ".bak").exists()) {
+            val packs = AtomicFile(manifest).openRead().bufferedReader().use { JSONArray(it.readText()) }
+            for (index in 0 until packs.length()) {
+                val ids = packs.getJSONObject(index).getJSONArray("ids")
+                for (asset in 0 until ids.length()) retained.add(ids.getString(asset))
+            }
+        }
+        root.listFiles()?.filter { filename.matches(it.name) && it.name.substringBefore('.') !in retained }?.forEach { check(it.delete()) { "贴纸文件清理失败" } }
     }
 }

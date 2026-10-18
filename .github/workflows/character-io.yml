@@ -1,0 +1,57 @@
+name: Character and media regression
+on:
+  pull_request:
+    paths: ['apps/mobile-ui/**', 'packages/**', 'android/**', 'runtime/**', 'scripts/**', 'tests/**', '.github/workflows/character-io.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: character-io-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.11.1'
+          cache: npm
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright-core install --with-deps chromium
+      - name: Exercise character and media controls
+        run: |
+          node tests/import-code-ui.mjs
+          node tests/character-export-ui.mjs
+          node tests/media-controls-ui.mjs
+      - name: Exercise chat, sticker and voice flows
+        run: |
+          export HDS_BROWSER="$(node --input-type=module -e "import { chromium } from 'playwright-core'; console.log(chromium.executablePath())")"
+          npm run dev -- --port 5173 > /tmp/hds-vite.log 2>&1 &
+          vite_pid=$!
+          trap 'kill "$vite_pid"' EXIT
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:5173 >/dev/null && break; sleep 1; done
+          node tests/story-ui.mjs
+          node tests/m5-ui.mjs
+      - run: npx cap sync android
+      - name: Android compilation and persistence tests
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --no-daemon compileReleaseKotlin testReleaseUnitTest --tests '*CharacterDocumentTest' --tests '*StickerStoreTest' --tests '*StickerImportPolicyTest'
+      - name: Retain UI screenshots and Android test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: media-regression-evidence
+          path: |
+            artifacts/media-controls
+            android/app/build/reports/tests

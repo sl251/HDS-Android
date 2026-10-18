@@ -142,7 +142,7 @@ try {
   const composer = page.getByRole('textbox', { name: '消息内容' })
   await composer.fill('今天心情怎么样？'); await page.getByRole('button', { name: '发送消息', exact: true }).click()
   await page.getByRole('button', { name: '播放语音', exact: true }).waitFor()
-  assert.equal(await page.locator('.message.character-reply').count(), 1)
+  assert.equal(await page.locator('article.message.character-reply').count(), 1)
   assert.equal(await page.locator('.voice-transcript').count(), 0)
   assert.equal(synthRequests[0].text, '今天真开心，想把这份好心情告诉你。')
   assert.match(modelRequests[0].messages[0].content, /CURRENT LOCAL VOICE OPTION/)
@@ -163,17 +163,22 @@ try {
   }
   failTts = true
   await composer.fill('再说一遍吧'); await page.getByRole('button', { name: '发送消息', exact: true }).click()
-  await page.waitForFunction(() => document.querySelectorAll('.message.character-reply').length === 2)
+  await page.waitForFunction(() => document.querySelectorAll('article.message.character-reply').length === 2)
   assert.equal(await page.locator('.voice-message').count(), 1)
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^日常与表达/ }).click()
   await page.getByText('角色语音与音色', { exact: true }).click(); await toggle.click()
+  await page.waitForFunction(() => {
+    const toggle = document.querySelector('.voice-settings input[type="checkbox"]')
+    return toggle && !toggle.checked && !toggle.disabled
+  })
+  assert.equal(voices.characters[cardId].enabled, false, 'Wait for the saved binding before starting another model turn')
   await page.getByRole('button', { name: '故事', exact: true }).click()
-  assert.equal(await page.locator('.voice-message').count(), 0)
+  assert.equal(await page.locator('.voice-message').count(), 1, 'Disabling future voice preserves existing audio history')
   await composer.fill('普通聊天继续'); await page.getByRole('button', { name: '发送消息', exact: true }).click()
-  await page.waitForFunction(() => document.querySelectorAll('.message.character-reply').length === 3)
+  await page.waitForFunction(() => document.querySelectorAll('article.message.character-reply').length === 3)
   assert.doesNotMatch(modelRequests.at(-1).messages[0].content, /CURRENT LOCAL VOICE OPTION/)
-  assert.equal(await page.locator('.voice-message').count(), 0)
+  assert.equal(await page.locator('.voice-message').count(), 1, 'Disabling future voice preserves existing audio history')
   await page.screenshot({ path: 'artifacts/m5/voice-disabled.png', fullPage: true })
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^日常与表达/ }).click()
@@ -186,7 +191,7 @@ try {
   assert.equal(voices.characters[cardId].voiceId, '')
   assert.ok(calls.includes('startVoiceRecording') && calls.includes('stopVoiceRecording') && calls.includes('pickVoiceAudio'))
   assert.ok(voices.usedTokens >= 84); assert.deepEqual(errors, [])
-  console.log('PASS M5: actual HDS decisions → LocalBot → SQLite → browser voice bubble, real WAV playback, transcript in one message, failed TTS preserves text, live disabled gate removes audio UI/instruction; workbench design/import/record/preview/save/rename/bind/delete; 320/390/740 px screenshots. Android microphone/SAF/TTS are fixtures; native implementation is separately covered by Robolectric.')
+  console.log('PASS M5: actual HDS decisions → LocalBot → SQLite → browser voice bubble, real WAV playback, transcript in one message, failed TTS preserves text, live disabled gate preserves historical audio and removes future voice instruction; workbench design/import/record/preview/save/rename/bind/delete; 320/390/740 px screenshots. Android microphone/SAF/TTS are fixtures; native implementation is separately covered by Robolectric.')
 } catch (error) {
   if (page) { await page.screenshot({ path: 'artifacts/m5/ui-failure.png', fullPage: true }).catch(() => {}); console.error((await page.locator('body').innerText()).slice(-4000)) }
   throw error

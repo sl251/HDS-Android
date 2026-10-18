@@ -90,6 +90,7 @@ export type NativeBridge = {
   settings(): Promise<ModelSettings & { activeCard: string }>;
   saveSettings(options: ModelSettings): Promise<void>;
   pickCard(): Promise<{ base64: string; name: string }>;
+  exportCharacter(options: { filename: string; mime: string; content: string }): Promise<{ cancelled: boolean; name?: string }>;
   cards(): Promise<{ cards: SavedCard[] }>;
   saveCard(options: { card: Card; base64: string }): Promise<SavedCard>;
   selectCard(options: { id: string }): Promise<void>;

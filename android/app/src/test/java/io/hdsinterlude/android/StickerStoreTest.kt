@@ -42,6 +42,20 @@ class StickerStoreTest {
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, output); bitmap.recycle()
         return output.toByteArray()
     }
+    @Test fun committedCatalogAndHistoryProtectOriginalsFromStalePruning() {
+        provider.files["one"] = png()
+        val store = StickerStore(context)
+        val asset = store.import(listOf(Uri.parse("content://hds.sticker.fixture/document/one"))).getJSONArray("assets").getJSONObject(0)
+        val id = asset.getString("id")
+        store.saveLibrary(org.json.JSONArray().put(org.json.JSONObject().put("id", "pack").put("name", "表情").put("ids", org.json.JSONArray().put(id))))
+        StickerStore(context).prune(emptySet())
+        assertTrue(File(asset.getString("path")).exists())
+        store.saveLibrary(org.json.JSONArray())
+        store.prune(setOf(id)) // Existing sent messages still reference the original.
+        assertTrue(File(asset.getString("path")).exists())
+        store.prune(emptySet())
+        assertFalse(File(asset.getString("path")).exists())
+    }
     @Test fun safRecursesNamesFolderCopiesOriginalAndCountsUnsupported() {
         val bytes = png()
         provider.files["one"] = bytes; provider.files["two"] = bytes; provider.files["bad"] = "unsupported".toByteArray()

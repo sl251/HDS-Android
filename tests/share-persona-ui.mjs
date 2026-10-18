@@ -19,10 +19,12 @@ const bundle = await build({
         if (request.payload.fingerprint && fixture.failFingerprint) throw new Error('预设版本已变化，请重新检查差异')
         return { data: { config: { sections: { agency: { enabled: true } } }, title: '分享预设', revision: 1, code: 'ABCDEFGH', fingerprint: 'checked-revision', removed: [], changes: [], ...(fixture.patch ? { storyPatch: structuredClone(fixture.patch) } : {}) } }
       }
-      if (request.method === 'story.snapshot') return { data: { story: { setting: structuredClone(fixture.setting) } } }
+      if (request.method === 'story.snapshot') return { data: { story: { id: 'fixture-story', setting: structuredClone(fixture.setting) }, settingRevision: 'checked-revision' } }
       if (request.method === 'story.applySetting') {
         if (fixture.failApply) throw new Error('人设写入失败')
-        fixture.setting = { ...fixture.setting, ...structuredClone(request.payload) }
+        if (!request.payload.operationId) throw new Error('缺少有效的人设操作编号，请升级界面')
+        if (request.payload.expectedRevision !== 'checked-revision') throw new Error('故事人设已修改，请重新检查')
+        fixture.setting = { ...fixture.setting, ...structuredClone(request.payload.patch) }
         return { data: fixture.setting }
       }
       if (request.method === 'preset.commit') {
@@ -69,7 +71,7 @@ try {
   await apply()
   await page.waitForFunction(() => fixture.saved.length === 1)
   assert.equal(await page.evaluate(() => fixture.setting.character.name), '星禾')
-  assert.deepEqual(await page.evaluate(() => fixture.calls.filter(call => ['preset.sync', 'preset.commit'].includes(call.method)).map(call => [call.method, call.payload.fingerprint])), [['preset.sync', undefined], ['preset.sync', 'checked-revision'], ['preset.commit', 'checked-revision']])
+  assert.deepEqual(await page.evaluate(() => fixture.calls.filter(call => ['preset.sync', 'story.applySetting'].includes(call.method)).map(call => [call.method, call.payload.fingerprint])), [['preset.sync', undefined], ['preset.sync', 'checked-revision'], ['story.applySetting', undefined]])
 
   await page.evaluate(() => { fixture.patch.character.name = '不应导入'; fixture.calls = [] })
   await check()

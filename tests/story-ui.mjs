@@ -41,13 +41,7 @@ try {
     window.Capacitor = {
       convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
       PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
-      nativePromise: async (plugin, method, options) => {
-        if (plugin === 'CapacitorHttp' && method === 'get') {
-          if (f.presetDelay) await new Promise(resolve => setTimeout(resolve, f.presetDelay))
-          if (f.presetError === '分享码不存在') return { status: 404, data: {}, headers: {}, url: options.url }
-          if (f.presetError) throw new Error(f.presetError)
-          return { status: 200, data: { code: options.url.split('/').at(-1), title: '生活预设 fixture', revision: 1, sections: ['agency', 'storyDefaults', 'model'], payload: { agency: { enabled: true, contactMode: 'balanced' }, ...(f.presetPatch ? { storyDefaults: { characterName: f.presetPatch.character.name, characterProfile: f.presetPatch.character.profile, world: f.presetPatch.world } } : {}), model: { apiKey: 'ignored-fixture' } } }, headers: {}, url: options.url }
-        }
+      nativePromise: async (_, method, options) => {
         f.calls.push(method)
         if (method === 'notificationSettings') return f.notifications || { enabled: false, permission: 'prompt', available: false }
         if (method === 'setMessageNotifications') { f.notifications = { enabled: options.enabled, permission: 'denied', available: false }; return f.notifications }
@@ -90,7 +84,6 @@ try {
             return { data: { config: { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }, title: '生活预设 fixture', code: 'ABCDEFGH', revision: 1, fingerprint: 'fixture', removed: ['model'], changes: [{ section: 'agency', field: 'enabled', before: false, after: true }], ...(f.presetPatch ? { storyPatch: structuredClone(f.presetPatch) } : {}) } }
           }
           if (options.method === 'story.applySetting') { if (f.failSettingApply) throw new Error('测试：人设写入失败'); (f.appliedSettings ||= []).push(structuredClone(options.payload)); return { data: options.payload } }
-          if (options.method === 'preset.commit') { if (f.failSettingApply) throw new Error('测试：人设写入失败'); if (f.presetPatch) (f.appliedSettings ||= []).push(structuredClone(f.presetPatch)); const config = { ...options.payload.current, sections: { ...options.payload.current?.sections, agency: { enabled: true, contactMode: 'balanced' } } }; f.prefs.mobileConfig = config; return { data: { config, state: 'committed' } } }
           if (options.method === 'messages.history') return { data: f.messages || [] }
           if (options.method === 'images.upload') { (f.uploaded ||= []).push(options.payload.dataUri); return { data: { id: 'a'.repeat(64) } } }
           if (options.method === 'images.get' && f.imageData) return { data: { dataUri: f.imageData } }
@@ -114,7 +107,6 @@ try {
         }
       }
     }
-    window.Capacitor.PluginHeaders.push({ name: 'CapacitorHttp', methods: [{ name: 'get', rtype: 'promise' }] })
   })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
   if (!process.env.HDS_M3_ONLY) {
@@ -186,81 +178,12 @@ try {
   await openLibrary()
   await page.getByRole('button', { name: '导入角色卡', exact: true }).waitFor()
   assert.equal(await page.locator('nav button.active').textContent(), '故事')
-  // Import codes use the real library modal and settings persistence, with both
-  // preview and fingerprint recheck routed through the native RPC fixture.
-  const codeDialog = page.getByRole('dialog', { name: '用导入码同步', exact: true })
-  const codeEntry = page.getByRole('button', { name: '用导入码导入', exact: true })
-  const codeInput = codeDialog.getByLabel('typ0.space 导入码', { exact: true })
-  const checkCode = codeDialog.getByRole('button', { name: '检查', exact: true })
-  const applyCode = codeDialog.getByRole('button', { name: '应用到当前故事', exact: true })
-  await codeEntry.click()
-  assert.equal(await codeDialog.getByRole('button', { name: '关闭导入码' }).evaluate(element => element === document.activeElement), true)
-  assert.equal(await checkCode.isDisabled(), true)
-  assert.equal(await codeInput.getAttribute('maxlength'), '24')
+  // Library imports (including persistence and revalidation) run in import-code-ui.mjs.
+  await page.getByRole('button', { name: '用导入码导入', exact: true }).click()
+  const codeDialog = page.getByRole('dialog', { name: '用分享码导入角色', exact: true })
+  assert.equal(await codeDialog.getByRole('button', { name: '检查', exact: true }).isDisabled(), true)
   assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
   await codeDialog.waitFor({ state: 'detached' })
-  assert.equal(await page.locator('main').getAttribute('data-page'), 'cards')
-  await codeEntry.click()
-  await codeInput.fill('   ')
-  assert.equal(await checkCode.isDisabled(), true)
-  const codeSettingsBefore = await page.evaluate(() => structuredClone(window.__storyFixture.prefs))
-  await page.evaluate(() => { window.__storyFixture.presetPatch = { character: { name: '星禾', profile: '修理师' }, world: '海边' }; window.__storyFixture.presetDelay = 600 })
-  await codeInput.fill('  ABCDEFGH  ')
-  await checkCode.click()
-  assert.equal(await checkCode.isDisabled(), true)
-  assert.equal(await codeInput.isDisabled(), true)
-  assert.equal(await codeDialog.getByRole('button', { name: '关闭导入码' }).isDisabled(), true)
-  assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
-  await codeDialog.getByText('生活预设 fixture · 修订 1', { exact: true }).waitFor()
-  await codeDialog.getByText('agency.enabled: 默认 → true', { exact: true }).waitFor()
-  await codeDialog.getByText('角色名："星禾"', { exact: true }).waitFor()
-  await codeDialog.getByText('世界："海边"', { exact: true }).waitFor()
-  await codeDialog.getByText('部分字段移动端不支持，已忽略：model', { exact: true }).waitFor()
-  assert.equal(await page.evaluate(() => window.__storyFixture.appliedSettings?.length ?? 0), 0)
-  await page.evaluate(() => { window.__storyFixture.presetDelay = 0 })
-  await applyCode.click()
-  await codeDialog.waitFor({ state: 'detached' })
-  await page.getByText('人设已同步到当前故事，生活设置已更新，重启后生效。', { exact: true }).waitFor()
-  const imported = await page.evaluate(() => ({ calls: window.__storyFixture.presetCalls, patches: window.__storyFixture.appliedSettings, prefs: window.__storyFixture.prefs }))
-  assert.equal(imported.calls.length, 1, 'Preview uses CapacitorHttp while apply rechecks through the host')
-  assert.equal(imported.calls[0].code, 'ABCDEFGH'); assert.match(imported.calls[0].fingerprint, /^[a-f0-9]{64}$/)
-  assert.deepEqual(imported.patches, [{ character: { name: '星禾', profile: '修理师' }, world: '海边' }])
-  assert.equal(imported.prefs.mobileConfig.sections.agency.contactMode, 'balanced')
-  for (const key of ['providers', 'modelOptions', 'autoAdvance', 'userName', 'userProfile', 'activeCard']) assert.deepEqual(imported.prefs[key], codeSettingsBefore[key])
-  const codeSaves = await page.evaluate(() => window.__storyFixture.saves.length)
-  console.log('PASS import-code: library modal, trimmed code, config/persona preview, ignored fields, busy/back guard and fingerprint recheck before persona apply and native settings save.')
-
-  await codeEntry.click()
-  await codeInput.fill('ABCDEFGH')
-  for (const message of ['分享码不存在', '测试：网络连接失败']) {
-    await page.evaluate(message => { window.__storyFixture.presetError = message }, message)
-    await checkCode.click()
-    await codeDialog.getByRole('alert').getByText(message, { exact: false }).waitFor()
-    assert.equal(await codeInput.inputValue(), 'ABCDEFGH')
-    assert.equal(await applyCode.count(), 0)
-    assert.equal(await checkCode.isEnabled(), true)
-  }
-  await page.evaluate(() => { delete window.__storyFixture.presetError; window.__storyFixture.failPresetFingerprint = true })
-  await checkCode.click()
-  await applyCode.waitFor()
-  // Editing a previously checked code must discard its fingerprint/preview.
-  await codeInput.fill('BCDEFGHJ')
-  assert.equal(await applyCode.count(), 0)
-  await checkCode.click()
-  await applyCode.click()
-  await codeDialog.getByRole('alert').getByText('预设版本已变化，请重新检查差异', { exact: true }).waitFor()
-  assert.equal(await applyCode.count(), 0)
-  assert.equal(await page.evaluate(() => window.__storyFixture.appliedSettings.length), 1)
-  await page.evaluate(() => { window.__storyFixture.failPresetFingerprint = false; window.__storyFixture.failSettingApply = true })
-  await checkCode.click()
-  await applyCode.click()
-  await codeDialog.getByRole('alert').getByText('测试：人设写入失败', { exact: true }).waitFor()
-  assert.equal(await codeInput.inputValue(), 'BCDEFGHJ')
-  assert.equal(await page.evaluate(() => window.__storyFixture.appliedSettings.length), 1)
-  assert.equal(await page.evaluate(() => window.__storyFixture.saves.length), codeSaves, 'Failed checks/applies never save life settings')
-  await codeDialog.getByRole('button', { name: '关闭导入码' }).click()
-  await page.evaluate(() => { delete window.__storyFixture.presetPatch; delete window.__storyFixture.failSettingApply })
-  console.log('PASS import-code errors: missing code, network failure, edited-code invalidation, stale fingerprint and persona write failure keep modal open without applying settings.')
   await page.getByRole('button', { name: '返回故事', exact: true }).click()
   await openCategory('world')
   await page.getByText('故事管理', { exact: true }).click()

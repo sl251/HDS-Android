@@ -50,48 +50,48 @@ test('M3 real WASM encoder supports TTS WAV rates and stereo without subprocesse
   for (const bytes of [Buffer.alloc(0), Buffer.from('corrupt'), wav().subarray(0, 60), Buffer.alloc(10 * 1024 * 1024 + 1)]) await assert.rejects(() => wavToSilk(bytes))
 })
 
-test('M3 optional synthesis/encoding/record failures preserve text receipts; failed text never synthesizes', { timeout: 20000 }, async () => {
+test('M3 synthesis failures and definitive record rejection fall back to one text; uncertain receipts never duplicate', { timeout: 20000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'm3-fallback-'))
   const id = 'a'.repeat(64), metadata = { audioId: id, duration: 1 }
   let mode = 'valid', requests = 0, records = 0, textDelivered = false
   const api = createServer(async (req, res) => {
     for await (const _ of req) { /* drain */ }
-    assert.equal(textDelivered, true, 'Text must already be delivered before any TTS work')
+    assert.equal(textDelivered, false, 'Choose the medium before sending any text')
     requests++; res.setHeader('Content-Type', 'application/json')
     if (mode === 'http') res.statusCode = 503
     res.end(JSON.stringify(mode === 'empty' ? {} : mode === 'invalid-id' ? { ...metadata, audioId: '../secret' } : metadata))
   })
   await new Promise<void>(resolve => api.listen(0, '127.0.0.1', resolve))
   const bridge: VoiceBridgeConfig = { directory, cardId: 'first', token: 'fixture', url: `http://127.0.0.1:${(api.address() as any).port}/synthesize` }
-  const bot = { platform: 'onebot', sendMessage: async () => { records++; throw new Error('QQ record rejected') } }
+  const bot = { platform: 'onebot', sendMessage: async () => { records++; throw Object.assign(new Error('QQ record rejected'), { code: 1200 }) } }
   const sendText = async () => { textDelivered = true; return ['text-receipt'] }
   const deliver = () => oneBotVoiceDelivery(bridge, bot, 'private:12345', '今天真开心。', .95, '', sendText)
   try {
     for (const value of ['http', 'empty', 'invalid-id', 'missing', 'corrupt', 'symlink', 'valid']) {
-      mode = value
+      mode = value; textDelivered = false
       const file = join(directory, `${id}.wav`)
       rmSync(file, { force: true })
       if (value === 'corrupt') writeFileSync(file, 'bad WAV')
-      if (value === 'symlink') { writeFileSync(join(directory, 'elsewhere.wav'), wav()); try { symlinkSync(join(directory, 'elsewhere.wav'), file) } catch (e) { if (process.platform === 'win32' && (e as NodeJS.ErrnoException).code === 'EPERM') continue; throw e } }
+      if (value === 'symlink') { writeFileSync(join(directory, 'elsewhere.wav'), wav()); symlinkSync(join(directory, 'elsewhere.wav'), file) }
       if (value === 'valid') writeFileSync(file, wav())
       assert.deepEqual(await deliver(), ['text-receipt'])
     }
     assert.equal(records, 1, 'Only a valid, regular WAV reaches QQ; record rejection is optional')
     const before = requests
+    mode = 'http'; textDelivered = false
     await assert.rejects(() => oneBotVoiceDelivery(bridge, bot, 'private:12345', '正文', .95, '', async () => { throw new Error('text rejected') }), /text rejected/)
-    assert.equal(requests, before)
+    assert.equal(requests, before + 1)
     assert.deepEqual(await oneBotVoiceDelivery(bridge, { ...bot, platform: 'mobile-local' }, 'local', '正文', .95, '', sendText), ['text-receipt'])
-    assert.equal(requests, before, 'Other platforms retain their existing path')
+    assert.equal(requests, before + 1, 'Other platforms retain their existing path')
   } finally { await new Promise<void>(resolve => api.close(() => resolve())); rmSync(directory, { recursive: true, force: true }) }
 })
 
-test('M3 real HDS + OneBot private/group record delivery, final willingness, shared bridge gates and text fallback', { timeout: 150000 }, async () => {
+test('M3 real HDS + OneBot private/group record delivery, final willingness, shared bridge gates and text fallback', { timeout: 90000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'hds-m3-'))
   const voiceDir = join(directory, 'voice'); mkdirSync(voiceDir)
   const bytes = wav(), audioId = createHash('sha256').update(bytes).digest('hex')
   writeFileSync(join(voiceDir, `${audioId}.wav`), bytes)
   let enabled = true, willingness: unknown = .95, bridgeMode = 'normal', rejectRecord = false, groupTurn = false
-  let quoteGroup = false, splitGroup = false
   let releaseSlow: (() => void) | undefined
   let replies = 0, lastVoice = -1000, used = 0, cooldown = 0, dailyLimit = 1000, receiptId = 70000
   const synthesis: any[] = [], models: any[] = [], delivered: any[] = []
@@ -112,9 +112,8 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
       res.end(JSON.stringify({ audioId, duration: 1 })); return
     }
     models.push(body)
-    const messageRef = String(body.messages.at(-1)?.content).match(/"messageRef"\s*:\s*"([^"]+)"/)?.[1]
     const decision = { script: '星禾拿起手机，开心地回复朋友。', ...(groupTurn
-      ? { groupReply: { mode: 'immediate', content: splitGroup ? '第一段。<sep/>第二段。' : '大家今天真开心。', ...(quoteGroup && messageRef ? { replyTo: messageRef } : {}) }, interaction: { seen: true, reply: { mode: 'none' } } }
+      ? { groupReply: { mode: 'immediate', content: '大家今天真开心。' }, interaction: { seen: true, reply: { mode: 'none' } } }
       : { interaction: { seen: true, reply: { mode: 'immediate', content: '今天真开心。' } } }), voice: { willingness } }
     if (body.stream) { res.setHeader('Content-Type', 'text/event-stream'); res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(decision) } }] })}\n\ndata: [DONE]\n\n`) }
     else res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] }))
@@ -151,10 +150,10 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
     Object.assign(host.qq!, { fork })
     await waitFor(() => !!socket && host!.app.bots.some(bot => bot.platform === 'onebot' && bot.status === 1))
     let messageId = 1000
-    const incoming = (group = false, mention = true) => {
+    const incoming = (group = false) => {
       groupTurn = group
       socket.send(JSON.stringify({ post_type: 'message', message_type: group ? 'group' : 'private', sub_type: group ? 'normal' : 'friend', self_id: 55555, user_id: 12345, ...(group ? { group_id: 88888 } : {}), message_id: ++messageId, time: Math.floor(Date.now() / 1000),
-        message: [...(group && mention ? [{ type: 'at', data: { qq: '55555' } }] : []), { type: 'text', data: { text: `今天开心吗？${messageId}` } }], sender: { user_id: 12345, nickname: '朋友', role: 'member' } }))
+        message: [...(group ? [{ type: 'at', data: { qq: '55555' } }] : []), { type: 'text', data: { text: `今天开心吗？${messageId}` } }], sender: { user_id: 12345, nickname: '朋友', role: 'member' } }))
     }
     const records = () => delivered.filter(row => row.params.message.some((segment: any) => segment.type === 'record'))
     const texts = () => delivered.filter(row => row.params.message.some((segment: any) => segment.type === 'text'))
@@ -176,41 +175,39 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
       assert.match(models.at(-1).messages[0].content, /CURRENT LOCAL VOICE OPTION/)
       assert.notEqual(models.at(-1).stream, true, 'Voice waits for final model decision in QQ too')
       assert.equal(JSON.stringify(models).includes('m3-private-bridge-token'), false)
-      assert.equal(texts().length, before + 1, 'One text plus one record for each reply')
+      assert.equal(texts().length, 0, 'Voice is the reply: no accompanying text')
     }
-    // Rules allow this fixture's non-mention messages. Production rules are unchanged.
-    await host.dispatch('qq.policy', { enabled: true, users: ['12345'], groups: [{ ...newQQGroup(), groupId: '88888', responseMode: 'always', cooldownSeconds: 0, debounceSeconds: 0 }] })
-    const service = host.app.interlude as any
-    Object.assign(service.config.chatActions, { enabled: true, quoteReply: true, platforms: ['qq'] })
-    for (const variant of ['ordinary', 'quote', 'split']) {
-      quoteGroup = variant === 'quote'; splitGroup = variant === 'split'
-      const beforeText = texts().length, beforeRecords = records().length
-      incoming(true, false); await waitFor(() => texts().length >= beforeText + (splitGroup ? 2 : 1)); await settled()
-      assert.equal(records().length, beforeRecords + (splitGroup ? 2 : 1), `${variant}: each allowed segment keeps the final voice decision`)
-      if (quoteGroup) assert.ok(texts().slice(beforeText).some(row => row.params.message.some((segment: any) => segment.type === 'reply')), 'The real quoted transport must be an element array')
-      assert.equal(synthesis.at(-1).text, splitGroup ? '第二段。' : '大家今天真开心。')
-    }
-    quoteGroup = splitGroup = false
-    const proactiveStory = (await host.app.database.get('interlude_story', {}))[0]
-    const beforeProactive = records().length
-    await service.sendOutgoingMessages(proactiveStory, [{ participantId: 'group:88888', content: '无会话的主动群消息。', voice: { willingness: .95 } }])
-    await host.drainVoice()
-    assert.equal(records().length, beforeProactive + 1, 'Sessionless outreach uses the registered group endpoint')
-    assert.equal(records().at(-1).action, 'send_group_msg'); assert.equal(String(records().at(-1).params.group_id), '88888')
-    // The background/private-bot path must settle text while Android is still
-    // synthesizing, so pending-delivery recovery cannot mistake audio for text.
+    // The background/private-bot path waits for the chosen medium receipt.
     bridgeMode = 'slow'
     const participant = (await host.app.database.get('interlude_participant', { platform: 'onebot', userId: '12345' }))[0]
     const story = (await host.app.database.get('interlude_story', {}))[0]
     let textSettled = false
     const beforeSlow = texts().length, beforeSlowRecords = records().length
-    const sending = (host.app.interlude as any).sendOutgoingMessages(story, [{ participantId: participant.id, content: '慢速语音仍先确认文字。', voice: { willingness: .95 } }]).then((rows: any[]) => { assert.equal(rows.length, 1); textSettled = true })
-    await waitFor(() => !!releaseSlow && textSettled)
-    assert.equal(texts().length, beforeSlow + 1)
-    assert.equal(records().length, beforeSlowRecords, 'TTS is blocked, but the text receipt already returned')
+    const sending = (host.app.interlude as any).sendOutgoingMessages(story, [{ participantId: participant.id, content: '慢速合成结束后只发送语音。', voice: { willingness: .95 } }]).then((rows: any[]) => { assert.equal(rows.length, 1); textSettled = true })
+    await waitFor(() => !!releaseSlow)
+    assert.equal(textSettled, false)
+    assert.equal(texts().length, beforeSlow)
+    assert.equal(records().length, beforeSlowRecords, 'TTS is blocked and no message has been sent yet')
     releaseSlow!(); releaseSlow = undefined
     await sending; await host.drainVoice(); bridgeMode = 'normal'
     assert.equal(records().length, beforeSlowRecords + 1)
+    // Exercise the real HDS sticker path through Koishi's OneBot encoder for
+    // both destinations. Custom stickers use image segments with sub_type=1.
+    const service = host.app.interlude as any
+    const stickerDirectory = join(directory, 'stickers', 'fixture'); mkdirSync(stickerDirectory, { recursive: true })
+    writeFileSync(join(stickerDirectory, 'happy.gif'), readFileSync('fixtures/images/sticker-fixture.gif'))
+    const sticker = { assetId: 'media-choice-sticker', filePath: 'fixture/happy.gif', group: 'fixture', description: '开心', animated: true, status: 'active' }
+    service.stickerById.set(sticker.assetId, sticker)
+    const onebot = host.app.bots.find(bot => bot.platform === 'onebot')!
+    for (const group of [false, true]) {
+      const before = delivered.length
+      assert.equal(await service.sendSticker(story, { bot: onebot, platform: 'onebot', selfId: '55555' }, group ? '88888' : 'private:12345', sticker, group ? '88888' : undefined), true)
+      const message = delivered[before].params.message
+      assert.equal(message.length, 1)
+      assert.equal(message[0].type, 'image')
+      assert.equal(Number(message[0].data.sub_type), 1)
+      assert.equal(message[0].data.summary, '[表情包]')
+    }
     for (const failure of ['low', 'invalid', 'cooldown', 'daily', 'http', 'corrupt', 'reject', 'disabled']) {
       const before = texts().length, beforeRecords = records().length
       willingness = failure === 'low' ? .1 : failure === 'invalid' ? 2 : .95

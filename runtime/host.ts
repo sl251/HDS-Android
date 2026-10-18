@@ -13,34 +13,27 @@ import { mobileModelConfig } from './model-config'
 import type { ModelOptions, ModelProvider } from '../packages/contracts'
 import { messageImages, visionProjection, visionRouteReason, normalizeVisionProjection } from '../packages/contracts'
 import { personaDefaults, personaEditPatch } from './persona'
+import { settingPatch, settingRevision } from './story-setting'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
-import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt } from './stickers'
+import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt, exclusiveMediaPrompt, oneBotStickerDelivery } from './stickers'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProviders, type MobileConfig } from './mobile-config'
-import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceOutcome, type VoiceBridgeConfig } from './voice'
+import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
 import { BackgroundBudget } from './background-budget'
 import { inspectPreset } from './preset'
-import buildInfo from '../build-info.json'
-import { hostMethods } from '../packages/contracts/rpc'
-import { settingRevision, settingPatch } from './story-setting'
 import { messagePush, serializeMessagePush, messagesSinceQuery, type PushRow } from './message-push'
 export { messagePush, serializeMessagePush, messagesSinceQuery } from './message-push'
 export { mobileSchema } from './mobile-config'
 export { normalizeMobileConfig, mapMobileConfig } from './mobile-config'
 export { mobilePreset, inspectPreset } from './preset'
 
-export type HostConfig = { restoreQQ?: boolean; voiceBridge?: VoiceBridgeConfig; mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
+export type HostConfig = { voiceBridge?: VoiceBridgeConfig; mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
 export async function startHost(input: HostConfig) {
   if (!input.card?.name || !input.model || !input.endpoint || !input.token || input.token.length < 32) throw new Error('Missing valid host configuration')
   const endpoint = new URL(input.endpoint)
   if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('Invalid model endpoint')
   mkdirSync(input.dataDir, { recursive: true })
-  const voiceResultsFile = join(input.dataDir, 'voice-delivery-status.json')
-  let voiceResults: VoiceOutcome[] = []
-  try { const saved = JSON.parse(readFileSync(voiceResultsFile, 'utf8')); if (Array.isArray(saved)) voiceResults = saved.slice(-50) } catch { /* optional diagnostics */ }
-  const voiceReferences = new Set<string>()
-  const recordVoiceOutcome = (value: VoiceOutcome) => { voiceResults.push(value); if (voiceResults.length > 50) voiceResults.shift(); try { writeFileSync(voiceResultsFile + '.tmp', JSON.stringify(voiceResults)); renameSync(voiceResultsFile + '.tmp', voiceResultsFile) } catch { /* diagnostics never invalidate a receipt */ } }
   if (input.qqDir) mkdirSync(input.qqDir, { recursive: true })
   const restoreMarker = join(input.dataDir, 'restore-held.json')
   let restoreHeld = existsSync(restoreMarker)
@@ -82,15 +75,10 @@ export async function startHost(input: HostConfig) {
       const ids: string[] = []
       for (const row of rows) {
         if (row.content.trim()) row.audio = await localVoiceDelivery(input.voiceBridge, row.content, options?.mobileVoice?.willingness,
-          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), randomUUID(), recordVoiceOutcome)
+          `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000))
         const id = randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
         this.lastMessageTime = occurredAt.getTime()
         await app.database.create('mobile_message' as never, { id, direction: 'character', ...row, occurredAt, status: 'delivered' } as never)
-        if (row.audio) {
-          const refsFile = join(input.dataDir, 'voice-references.json')
-          voiceReferences.add(row.audio.audioId)
-          try { writeFileSync(refsFile + '.tmp', JSON.stringify([...voiceReferences])); renameSync(refsFile + '.tmp', refsFile) } catch { /* Export rebuilds the index from SQLite before packing. */ }
-        }
         process.stdout.write(serializeMessagePush({ id, ...row, occurredAt }))
         ids.push(id)
       }
@@ -116,22 +104,20 @@ export async function startHost(input: HostConfig) {
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
   config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
+  ;(config.model as any).mobileStickerDelivery = oneBotStickerDelivery
   const voiceTasks = new Set<Promise<unknown>>()
   const drainVoice = async () => { while (voiceTasks.size) await Promise.allSettled([...voiceTasks]) }
-  config.model.mobileOneBotVoiceDelivery = async (bot, channelId, spokenText, willingness, sendText) => {
-    const receipt = await sendText()
-    if (bot?.platform !== 'onebot' || !input.voiceBridge) return receipt
-    if (voiceTasks.size >= 2 || closing) { recordVoiceOutcome({ requestId: randomUUID(), status: 'skipped', stage: 'queue', reason: closing ? 'stopping' : 'queue_full' }); return receipt }
-    const task = oneBotVoiceDelivery(input.voiceBridge, bot, channelId, spokenText, willingness,
-      `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), async () => receipt, recordVoiceOutcome, () => closing)
+  ;(config.model as any).mobileOneBotVoiceDelivery = async (bot: Bot, channelId: string, content: string, willingness: unknown, sendText: () => Promise<unknown>) => {
+    if (bot?.platform !== 'onebot' || !input.voiceBridge) return sendText()
+    const task = oneBotVoiceDelivery(input.voiceBridge, bot, channelId, content, willingness,
+      `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), sendText)
     voiceTasks.add(task)
-    void task.finally(() => voiceTasks.delete(task)).catch(() => undefined)
-    // Commit the text receipt immediately. Slow optional audio must not leave
-    // the upstream ledger pending for its delivery-repair sweep to resend.
-    return receipt
+    // Keep the upstream delivery executor occupied until the chosen transport
+    // settles; its existing execution key prevents concurrent repair sends.
+    try { return await task } finally { voiceTasks.delete(task) }
   }
   config.model.mobileBeforeRequest = budget.beforeRequest
-  config.model.mobileSystemPrompt = (prompt, request) => request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt)
+  config.model.mobileSystemPrompt = (prompt, request) => exclusiveMediaPrompt(request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt))
   const activeVision = visionProjection(input)
   const media = imageStore(input.dataDir)
   let promptTrace: string[] = []
@@ -159,9 +145,6 @@ export async function startHost(input: HostConfig) {
   // A dedicated profile owns this database; no QQ identity is fabricated.
   const current = session()
   let story = await app.interlude.findStory(current) ?? await app.interlude.createStory(current)
-  const historyAudio = await app.database.get('mobile_message' as never, {} as never) as { audio?: unknown }[]
-  for (const row of historyAudio) { const audio = messageAudio(row.audio); if (audio) voiceReferences.add(audio.audioId) }
-  writeFileSync(join(input.dataDir, 'voice-references.json'), JSON.stringify([...voiceReferences]))
   if (restoreHeld) { await app.interlude.setDesktopRuntimePhase('paused'); story = await app.interlude.setStatus(story, 'paused') }
   const cardRevisionFile = join(input.dataDir, 'card-revision.json')
   const appliedRevision = existsSync(cardRevisionFile) ? JSON.parse(readFileSync(cardRevisionFile, 'utf8')).revision : 0
@@ -200,11 +183,8 @@ export async function startHost(input: HostConfig) {
       }) as Parameters<typeof app.interlude.ensureParticipant>[1])
     }
   }) : undefined
-  if (qq && input.restoreQQ && !restoreHeld) void qq.start(true).catch(() => undefined)
   const dispatch = async (method: string, payload: Record<string, unknown>) => {
-    if (!(hostMethods as readonly string[]).includes(method)) throw new Error('Unknown or disallowed method')
     if (closing) throw new Error('核心正在关闭，请稍后再试')
-    if (method === 'network.update') { if (typeof payload.available !== 'boolean') throw new Error('Invalid network availability'); return qq?.setNetwork(payload.available) ?? { available: payload.available } }
     if (method.startsWith('qq.')) { if (!qq) throw new Error('QQ 本机目录未配置'); return qq.dispatch(method, payload) }
     if (method === 'images.upload') return { id: media.save(payload.dataUri).id }
     if (method === 'images.get') return { dataUri: media.get(String(payload.id)) }
@@ -260,8 +240,7 @@ export async function startHost(input: HostConfig) {
       return { restartRequired: lifeRestartRequired || visionRestartRequired, visionRestartRequired, activeVision, reasons: [...(lifeRestartRequired ? ['mobile-config-changed'] : []), ...(visionRestartRequired ? ['vision-config-changed'] : [])] }
     }
     if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (section.key === 'embedding' ? config.model.embedding : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
-    if (method === 'voice.status') return voiceResults.slice()
-    if (method === 'health') return { build: buildInfo, budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
+    if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.since') {
       const query = messagesSinceQuery(payload.since)
       const limit = Math.max(1, Math.min(200, Math.floor(Number(payload.limit) || 200)))

@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import type { NativeBridge } from '../../packages/contracts'
-import { importIntoPack, recentStickers, sortedPacks, type StickerAsset, type StickerLibrary } from './sticker-state'
+import { importIntoPack, recentStickers, sortedPacks, stickerSyncPacks, libraryBytes, type StickerAsset, type StickerLibrary } from './sticker-state'
 
 export const stickerSource = (asset: StickerAsset) => Capacitor.convertFileSrc(asset.path)
 export function StickerDrawer({ library, disabled, send, close }: { library: StickerLibrary; disabled: boolean; send: (packId: string, asset: StickerAsset) => void; close: () => void }) {
@@ -12,28 +12,54 @@ export function StickerDrawer({ library, disabled, send, close }: { library: Sti
   </div></div>
 }
 
-export function StickerManager({ library, bridge, native, change, close, notify }: { library: StickerLibrary; bridge: NativeBridge; native: boolean; change: (library: StickerLibrary) => void; close: () => void; notify: (text: string) => void }) {
+export function StickerManager({ library, bridge, native, change, close, notify, importReason, beforeImport, configureVision, back }: { library: StickerLibrary; bridge: NativeBridge; native: boolean; change: (library: StickerLibrary) => void; close: () => void; notify: (text: string) => void; importReason?: string; beforeImport: () => Promise<void>; configureVision: () => void; back: React.MutableRefObject<(() => void) | undefined> }) {
   const [busy, setBusy] = useState(false), [name, setName] = useState(''), [target, setTarget] = useState(''), [deleting, setDeleting] = useState(''), [managing, setManaging] = useState(''), [feedback, setFeedback] = useState('')
   const [renaming, setRenaming] = useState(''), [rename, setRename] = useState('')
+  const lock = useRef(false)
+  useEffect(() => {
+    const dismiss = () => {
+      if (lock.current) return
+      if (deleting) setDeleting('')
+      else if (renaming) setRenaming('')
+      else if (managing) setManaging('')
+      else close()
+    }
+    back.current = dismiss
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); dismiss() } }
+    document.addEventListener('keydown', escape)
+    return () => { back.current = undefined; document.removeEventListener('keydown', escape) }
+  }, [back, close, deleting, renaming, managing])
   const update = async (next: StickerLibrary) => {
     // Save metadata first: failed persistence must never delete files referenced by the old manifest.
     change(next)
+    // Publish the native catalog before pruning. If either persistence step
+    // fails, all originals remain available for a later sync/retry.
+    await bridge.syncStickerLibrary({ packs: stickerSyncPacks(next) })
     await bridge.pruneStickers({ keep: [...new Set([...next.packs.flatMap(pack => pack.stickers), ...Object.values(next.messages)].map(asset => asset.id))] })
   }
-  const action = async (task: () => Promise<void>) => { if (busy) return; setBusy(true); try { await task() } catch (error) { const text = error instanceof Error ? error.message : String(error); setFeedback(text); notify(text) } finally { setBusy(false) } }
+  const action = async (task: () => Promise<void>) => { if (lock.current) return; lock.current = true; setBusy(true); setFeedback(''); try { await task() } catch (error) { const text = error instanceof Error ? error.message : String(error); setFeedback(text); notify(text) } finally { lock.current = false; setBusy(false) } }
   const importPack = (directory: boolean) => action(async () => {
+    if (importReason) throw new Error(importReason)
+    await beforeImport()
     const result = await bridge.pickStickers({ directory })
     if (result.cancelled) return
-    const imported = importIntoPack(library, target || crypto.randomUUID(), name || result.name || '我的表情', result.assets ?? [])
-    if (imported.imported > 0) await update(imported.library)
+    const packId = target || crypto.randomUUID()
+    const imported = importIntoPack(library, packId, name || result.name || '我的表情', result.assets ?? [])
+    if (result.assets?.length) {
+      try { await update(imported.library) }
+      catch (error) { setTarget(packId); throw error }
+    }
     const text = `导入 ${imported.imported} 张，跳过 ${imported.skipped + (result.skipped ?? 0)} 张（重复或格式不支持）`
     setFeedback(text); notify(text)
   })
   return <div className="modal-backdrop"><section className="modal sticker-manager" role="dialog" aria-modal="true" aria-label="表情包管理"><div className="section-title"><h2>表情包</h2><button autoFocus disabled={busy} aria-label="关闭表情包管理" onClick={close}>×</button></div>
-    <p className="caption">复制到应用内，原文件保留。支持 GIF、PNG、WebP、JPG；每张最大 10 MiB。</p>
+    <p className="caption">{library.packs.length} 个表情包 · 本机占用 {(libraryBytes(library) / 1024 / 1024).toFixed(1)} MiB。原文件保留，GIF 动画保留；每张最大 10 MiB。</p>
+    {importReason && <div className="media-setup" role="alert"><p>{importReason}</p><button type="button" className="secondary" disabled={busy} onClick={configureVision}>去设置识图模型</button></div>}
+    <div className="sticker-import-panel"><h3>导入表情</h3>
     <label>导入到<select aria-label="导入到表情包" value={target} disabled={busy} onChange={event => setTarget(event.target.value)}><option value="">新建表情包</option>{library.packs.map(pack => <option key={pack.id} value={pack.id}>{pack.name}</option>)}</select></label>
     {!target && <label>新包名称<input value={name} disabled={busy} maxLength={80} onChange={event => setName(event.target.value)} placeholder="留空使用文件夹名称" /></label>}
-    <div className="actions"><button className="secondary" disabled={!native || busy} onClick={() => void importPack(false)}>多选图片导入</button><button className="secondary" disabled={!native || busy} onClick={() => void importPack(true)}>整文件夹导入</button></div>
+    <div className="media-import-actions"><button className="primary" disabled={!native || busy || !!importReason} onClick={() => void importPack(false)}>多选图片导入</button><button className="secondary" disabled={!native || busy || !!importReason} onClick={() => void importPack(true)}>整文件夹导入</button></div></div>
+    <p className="caption">导入、改名或删除后，重新唤醒核心，角色会读取最新表情库。已发送的表情继续保留。</p>
     {busy && <p role="status">正在处理表情包…</p>}{feedback && <p role="status">{feedback}</p>}
     {!library.packs.length && <p className="quiet-empty">导入一包表情，就能在聊天里使用。</p>}
     {sortedPacks(library).map(pack => <div className="sticker-group" key={pack.id}><h3>{pack.name} · {pack.stickers.length} 张</h3><div className="actions"><button disabled={busy} onClick={() => { setRenaming(pack.id); setRename(pack.name) }}>重命名</button><button disabled={busy} onClick={() => setManaging(managing === pack.id ? '' : pack.id)}>{managing === pack.id ? '完成管理' : '管理贴纸'}</button><button className="danger" disabled={busy} onClick={() => setDeleting(pack.id)}>删除包</button></div>
