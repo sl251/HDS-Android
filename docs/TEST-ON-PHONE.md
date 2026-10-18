@@ -1,9 +1,9 @@
-# HDS-Android Preview 9.3 真机验收清单
+# HDS-Android Preview 9.4 真机验收清单
 
-当前验收版本：`0.1.0-preview.9.3`（Android 8.0+ / ARM64）。此清单用于**人工真机验证**，模拟响应和 CI 通过不能替代实际 API、QQ 和 TTS 验收。
+当前验收版本：`0.1.0-preview.9.4`（Android 8.0+ / ARM64）。此清单用于**人工真机验证**，模拟响应和 CI 通过不能替代实际 API、QQ 和 TTS 验收。
 
 ## 准备与升级
-- 从 [Preview 9.3 Release](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.9.3) 下载 APK，记录手机型号、Android/厂商系统版本、ABI、可用空间和此前的 APK 版本。
+- 从 [Preview 9.4 Release 或最新预览页](https://github.com/sl251/HDS-Android/releases) 下载 APK，记录手机型号、Android/厂商系统版本、ABI、可用空间和此前的 APK 版本。
 - 有旧数据时先导出角色的**完整故事 ZIP**，保存到应用外部位置，再覆盖安装；**不要卸载重装**，否则应用私有数据可能被清空。
 - 准备独立测试角色；真实模型请求和 MiMo 试听可能产生费用。QQ 使用自己愿意承担协议及账号风险的测试账号。
 - 每项记录 PASS / FAIL / NOT RUN，并保存脱敏日志。真机未执行的项目不得勾选通过。
@@ -55,7 +55,7 @@
 请使用 [Bug 反馈模板](https://github.com/sl251/HDS-Android/issues/new/choose)，填写版本、机型、安卓版本、从何版本升级、复现步骤、预期/实际结果以及脱敏日志。**不要提交 API Key、Authorization、QQ 凭据/二维码、个人聊天、人设隐私或参考录音。**
 
 ```text
-版本：0.1.0-preview.9.3
+版本：0.1.0-preview.9.4
 机型 / Android / 厂商系统：
 安装方式：首次安装 / 从某版本覆盖升级
 涉及模块：运行 / 聊天 / 角色库 / ZIP / 表情 / 语音 / QQ
