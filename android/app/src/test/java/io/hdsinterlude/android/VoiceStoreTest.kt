@@ -63,14 +63,16 @@ class VoiceStoreTest {
         assertEquals("assistant", messages.getJSONObject(1).getString("role")); assertEquals("最后的文字稿", messages.getJSONObject(1).getString("content"))
         val audio = s.putAudio(wav()); s.saveVoice(JSONObject().put("id", "ref").put("name", "参考").put("type", "reference").put("value", audio.getString("audioId")))
         s.saveSettings(settings(voiceId = "ref")); val clone = server { client -> s.synthesize(reply(), client) }
-        assertEquals("mimo-v2.5-tts-voiceclone", clone.body.getString("model")); assertArrayEquals(wav(), Base64.decode(clone.body.getJSONObject("audio").getString("voice"), Base64.DEFAULT))
+        assertEquals("mimo-v2.5-tts-voiceclone", clone.body.getString("model")); assertEquals("data:audio/wav;base64,", clone.body.getJSONObject("audio").getString("voice").substringBefore(",") + ",")
+        assertArrayEquals(wav(), Base64.decode(clone.body.getJSONObject("audio").getString("voice").substringAfter(","), Base64.DEFAULT))
         s.saveVoice(JSONObject().put("id", "design").put("name", "温暖").put("type", "design").put("value", "温暖清亮")); s.saveSettings(JSONObject().put("defaultVoiceId", "design")); s.saveSettings(settings())
         val design = server { client -> s.synthesize(reply(), client) }
-        assertEquals("mimo-v2.5-tts-voicedesign", design.body.getString("model")); assertEquals("温暖清亮", design.body.getJSONObject("audio").getString("voice"))
+        assertEquals("mimo-v2.5-tts-voicedesign", design.body.getString("model")); assertFalse(design.body.getJSONObject("audio").has("voice"))
+        assertTrue(design.body.getJSONArray("messages").getJSONObject(0).getString("content").startsWith("温暖清亮"))
         assertEquals(75, s.state().getInt("usedTokens"))
     }
     @Test fun thresholdCooldownDisabledAndPerCharacterArePersistent() {
-        val s = store(); assertFalse(s.config().getJSONObject("characters").has(card)); assertFalse(s.synthesize(reply()).has("audioId"))
+        val s = store(); assertEquals(0, s.config().getInt("dailyLimit")); assertFalse(s.config().getJSONObject("characters").has(card)); assertFalse(s.synthesize(reply()).has("audioId"))
         s.saveSettings(settings()); assertEquals("threshold", s.synthesize(reply(.699)).getJSONObject("diagnostic").getString("reason"))
         server { client -> assertTrue(s.synthesize(reply(.7), client).has("audioId")) }
         repeat(4) { assertEquals("cooldown", store().synthesize(reply()).getJSONObject("diagnostic").getString("reason")) }
