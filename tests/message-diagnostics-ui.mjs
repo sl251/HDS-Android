@@ -33,6 +33,8 @@ try {
   assert.equal(await dialog.locator('ol > li').count(), 125)
   await dialog.getByRole('button', { name: '导出脱敏记录' }).click()
   await page.waitForFunction(() => fixture.exportFilter?.messageId === 'fixture-request-first')
+  // Returning from a native picker can leave keyboard focus outside the modal.
+  await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'detached' })
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^消息诊断/ }).click()

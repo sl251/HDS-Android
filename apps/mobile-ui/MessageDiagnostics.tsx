@@ -17,6 +17,12 @@ export function MessageDiagnostics({ bridge, healthy, messageId, close }: { brid
     return () => { document.body.style.overflow = overflow; previous?.focus() }
   }, [])
   useEffect(() => {
+    // Native pickers and temporarily disabled buttons can leave focus on body.
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); close() } }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [close])
+  useEffect(() => {
     let alive = true, running = false
     if (!healthy) { setLoading(false); return }
     const read = async () => {
@@ -39,7 +45,6 @@ export function MessageDiagnostics({ bridge, healthy, messageId, close }: { brid
   }
   const ids = [...new Set(events.flatMap(event => event.requestIds))].reverse()
   return <div className="modal-backdrop"><section className="modal message-diagnostics" role="dialog" aria-modal="true" aria-label="消息诊断" onKeyDown={event => {
-    if (event.key === 'Escape') close()
     if (event.key === 'Tab') {
       const elements = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled)')]
       const first = elements[0], last = elements.at(-1)
