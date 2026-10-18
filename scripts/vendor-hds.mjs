@@ -13,10 +13,10 @@ if (!existsSync(checkout)) {
 // Read the fixed Git object, never a potentially modified checkout. Fail before
 // touching the vendor tree if this clone does not contain the expected commit.
 const commit = execFileSync('git', ['-C', checkout, 'rev-parse', '1.0.1-rc57^{commit}'], { encoding: 'utf8' }).trim()
-if (commit !== upstreamCommit) throw new Error(`Unexpected rc56 commit: ${commit}`)
+if (commit !== upstreamCommit) throw new Error(`Unexpected rc57 commit: ${commit}`)
 const archive = execFileSync('git', ['-C', checkout, 'archive', upstreamCommit], { maxBuffer: 64 * 1024 * 1024 })
 // This intentionally replaces the tree; replay scripts/patch-mobile-hds.mjs next.
 rmSync(destination, { recursive: true, force: true })
 mkdirSync(destination, { recursive: true })
 execFileSync('tar', ['-x', '-C', destination], { input: archive })
-console.log(`Vendored HDS 1.0.1-rc56 at ${upstreamCommit}; preserve LICENSE and original attribution`)
+console.log(`Vendored HDS 1.0.1-rc57 at ${upstreamCommit}; preserve LICENSE and original attribution`)

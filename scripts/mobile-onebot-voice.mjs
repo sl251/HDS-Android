@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 
-// Host-owned build overlay against the already replayed rc56 mobile delta.
+// Host-owned build overlay against the already replayed rc57 mobile delta.
 // Never writes upstream/. Each edit must match exactly once (or be applied).
 export function withOneBotVoice(source) {
   source = source.replace(/\r\n/g, '\n')

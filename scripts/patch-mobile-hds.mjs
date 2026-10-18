@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
-// Keep the complete mobile delta against pristine rc56 reviewable as a unified
+// Keep the complete mobile delta against pristine rc57 reviewable as a unified
 // diff. Each hunk includes context and must match exactly once: upstream drift
 // fails loudly instead of silently dropping a mobile integration.
 function readPatches(file) {

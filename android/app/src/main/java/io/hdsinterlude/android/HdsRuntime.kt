@@ -333,7 +333,7 @@ class HdsRuntime private constructor(private val context: Context) {
         val deadline = System.currentTimeMillis() + 90000
         var lastFailure = ""
         while (System.currentTimeMillis() < deadline && child.isAlive && !cancelRequested) {
-            try { val health = rpc("health", JSONObject()); if (health.getJSONObject("data").optBoolean("sqlite")) { state = "healthy"; progress = "HDS rc51 与 SQLite 已响应 · 本机端口 $port"; error = ""; break } }
+            try { val health = rpc("health", JSONObject()); if (health.getJSONObject("data").optBoolean("sqlite")) { state = "healthy"; progress = "HDS 与 SQLite 已响应 · 本机端口 $port"; error = ""; break } }
             catch (failure: Throwable) { lastFailure = failure.javaClass.simpleName }
             Thread.sleep(500)
         }
