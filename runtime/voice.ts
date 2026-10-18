@@ -25,7 +25,7 @@ export async function localVoiceDelivery(bridge: VoiceBridgeConfig | undefined, 
   try {
     const url = new URL(bridge.url)
     if (url.hostname !== '127.0.0.1' || url.protocol !== 'http:' || url.pathname !== '/synthesize') { report({ requestId, status: 'failed', stage: 'bridge', reason: 'invalid_bridge' }); return undefined }
-    const response = await fetch(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30000), headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bridge.token}` },
+    const response = await fetch(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(70000), headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bridge.token}` },
       body: JSON.stringify({ text: voiceText(content), willingness: typeof willingness === 'number' && Number.isFinite(willingness) ? willingness : -1, style }) })
     if (!response.ok) { report({ requestId, status: 'failed', stage: 'bridge', reason: 'bridge_rejected' }); return undefined }
     const result = await response.json() as { diagnostic?: { status?: string; reason?: string } }
