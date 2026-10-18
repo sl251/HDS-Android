@@ -48,7 +48,7 @@ export class MessageDiagnostics {
     const pending = new Map<string, DiagnosticEvent>()
     for (const event of this.events) {
       if (event.stage === 'submission' && event.reason === 'duplicate') continue
-      if (event.stage === 'commit' || event.stage === 'voice' || event.outcome === 'settled' || (event.stage === 'model' && event.outcome === 'succeeded')) continue
+      if (event.stage === 'commit' || event.stage === 'voice' || (event.stage === 'model' && event.outcome === 'succeeded')) continue
       for (const id of event.requestIds) pending.set(id, event)
     }
     for (const [id, event] of pending) if (['queued', 'accepted', 'started', 'retry', 'requeued', 'delayed', 'immediate'].includes(event.outcome)) this.record([id], 'lifecycle', 'interrupted', { reason: 'restart' })

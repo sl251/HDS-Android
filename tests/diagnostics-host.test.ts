@@ -32,10 +32,12 @@ for (const status of [401, 402, 403, 429]) test(`actual model ${status} explicit
     host = await startHost(config)
     const requestId = `rejected-request-${status}`
     await host.dispatch('messages.sendLocal', { requestId, content: 'PRIVATE_MESSAGE' })
+    if (status === 429) await host.dispatch('messages.sendLocal', { requestId: 'batched-request-429', content: 'PRIVATE_SECOND_MESSAGE' })
     const trace = async () => (await host!.dispatch('diagnostics.messages', { messageId: requestId }) as { events: DiagnosticEvent[] }).events
     await until(async () => (await trace()).some(event => event.stage === 'processing' && event.outcome === 'settled'))
     assert.deepEqual(calls, ['rejected', 'fallback'])
     const events = await trace()
+    if (status === 429) assert.ok(events.some(event => event.stage === 'decision' && event.requestIds.includes('batched-request-429')), 'Merged messages share the actual model/decision events')
     assert.ok(events.some(event => event.stage === 'model' && event.outcome === 'failed' && event.providerSlot === 1 && event.reason === (status === 401 ? 'authentication' : status === 403 ? 'permission' : 'provider_quota')))
     assert.ok(events.some(event => event.stage === 'model' && event.outcome === 'succeeded' && event.providerSlot === 2))
     assert.ok(events.some(event => event.stage === 'delivery' && event.outcome === 'delivered'))

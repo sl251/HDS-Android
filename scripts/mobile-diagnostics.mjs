@@ -6,7 +6,7 @@ export function withMessageDiagnostics(source, kind) {
     if (source.split(before).length !== 2) throw new Error(`Message diagnostics overlay anchor drift (${kind}): ${before.slice(0, 100)}`)
     source = source.replace(before, () => after)
   }
-  const imports = "import { diagnosticEvent, diagnosticCall, diagnosticError, runMessageDiagnostics } from '../../../runtime/message-diagnostics'\n"
+  const imports = "import { diagnosticEvent, diagnosticCall, diagnosticError, runMessageDiagnostics, withDeliveryDiagnostics } from '../../../runtime/message-diagnostics'\n"
   if (kind === 'turn-engine') {
     edit('  content: string\n  occurredAt: Date', '  mobileMessageId?: string\n  content: string\n  occurredAt: Date')
     edit('turn.messages.push({ content, occurredAt: now,', "turn.messages.push({ mobileMessageId: session.platform === 'mobile-local' ? session.messageId : undefined, content, occurredAt: now,")
@@ -33,7 +33,15 @@ export function withMessageDiagnostics(source, kind) {
     edit("        this.reportStandalone('warn', '合并写作任务失败：参与者=%s 错误=%s', turn.participantId, error)", "        diagnosticEvent('processing', 'failed', { reason: diagnosticError(error) })\n        this.reportStandalone('warn', '合并写作任务失败：参与者=%s 错误=%s', turn.participantId, error)")
     edit('      this.turnEngine.endFlush(key, requestId)', "      diagnosticEvent('processing', turn.obsoleteRequestIds.has(requestId) ? 'requeued' : 'settled')\n      this.turnEngine.endFlush(key, requestId)")
     edit('      this.health?.recordNarrativeFailed(story.id)', "      diagnosticEvent('model', 'failed', { reason: diagnosticError(error) })\n      this.health?.recordNarrativeFailed(story.id)")
-    edit('        return { obsolete: false, requeue: false, messages: persisted.messages, commit: persisted.commit, scriptEntry: persisted.scriptEntry }', "        diagnosticEvent('commit', 'succeeded', { entryId: persisted.scriptEntry?.id })\n        return { obsolete: false, requeue: false, messages: persisted.messages, commit: persisted.commit, scriptEntry: persisted.scriptEntry }")
+    edit('    return { messages: prepared, commit, scriptEntry }', "    diagnosticEvent('commit', 'succeeded', { entryId: scriptEntry?.id })\n    return { messages: prepared, commit, scriptEntry }")
+    // Due replies may create a fresh script entry. Carry only durable entry references
+    // into that model turn, then persist its new entry association for later transport.
+    edit('    if (dueBatch) {\n      const current = await this.getStory(story.id)', `    if (dueBatch) await withDeliveryDiagnostics((this.config.model as any).mobileDiagnostics,
+      dueBatch.flatMap(intent => typeof intent.payload?.scriptEvent?.scriptEntryId === 'number' ? [intent.payload.scriptEvent.scriptEntryId] : []), async () => {
+      const current = await this.getStory(story.id)`)
+    edit('    }\n    if (dueBatches.length > 1) {', '    })\n    if (dueBatches.length > 1) {')
+    edit("          const streamRecovery = dueBatch.every(intent => intent.type === 'narrative-retry' && intent.payload?.streamRecovery === true)", `          diagnosticEvent('decision', succeeded ? decision.interaction?.reply?.mode ?? 'unknown' : 'failed')
+          const streamRecovery = dueBatch.every(intent => intent.type === 'narrative-retry' && intent.payload?.streamRecovery === true)`)
   }
   if (kind === 'narrator') {
     const signature = "  private async requestProvider(provider: ProviderConfig, request: NarrativeRequest, overrides: ChatRequestOverrides = {}, usages: TokenUsageRecord[] = [], task = '主叙事'): Promise<NarrativeDecision> {"

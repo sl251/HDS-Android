@@ -25,6 +25,10 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - run: npm run build
+      - name: Runtime archive policy and OpenSSL fixture checks
+        run: |
+          python3 tests/runtime-pack.test.py
+          python3 tests/guest-openssl-config.test.py
       - run: npx playwright-core install --with-deps chromium
       - name: Exercise character and media controls
         run: |
