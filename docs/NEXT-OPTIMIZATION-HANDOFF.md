@@ -2,9 +2,11 @@
 
 日期：2026-10-19。基于 **preview.9.3 / HDSI rc57**。
 
+本文为 Astra 开发阶段的原始交接；后续测试、修复与合并验收见 [验证记录](NEXT-OPTIMIZATION-VALIDATION.md)。下文“未测试”描述的是最初交接时的状态。
+
 - 发布基线：`v0.1.0-preview.9.3`（`791d6be`）。
 - 本轮分支：`codex/preview93-next-optimization`，从本地 `origin/main` 的 `8e0ae09` 创建；该提交包含 9.3 发布及随后的文档、rc57 启动标识更新。
-- `package.json` 版本仍为 `0.1.0-preview.9.3`。本轮改动未提交、未发布。
+- `package.json` 版本仍为 `0.1.0-preview.9.3`。交接时本轮改动尚未提交、未发布。
 - 最初工作区是 `codex/preview9-audit-fixes` 的 9.2.2；已保留恢复 stash，逐项移植本轮功能到真实 9.3。未将旧审计分支的其他实现整体覆盖到 9.3。
 - 保留 9.3 的角色导入导出、表情逐文件导入与识图检查、QQ 图片格式、文字/语音/表情互斥逻辑。
 
