@@ -7,11 +7,10 @@ import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.time.LocalDate
 import java.security.MessageDigest
 
-/** Shared by foreground previews and background replies. One lock covers quota + network + commit. */
-class VoiceStore(private val context: Context, private val today: () -> String = { LocalDate.now().toString() }, private val credential: () -> String = { HdsStore(context).voiceKey() }) {
+/** Shared by foreground previews and background replies. One lock covers cooldown, network and commit. */
+class VoiceStore(private val context: Context, private val credential: () -> String = { HdsStore(context).voiceKey() }) {
     companion object { internal val lock = Any(); const val MAX_AUDIO = 10 * 1024 * 1024 }
     val base = File(context.noBackupFilesDir, "hds/voice").apply { mkdirs() }
     private fun read(name: String) = File(base, name).let { if (it.exists()) JSONObject(AtomicFile(it).openRead().bufferedReader().use { r -> r.readText() }) else JSONObject() }
@@ -22,28 +21,27 @@ class VoiceStore(private val context: Context, private val today: () -> String =
     fun config(): JSONObject = synchronized(lock) { read("settings.json").apply {
         if (!has("voices")) put("voices", JSONArray().put(JSONObject().put("id", "builtin").put("name", "茉莉").put("type", "builtin").put("value", "茉莉")))
         if (!has("defaultVoiceId")) put("defaultVoiceId", "builtin")
-        if (!has("dailyLimit")) put("dailyLimit", 0)
+        // Drop the retired local daily TTS limit from legacy settings on next save.
+        remove("dailyLimit")
         if (!has("cooldown")) put("cooldown", 5)
         if (!has("characters")) put("characters", JSONObject())
     } }
     private fun usage(): JSONObject = read("usage.json").apply {
-        if (optString("day") != today()) { put("day", today()); put("tokens", 0); put("notified", false); remove("lastResult") }
+        // Legacy token reservations and day counters never gate synthesis again.
+        remove("day"); remove("tokens"); remove("notified")
         if (!has("characters")) put("characters", JSONObject())
     }
     fun state(): JSONObject = synchronized(lock) {
-        val c = config(); val u = usage(); val limit = c.getInt("dailyLimit")
-        if (limit > 0 && u.optLong("tokens") >= limit && !u.optBoolean("notified")) {
-            c.put("notice", "今日语音用量已达上限，语音暂停至明天；文字回复继续。")
-            u.put("notified", true); write("usage.json", u)
-        }
-        c.put("usedTokens", u.optLong("tokens")).put("day", u.getString("day"))
-            .put("lastResult", u.optJSONObject("lastResult"))
+        val c = config(); val u = usage()
+        c.put("lastResult", u.optJSONObject("lastResult"))
             .put("credentialPresent", credential().isNotEmpty())
     }
     fun saveSettings(input: JSONObject): JSONObject = synchronized(lock) {
         val c = config()
-        for ((field, max) in listOf("dailyLimit" to 100000000, "cooldown" to 1000)) {
-            if (input.has(field)) { val n = input.getDouble(field); require(n.isFinite() && n % 1 == 0.0 && n >= 0 && n <= max) { "语音护栏数值无效" }; c.put(field, n.toInt()) }
+        if (input.has("cooldown")) {
+            val n = input.getDouble("cooldown")
+            require(n.isFinite() && n % 1 == 0.0 && n >= 0 && n <= 1000) { "语音冷却数值无效" }
+            c.put("cooldown", n.toInt())
         }
         if (input.has("defaultVoiceId")) { require(findVoice(c, input.getString("defaultVoiceId")) != null) { "音色不存在" }; c.put("defaultVoiceId", input.getString("defaultVoiceId")) }
         val id = input.optString("cardId")
@@ -122,8 +120,6 @@ class VoiceStore(private val context: Context, private val today: () -> String =
         if (!preview && (!willingness.isFinite() || willingness < 0 || willingness > 1)) return skip("missing_decision")
         if (!preview && willingness < binding.optDouble("threshold", .7)) return skip("threshold")
         if (!preview && (cooldown > 0 && count.optLong("replies") - count.optLong("lastVoice") < cooldown)) return skip("cooldown")
-        val limit = c.getInt("dailyLimit"); val used = u.optLong("tokens")
-        if (limit > 0 && used >= limit) return skip("quota")
         val text = input.optString("text").trim(); if (text.isEmpty() || text.length > 12000) return skip("invalid_text")
         val voice = if (preview) input.optJSONObject("draft")?.let { draft ->
             val type = draft.optString("type"); val value = draft.optString("value")
@@ -133,18 +129,12 @@ class VoiceStore(private val context: Context, private val today: () -> String =
         val key = credential(); if (key.isBlank()) return skip("missing_key")
         val model = when (selected.getString("type")) { "design" -> "mimo-v2.5-tts-voicedesign"; "reference" -> "mimo-v2.5-tts-voiceclone"; else -> "mimo-v2.5-tts" }
         val value = if (selected.getString("type") == "reference") "data:audio/wav;base64," + Base64.encodeToString(audioFile(selected.getString("value")).inputStream().use { it.readVoiceBytes(MAX_AUDIO) }, Base64.NO_WRAP) else selected.getString("value")
-        // Reserve before IO. Unknown/timeout billing stays conservatively charged, across restart.
-        val reservation = if (limit > 0) minOf(4096L, limit - used) else 4096L
-        u.put("tokens", used + reservation); write("usage.json", u)
         try {
             val result = client.synthesize(key, model, value, text, input.optString("style").take(3000))
-            u.put("tokens", used + (result.tokens ?: reservation)); write("usage.json", u)
             val audio = putAudio(result.wav)
             if (!preview) { count.put("lastVoice", count.getLong("replies")); write("usage.json", u) }
             outcome("generated", "generated", audio)
         } catch (e: MimoTtsClient.Failure) {
-            // Explicit rejection did not synthesize audio; release only this reservation.
-            if (!e.billingUnknown) u.put("tokens", used)
             outcome("failed", e.reason)
         } catch (_: Exception) { outcome("failed", "provider_timeout_or_network") } // Text delivery must always proceed.
     }
