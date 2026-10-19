@@ -10,7 +10,7 @@ const { startHost } = createRequire(import.meta.url)('../runtime/generated/host.
 const directory = mkdtempSync(join(tmpdir(), 'm5-browser-')), cardId = 'a'.repeat(64)
 const voiceDir = join(directory, 'voices'); mkdirSync(voiceDir)
 const card = { name: '星禾', description: '小林的邻居，经营修理铺。', personality: '开朗温柔', format: 'v2', warnings: [], raw: {} }
-const voices = { voices: [{ id: 'builtin', name: '茉莉', type: 'builtin', value: '茉莉' }], characters: {}, defaultVoiceId: 'builtin', dailyLimit: 50000, cooldown: 5, usedTokens: 0, credentialPresent: true }
+const voices = { voices: [{ id: 'builtin', name: '茉莉', type: 'builtin', value: '茉莉' }], characters: {}, defaultVoiceId: 'builtin', cooldown: 5, credentialPresent: true }
 const sync = () => writeFileSync(join(voiceDir, 'settings.json'), JSON.stringify(voices)); sync()
 const wav = Buffer.alloc(44 + 24000)
 wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(24000, 24); wav.writeUInt32LE(48000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(24000, 40)
@@ -37,7 +37,7 @@ const gateway = createServer(async (req, res) => {
       synthRequests.push(body)
       if (failTts) { res.statusCode = 503; res.end('{}'); return }
       const binding = voices.characters[cardId]
-      if (binding?.enabled && body.willingness >= binding.threshold) { voices.usedTokens += 42; res.end(JSON.stringify(audio)) } else res.end('{}')
+      if (binding?.enabled && body.willingness >= binding.threshold) { res.end(JSON.stringify(audio)) } else res.end('{}')
       return
     }
     const { method, options = {} } = body; calls.push(method)
@@ -50,7 +50,7 @@ const gateway = createServer(async (req, res) => {
     else if (method === 'voiceState') result = voices
     else if (method === 'voiceAudio') { assert.equal(options.audioId, audio.audioId); if (audioDelay) await new Promise(resolve => setTimeout(resolve, audioDelay)); result = { dataUri: audioUri } }
     else if (method === 'saveVoiceSettings') {
-      for (const field of ['dailyLimit', 'cooldown', 'defaultVoiceId']) if (field in options) voices[field] = options[field]
+      for (const field of ['cooldown', 'defaultVoiceId']) if (field in options) voices[field] = options[field]
       if (options.cardId) voices.characters[options.cardId] = options.binding
       sync(); result = voices
     } else if (method === 'saveVoice') {
@@ -67,7 +67,7 @@ const gateway = createServer(async (req, res) => {
     else if (method === 'startVoiceRecording') recording = true
     else if (method === 'stopVoiceRecording') { assert.ok(recording); recording = false; result = audio }
     else if (method === 'cancelVoiceRecording') recording = false
-    else if (method === 'previewVoice') { voices.usedTokens += 42; result = audio }
+    else if (method === 'previewVoice') { result = audio }
     else if (method === 'rpc') {
       if (options.method === 'qq.conversations') result = { data: [] }
       else if (options.method === 'qq.status') result = { data: { phase: 'stopped', policy: { enabled: false, users: [], groups: [] }, logs: [] } }
@@ -188,7 +188,8 @@ try {
   await desk.getByText('晚风', { exact: true }).waitFor({ state: 'detached' })
   assert.equal(voices.characters[cardId].voiceId, '')
   assert.ok(calls.includes('startVoiceRecording') && calls.includes('stopVoiceRecording') && calls.includes('pickVoiceAudio'))
-  assert.ok(voices.usedTokens >= 84); assert.deepEqual(errors, [])
+  assert.equal(await page.getByText('语音日 token 上限').count(), 0)
+  assert.ok(!('dailyLimit' in voices) && !('usedTokens' in voices)); assert.deepEqual(errors, [])
   console.log('PASS M5: actual HDS decisions → LocalBot → SQLite → browser voice bubble, real WAV playback, transcript in one message, failed TTS preserves text, live disabled gate preserves historical audio and removes future voice instruction; workbench design/import/record/preview/save/rename/bind/delete; 320/390/740 px screenshots. Android microphone/SAF/TTS are fixtures; native implementation is separately covered by Robolectric.')
 } catch (error) {
   if (page) { await page.screenshot({ path: 'artifacts/m5/ui-failure.png', fullPage: true }).catch(() => {}); console.error((await page.locator('body').innerText()).slice(-4000)) }
