@@ -29,6 +29,7 @@ class VoiceStoreTest {
     @Before fun setup() { context = RuntimeEnvironment.getApplication(); File(context.noBackupFilesDir, "hds/voice").deleteRecursively() }
     private fun settings(enabled: Boolean = true, threshold: Double = .7, voiceId: String = "") = JSONObject().put("cardId", card).put("binding", JSONObject().put("enabled", enabled).put("threshold", threshold).put("voiceId", voiceId))
     private fun reply(w: Double = 1.0, id: String = card) = JSONObject().put("cardId", id).put("willingness", w).put("text", "最后的文字稿").put("style", "温柔自然")
+    private fun preview(text: String = "试听") = JSONObject().put("preview", true).put("voiceId", "builtin").put("text", text)
     private data class Request(val headers: Map<String, String>, val body: JSONObject)
     private fun server(status: Int = 200, tokens: Long? = 25, delay: Long = 0, invalid: Boolean = false, providerErrorCode: String? = null, test: (MimoTtsClient) -> Unit): Request {
         val socket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")); val executor = Executors.newSingleThreadExecutor()
@@ -108,12 +109,30 @@ class VoiceStoreTest {
         server(status = 503) { client ->
             assertEquals("provider_http_503", s.synthesize(reply(), client).getJSONObject("diagnostic").getString("reason"))
         }
+        // A transient failure suppresses automatic replies for two minutes; previews still retry.
+        assertEquals("provider_backoff", s.synthesize(reply()).getJSONObject("diagnostic").getString("reason"))
         server(delay = 250) { client ->
-            assertEquals("provider_timeout_or_network", s.synthesize(reply(), client).getJSONObject("diagnostic").getString("reason"))
+            assertEquals("provider_timeout_or_network", s.synthesize(preview(), client).getJSONObject("diagnostic").getString("reason"))
         }
-        server(invalid = true) { client -> assertFalse(s.synthesize(reply(), client).has("audioId")) }
+        server(invalid = true) { client ->
+            assertEquals("provider_invalid_audio", s.synthesize(preview(), client).getJSONObject("diagnostic").getString("reason"))
+        }
+        server(tokens = null) { client -> assertTrue(s.synthesize(preview(), client).has("audioId")) }
         server(tokens = null) { client -> assertTrue(s.synthesize(reply(), client).has("audioId")) }
         assertFalse(s.state().has("usedTokens"))
+    }
+    @Test fun longTextIsSkippedBeforeAnyNetwork() {
+        val s = store(); s.saveSettings(settings().put("cooldown", 0))
+        val result = s.synthesize(JSONObject().put("cardId", card).put("willingness", 1.0).put("text", "字".repeat(VoiceStore.MAX_SPEECH_CHARS + 1)))
+        assertEquals("text_too_long", result.getJSONObject("diagnostic").getString("reason")); assertFalse(result.has("audioId"))
+        assertEquals("invalid_text", s.synthesize(JSONObject().put("cardId", card).put("willingness", 1.0).put("text", " ")).getJSONObject("diagnostic").getString("reason"))
+    }
+    @Test fun missingReferenceFileFallsBackInsteadOfThrowing() {
+        val s = store(); s.saveSettings(settings().put("cooldown", 0)); val audio = s.putAudio(wav())
+        s.saveVoice(JSONObject().put("id", "gone").put("name", "参考").put("type", "reference").put("value", audio.getString("audioId")))
+        s.saveSettings(settings(voiceId = "gone")); s.audioFile(audio.getString("audioId")).delete()
+        val result = s.synthesize(reply())
+        assertEquals("reference_unreadable", result.getJSONObject("diagnostic").getString("reason")); assertFalse(result.has("audioId"))
     }
     @Test fun providerRejectionAndMissingDecisionRemainDistinct() {
         val s = store(); s.saveSettings(settings().put("cooldown", 0))
@@ -128,6 +147,8 @@ class VoiceStoreTest {
                 if (status == 402) assertEquals("provider_quota", result.getJSONObject("diagnostic").getString("reason"))
             }
         }
+        // 429 above starts the two-minute backoff; a manual preview clears it, then automatic replies resume.
+        server { client -> assertTrue(s.synthesize(preview(), client).has("audioId")) }
         server { client -> assertTrue(s.synthesize(reply(), client).has("audioId")) }
         assertEquals("generated", s.state().getJSONObject("lastResult").getString("status"))
     }
