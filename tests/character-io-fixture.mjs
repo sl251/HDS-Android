@@ -34,7 +34,7 @@ export async function characterFixture(styles = false) {
       if (method === 'status') return { state: 'stopped', installed: true, environmentState: 'ready', running: false, logs: [], device: {} }
       if (method === 'appearance') return { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 92, backgroundBlur: 0, theme: 'light' }
       if (method === 'notificationSettings') return { enabled: false, permission: 'prompt', available: false }
-      if (method === 'voiceState') return { voices: [], characters: {}, defaultVoiceId: '', dailyLimit: 50000, cooldown: 5, usedTokens: 0, credentialPresent: false }
+      if (method === 'voiceState') return { voices: [], characters: {}, defaultVoiceId: '', cooldown: 5, credentialPresent: false }
       if (method === 'rpc') throw new Error('请先启动 HDS')
       return {}
     } }
