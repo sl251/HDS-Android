@@ -188,7 +188,6 @@ nav .nav-unread { background:#c23e43; color:white; border-radius:9px; transform:
 .pool-tabs { display:flex; gap:8px; margin:12px 0; }
 .pool-tabs button { flex:1; min-height:44px; }
 .pool-tabs button[aria-pressed=true] { background:var(--accent); color:var(--paper); }
-.message-diagnostic-link { align-self:flex-end; min-height:28px; font-size:11px; opacity:.7; }
 .message-diagnostics { max-height:calc(100dvh - 32px); overflow-y:auto; overscroll-behavior:contain; }
 .diagnostic-events { list-style:none; padding:0; }
 .diagnostic-events li { border-left:2px solid var(--line); padding:12px 0 12px 16px; overflow-wrap:anywhere; }

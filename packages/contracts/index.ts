@@ -46,7 +46,7 @@ export type QQMessage = { id: string; conversation: string; sender: string; name
 export type MessageNotificationSettings = { enabled: boolean; permission: 'prompt' | 'granted' | 'denied'; available: boolean }
 export type NativeBridge = {
   voiceState(): Promise<VoiceState>;
-  saveVoiceSettings(options: { dailyLimit?: number; cooldown?: number; defaultVoiceId?: string; apiKey?: string; clearKey?: boolean; cardId?: string; binding?: VoiceBinding }): Promise<VoiceState>;
+  saveVoiceSettings(options: { cooldown?: number; defaultVoiceId?: string; apiKey?: string; clearKey?: boolean; cardId?: string; binding?: VoiceBinding }): Promise<VoiceState>;
   saveVoice(options: Partial<Voice> & { name: string }): Promise<VoiceState>;
   deleteVoice(options: { id: string }): Promise<VoiceState>;
   voiceAudio(options: { audioId: string }): Promise<{ dataUri: string }>;

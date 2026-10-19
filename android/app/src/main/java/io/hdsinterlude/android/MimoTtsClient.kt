@@ -6,9 +6,9 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v1/chat/completions", private val timeout: Int = 25000) {
-    class Failure(val reason: String, val billingUnknown: Boolean) : Exception(reason)
-    data class Result(val wav: ByteArray, val tokens: Long?)
+class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v1/chat/completions", private val timeout: Int = 90000) {
+    class Failure(val reason: String) : Exception(reason)
+    data class Result(val wav: ByteArray)
     fun synthesize(key: String, model: String, voice: String, text: String, style: String): Result {
         val c = URL(endpoint).openConnection() as HttpURLConnection
         val watchdog = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "hds-tts-timeout").apply { isDaemon = true } }
@@ -16,17 +16,22 @@ class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v
         try {
             c.requestMethod = "POST"; c.connectTimeout = timeout; c.readTimeout = timeout; c.instanceFollowRedirects = false; c.doOutput = true
             c.setRequestProperty("api-key", key); c.setRequestProperty("Content-Type", "application/json")
-            val body = JSONObject().put("model", model).put("audio", JSONObject().put("format", "wav").put("voice", voice))
-                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", style.ifBlank { "自然、克制地说话，忠实朗读正文。" }))
+            // Voice design uses a user-message description rather than audio.voice.
+            val design = model == "mimo-v2.5-tts-voicedesign"
+            val audio = JSONObject().put("format", "wav")
+            if (!design) audio.put("voice", voice)
+            val instruction = if (design) {
+                voice.trim() + if (style.isBlank()) "" else "\n朗读语气：${style.trim()}"
+            } else style.ifBlank { "自然、克制地说话，忠实朗读正文。" }
+            val body = JSONObject().put("model", model).put("audio", audio)
+                .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", instruction))
                     .put(JSONObject().put("role", "assistant").put("content", text)))
             c.outputStream.use { it.write(body.toString().toByteArray()) }
             val status = c.responseCode
-            if (status !in 200..299) throw Failure(ProviderFailure.reason(c, status), status !in listOf(400, 401, 402, 403, 404, 422, 429))
+            if (status !in 200..299) throw Failure(ProviderFailure.reason(c, status))
             val bytes = c.inputStream.use { it.readVoiceBytes(16 * 1024 * 1024) }; require(bytes.size <= 16 * 1024 * 1024)
-            val result = JSONObject(String(bytes, Charsets.UTF_8)); val usage = result.optJSONObject("usage")
-            val tokens = if (usage?.has("total_tokens") == true) usage.optLong("total_tokens", -1).takeIf { it >= 0 }
-                else if (usage?.has("prompt_tokens") == true && usage.has("completion_tokens")) (usage.optLong("prompt_tokens") + usage.optLong("completion_tokens")).takeIf { it >= 0 } else null
-            return Result(Base64.decode(result.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getJSONObject("audio").getString("data"), Base64.DEFAULT), tokens)
+            val result = JSONObject(String(bytes, Charsets.UTF_8))
+            return Result(Base64.decode(result.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getJSONObject("audio").getString("data"), Base64.DEFAULT))
         } finally { deadline.cancel(false); watchdog.shutdownNow(); c.disconnect() }
     }
 }

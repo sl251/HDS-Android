@@ -26,7 +26,7 @@ const gateway = createServer(async (req, res) => {
     else if (method === 'status') result = status
     else if (method === 'appearance') result = { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 92, backgroundBlur: 0, theme: 'light' }
     else if (method === 'notificationSettings') result = { enabled: false, permission: 'prompt', available: false }
-    else if (method === 'voiceState') result = { voices: [], characters: {}, dailyLimit: 50000, cooldown: 5, usedTokens: 0 }
+    else if (method === 'voiceState') result = { voices: [], characters: {}, cooldown: 5 }
     else if (method === 'rpc') {
       requests.push(options)
       if (options.method === 'qq.conversations') result = { data: [] }
