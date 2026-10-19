@@ -7,6 +7,7 @@ export function withOneBotVoice(source) {
   source = source.replace(/\r\n/g, '\n')
   const edits = [
     ["      return voice?.enabled ? { platform: 'local', quoteReply: false, reactions: [], voice } : undefined", "      return { platform: 'local', quoteReply: false, reactions: [], expressionThreshold: this.expressionThreshold, ...(voice?.enabled ? { voice } : {}) }"],
+    ["if (voice?.enabled) chatCapabilities = { platform: 'local', quoteReply: false, reactions: [], voice }", "if (voice?.enabled) chatCapabilities = { platform: 'local', quoteReply: false, reactions: [], expressionThreshold: this.expressionThreshold, voice }"],
     ["const canEarlyReply = onEarlyReply && !chatCapabilities?.voice?.enabled", "const canEarlyReply = onEarlyReply && !stickerCatalog.length && !chatCapabilities?.voice?.enabled"],
     ["session.bot.sendMessage(channelId, h('img', { src: fileSrc }))", "((this.config.model as any).mobileStickerDelivery?.(session.bot, channelId, fileSrc, !!groupId, () => session.bot.sendMessage(channelId, h('img', { src: fileSrc }))) ?? session.bot.sendMessage(channelId, h('img', { src: fileSrc })))"],
     ["session.bot.sendMessage(channelId, h('img', { src }))", "((this.config.model as any).mobileStickerDelivery?.(session.bot, channelId, src, !!groupId, () => session.bot.sendMessage(channelId, h('img', { src }))) ?? session.bot.sendMessage(channelId, h('img', { src })))"],
@@ -29,7 +30,7 @@ export function withOneBotVoice(source) {
     ["await withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send')", "await ((this.config.model as any).mobileOneBotVoiceDelivery?.(bot, transportGroupId, outgoing, voice?.willingness, () => withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send')) ?? withTransportTimeout(bot.sendMessage(transportGroupId, outgoing), 'group-send'))"],
     ["    if (commit) {\n      const validation = validateScriptCommit", "    if (commit) {\n      persistVoiceDecision(commit, raw.voice)\n      const validation = validateScriptCommit"],
     ["      content: current.content,\n      ...(current.endpointId", "      content: current.content,\n      voice: normalizeVoiceDecision(current.event.metadata?.mobileVoice),\n      ...(current.endpointId"],
-    ["              content: segment, visibleMessage: true, userInitiated: message.userInitiated === true,", "              content: segment, visibleMessage: true, userInitiated: message.userInitiated === true,\n              ...(normalizeVoiceDecision(message.voice) ? { mobileVoice: normalizeVoiceDecision(message.voice) } : {}),"],
+    ["              content: segment, visibleMessage: true, userInitiated: message.userInitiated === true,", "              content: segment, visibleMessage: true, userInitiated: message.userInitiated === true,\n              ...(normalizeVoiceDecision(message.voice) ? { mobileVoice: message.voice } : {}),"],
   ]
   for (const [index, [before, after]] of edits.entries()) {
     if (source.split(after).length === 2) continue
@@ -44,7 +45,7 @@ export function withOneBotVoice(source) {
     source = source.replaceAll(before, after)
   }
   const imports = "import { normalizeVoiceDecision, persistVoiceDecision } from '../../../runtime/voice-decision'\n"
-  return source.startsWith(imports) ? source : imports + source
+  return source.includes(imports) ? source : imports + source
 }
 
 export const oneBotVoiceOverlay = {

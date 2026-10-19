@@ -72,6 +72,9 @@ export async function oneBotVoiceDelivery<T>(bridge: VoiceBridgeConfig | undefin
     // empty receipt or timeout cannot establish that the record was rejected.
     const code = (error as { code?: unknown })?.code
     if (typeof code === 'number' && code !== 0) return sendText()
-    throw Object.assign(new Error('transport-timeout:voice-send (语音结果未知，未追加文字)'), { transportTimeout: true })
+    // Keep the failure reason distinguishable without leaking the audio payload.
+    const cause = error instanceof Error && error.message === 'record receipt missing' ? 'receipt-missing'
+      : error instanceof Error && error.message === 'record receipt timed out' ? 'timeout' : 'unknown'
+    throw Object.assign(new Error(`transport-timeout:voice-send (语音结果未知，未追加文字；${cause})`), { transportTimeout: true })
   } finally { clearTimeout(timer) }
 }
