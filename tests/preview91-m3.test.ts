@@ -93,11 +93,11 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
   writeFileSync(join(voiceDir, `${audioId}.wav`), bytes)
   let enabled = true, willingness: unknown = .95, bridgeMode = 'normal', rejectRecord = false, groupTurn = false
   let releaseSlow: (() => void) | undefined
-  let replies = 0, lastVoice = -1000, used = 0, cooldown = 0, dailyLimit = 1000, receiptId = 70000
+  let replies = 0, lastVoice = -1000, cooldown = 0, receiptId = 70000
   const synthesis: any[] = [], models: any[] = [], delivered: any[] = []
-  const settings = () => writeFileSync(join(voiceDir, 'settings.json'), JSON.stringify({ characters: { first: { enabled, threshold: .7 } }, cooldown, dailyLimit }))
+  const settings = () => writeFileSync(join(voiceDir, 'settings.json'), JSON.stringify({ characters: { first: { enabled, threshold: .7 } }, cooldown }))
   settings()
-  // The Android side is a loopback fixture of the unchanged VoiceStore contract;
+  // The Android side is a loopback fixture of the current VoiceStore voice/cooldown policy;
   // codec, HDS, SQLite, Koishi and the OneBot encoder/socket are real.
   const api = createServer(async (req, res) => {
     let raw = ''; for await (const part of req) raw += part
@@ -107,8 +107,8 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
       synthesis.push(body); replies++
       if (bridgeMode === 'slow') await new Promise<void>(resolve => { releaseSlow = resolve })
       if (bridgeMode === 'http') { res.statusCode = 503; res.end('{}'); return }
-      if (!enabled || body.willingness < .7 || body.willingness > 1 || replies - lastVoice < cooldown || used >= dailyLimit) { res.end('{}'); return }
-      lastVoice = replies; used += 10
+      if (!enabled || body.willingness < .7 || body.willingness > 1 || replies - lastVoice < cooldown) { res.end('{}'); return }
+      lastVoice = replies
       res.end(JSON.stringify({ audioId, duration: 1 })); return
     }
     models.push(body)
@@ -208,10 +208,10 @@ test('M3 real HDS + OneBot private/group record delivery, final willingness, sha
       assert.equal(Number(message[0].data.sub_type), 1)
       assert.equal(message[0].data.summary, '[表情包]')
     }
-    for (const failure of ['low', 'invalid', 'cooldown', 'daily', 'http', 'corrupt', 'reject', 'disabled']) {
+    for (const failure of ['low', 'invalid', 'cooldown', 'http', 'corrupt', 'reject', 'disabled']) {
       const before = texts().length, beforeRecords = records().length
       willingness = failure === 'low' ? .1 : failure === 'invalid' ? 2 : .95
-      cooldown = failure === 'cooldown' ? 100 : 0; dailyLimit = failure === 'daily' ? used : 1000
+      cooldown = failure === 'cooldown' ? 100 : 0
       bridgeMode = failure === 'http' ? 'http' : 'normal'; rejectRecord = failure === 'reject'; enabled = failure !== 'disabled'; settings()
       writeFileSync(join(voiceDir, `${audioId}.wav`), failure === 'corrupt' ? Buffer.from('invalid') : bytes)
       incoming(); await waitFor(() => texts().length > before); await settled()
