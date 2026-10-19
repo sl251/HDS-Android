@@ -72,10 +72,19 @@ export async function startHost(input: HostConfig) {
           continue
         }
         flush()
-        const file = await stickerFileForSource(String(element.attrs.src ?? ''), stickerConfig.directory, async assetId =>
+        const src = String(element.attrs.src ?? '')
+        const file = await stickerFileForSource(src, stickerConfig.directory, async assetId =>
           (await app.database.get('interlude_sticker', { assetId, status: 'active' }))[0])
-        // Unknown media must never leak its URL/markup into a message or push.
-        if (!file) throw new Error('Local sticker is unavailable')
+        if (!file) {
+          const isStickerDelivery = (() => {
+            try {
+              return /^https?:/i.test(src) && new URL(src).pathname.startsWith('/hds-interlude/sticker/')
+            } catch { return false }
+          })()
+          if (isStickerDelivery) throw new Error('Local sticker is unavailable')
+          text += element.toString()
+          continue
+        }
         rows.push({ content: '', images: [media.registerSticker(readFileSync(file)).id] })
       }
       flush()
