@@ -69,10 +69,11 @@ test('M5 bridge failures, invalid metadata and non-loopback endpoints silently f
 test('M5 real HDS decisions reach final local text + one audio record; legacy SQLite migrates; disabling and failed TTS preserve text', { timeout: 90000 }, async () => {
   const requests: any[] = [], synthesis: any[] = []
   let willingness: unknown = .95, failTts = false
+  let replyContent = '今天真开心。'
   const model = createServer(async (req, res) => {
     let text = ''; for await (const chunk of req) text += chunk
     const body = JSON.parse(text); requests.push(body)
-    const decision = { script: '星禾看了眼手机，心里很开心，给小林发消息：“今天真开心。”', interaction: { seen: true, reply: { mode: 'immediate', content: '今天真开心。' } }, voice: { willingness } }
+    const decision = { script: `星禾看了眼手机，心里很开心，给小林发消息：“${replyContent}”`, interaction: { seen: true, reply: { mode: 'immediate', content: replyContent } }, voice: { willingness } }
     if (body.stream) { res.setHeader('Content-Type', 'text/event-stream'); res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(decision) } }] })}\n\ndata: [DONE]\n\n`) }
     else { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] })) }
   })
@@ -119,6 +120,42 @@ test('M5 real HDS decisions reach final local text + one audio record; legacy SQ
     assert.doesNotMatch(requests.at(-1).messages[0].content, /CURRENT LOCAL VOICE OPTION|voice: \{/)
     assert.equal(requests.at(-1).stream, true, 'disabled voice preserves experimental early text delivery')
     assert.equal((await history()).at(-1).audio, undefined) // Failed native synthesis cannot replace text.
+    enable(true); failTts = false
+    replyContent = '第一段语音。<sep/>第二段语音。'
+    const beforeSplit = synthesis.length
+    Object.assign(host.app.interlude.config.runtime, { typingBaseDelaySeconds: 0, typingMaxDelaySeconds: 0, typingJitterRatio: 0 })
+    await host.dispatch('messages.sendLocal', { requestId: 'm5-split-voice-request', content: '分两句说吧' })
+    await until(async () => (await history()).filter(row => row.direction === 'character').length === 6)
+    assert.deepEqual(synthesis.slice(beforeSplit).map(row => [row.text, row.willingness]), [['第一段语音。', .95], ['第二段语音。', .95]])
+    assert.ok((await history()).filter(row => row.direction === 'character').slice(-2).every(row => row.audio))
+    const splits = await host.app.database.get('interlude_intent', { type: 'split-message' })
+    assert.ok(splits.some((intent: any) => intent.payload.mobileVoice?.willingness === .95))
+    const scripts = await host.app.database.get('interlude_script_entry', { kind: 'script' })
+    assert.ok(scripts.some((entry: any) => entry.metadata?.scriptEvents?.some((event: any) => event.kind === 'outgoing-message' && event.metadata?.mobileVoice?.willingness === .95)))
+    // Exercise the compiled outbox reconstruction against a durable pending row.
+    // This isolates recovery from the scheduler so it cannot race a live timer.
+    const entry = structuredClone(scripts.find((entry: any) => entry.metadata?.scriptEvents?.some((event: any) => event.metadata?.mobileVoice?.willingness === .95))) as any
+    for (const action of entry.metadata.deliveryActions) {
+      action.status = 'pending'
+      for (const segment of action.segments) segment.status = 'pending'
+    }
+    const service = host.app.interlude as any
+    const recovered: any[] = []
+    const recovery = {
+      taskGeneration: () => 1, taskGenerationCurrent: () => true,
+      getStory: async () => ({ id: entry.storyId, status: 'active' }),
+      dbGet: async (table: string) => table === 'interlude_script_entry' ? [entry] : [],
+      pendingOutgoingDeliveryCandidates: service.pendingOutgoingDeliveryCandidates,
+      interruptedTypingParticipants: new Set(), getParticipant: async () => ({ status: 'active' }),
+      deliverOutgoingMessages: async (_story: unknown, messages: any[]) => {
+        recovered.push(...messages)
+        for (const action of entry.metadata.deliveryActions) for (const segment of action.segments) segment.status = 'delivered'
+      },
+    }
+    const candidate = service.pendingOutgoingDeliveryCandidates(entry)[0]
+    assert.ok(candidate)
+    assert.equal(await service.recoverPendingDeliveryCandidate.call(recovery, { id: entry.storyId }, candidate), 'delivered')
+    assert.deepEqual(recovered[0].voice, { willingness: .95 })
     await host.stop(); host = undefined
     host = await startHost({ ...config, voiceBridge }); assert.deepEqual((await host.dispatch('messages.history', {}) as any[]).find(item => item.id === row.id)?.audio, audio)
   } finally { if (host) await host.stop(); await new Promise<void>(resolve => model.close(() => resolve())); await new Promise<void>(resolve => tts.close(() => resolve())); rmSync(dataDir, { recursive: true, force: true }) }

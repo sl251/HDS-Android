@@ -89,48 +89,73 @@ test('M4 character media marker stripping preserves prose, punctuation and ordin
   assert.match(markup, /普通文字/)
 })
 
-test('M4 actual host describes GIF, injects mobile catalog, normalizes model media choices to standalone and disables stale empty catalog', { timeout: 120000 }, async () => {
+test('M4 actual host preserves upstream after-text and standalone sticker delivery and disables stale empty catalog', { timeout: 120000 }, async () => {
   const requests: any[] = [], logs: string[] = []
+  const speech: any[] = []
+  let speak = false
   let placement = 'after-text'
   const filePath = `开心包/${hash}.gif`, assetId = stableStickerAssetId(filePath, hash)
   const model = createServer(async (request, response) => {
     let body = ''; for await (const chunk of request) body += chunk
     const parsed = JSON.parse(body); requests.push(parsed)
+    if (request.url === '/synthesize') {
+      response.setHeader('Content-Type', 'application/json')
+      if (!speak || parsed.willingness < .8) { response.end('{}'); return }
+      speech.push(parsed)
+      response.end(JSON.stringify({ audioId: 'a'.repeat(64), duration: 1 }))
+      return
+    }
     const description = String(parsed.messages?.[0]?.content).startsWith('Describe this local chat sticker')
     const decision = description ? { description: '一只开心的小动物，表示高兴。', aliases: ['开心'] } : {
       script: placement === 'after-text' ? '星禾看了眼手机，微笑着给小林发消息：“今天很开心。”' : '星禾看了眼手机，微笑着发送了一张开心的小动物表情。',
       interaction: { seen: true, reply: placement === 'after-text' ? { mode: 'immediate', content: '今天很开心。' } : { mode: 'none' } },
       localMedia: { assetId, placement, willingness: .95 },
+      ...(speak ? { voice: { willingness: .9 } } : {}),
     }
     response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] }))
   })
   await new Promise<void>(resolve => model.listen(0, '127.0.0.1', resolve))
   const reserve = createServer(); await new Promise<void>(resolve => reserve.listen(0, '127.0.0.1', resolve)); const port = (reserve.address() as any).port; await new Promise<void>(resolve => reserve.close(() => resolve()))
   const dataDir = mkdtempSync(join(tmpdir(), 'hds-m4-host-'))
+  const directory = join(dataDir, 'voice'); mkdirSync(directory)
+  const enableVoice = (enabled: boolean) => writeFileSync(join(directory, 'settings.json'), JSON.stringify({ characters: { first: { enabled, threshold: .8 } } }))
+  enableVoice(false)
   mkdirSync(join(dataDir, 'stickers', '开心包'), { recursive: true }); writeFileSync(join(dataDir, 'stickers', filePath), bytes)
   const config: HostConfig = { card: parseJsonCard(JSON.stringify({ name: '星禾', description: '小林的邻居' })), endpoint: `http://127.0.0.1:${(model.address() as any).port}/v1/chat/completions`, model: 'm4-fixture', userName: '小林', userProfile: '邻居', autoAdvance: false, token: 'm4-test-token-longer-than-32-characters', port, dataDir, modelOptions: { visionEnabled: true } }
   let host: Awaited<ReturnType<typeof startHost>> | undefined
   const target = { record: (record: { content: string }) => logs.push(record.content) }; Logger.targets.push(target)
   const history = async () => await host!.dispatch('messages.history', {}) as any[]
   try {
-    host = await startHost(config)
+    host = await startHost({ ...config, voiceBridge: { directory, cardId: 'first', token: 'fixture', url: `http://127.0.0.1:${(model.address() as any).port}/synthesize` } })
+    host.app.interlude.config.chatActions.expressionThreshold = .85
     assert.equal(host.app.interlude.config.stickers.enabled, true)
     await until(async () => (await host!.app.database.get('interlude_sticker', { status: 'active' })).length === 1)
     await host.dispatch('messages.sendLocal', { requestId: 'm4-after-text-request', content: '今天开心吗' })
     await until(async () => (await history()).some(row => row.direction === 'character' && row.images.length))
     const pair = (await history()).filter(row => row.direction === 'character')
-    assert.deepEqual(pair.map(row => [row.content, row.images.length]), [['', 1]])
-    const uri = (await host.dispatch('images.get', { id: pair[0].images[0] }) as any).dataUri
+    assert.deepEqual(pair.map(row => [row.content, row.images.length]), [['今天很开心。', 0], ['', 1]])
+    const uri = (await host.dispatch('images.get', { id: pair[1].images[0] }) as any).dataUri
     assert.equal(uri, `data:image/gif;base64,${bytes.toString('base64')}`)
     const narrative = requests.find(row => !String(row.messages[0].content).startsWith('Describe this local chat sticker'))
     assert.match(narrative.messages[0].content, /CURRENT LOCAL STICKER LIBRARY/)
+    assert.match(narrative.messages[0].content, /willingness reaches 0.85/)
     assert.ok(JSON.stringify(narrative).includes(assetId))
     const since = await host.dispatch('messages.since', { since: '2000-01-01T00:00:00Z' }) as any[]
     assert.equal(since.at(-1).fullContent, '[表情包]')
     placement = 'standalone'
     await host.dispatch('messages.sendLocal', { requestId: 'm4-standalone-request', content: '那发个表情吧' })
-    await until(async () => (await history()).filter(row => row.direction === 'character').length >= 2)
-    assert.deepEqual((await history()).filter(row => row.direction === 'character').slice(1).map(row => [row.content, row.images.length]), [['', 1]])
+    await until(async () => (await history()).filter(row => row.direction === 'character').length >= 3)
+    assert.deepEqual((await history()).filter(row => row.direction === 'character').slice(2).map(row => [row.content, row.images.length]), [['', 1]])
+    const beforeMissing = (await history()).length
+    await assert.rejects(host.bot.sendMessage('private:local-user', h('img', { src: stickerDeliveryUrl('', 'unknown') })), /sticker is unavailable/)
+    assert.equal((await history()).length, beforeMissing, 'Missing stickers cannot produce a blank success receipt')
+    enableVoice(true); speak = true; placement = 'after-text'
+    await host.dispatch('messages.sendLocal', { requestId: 'm4-voice-and-sticker', content: '用语音和表情告诉我吧' })
+    await until(async () => (await history()).filter(row => row.direction === 'character').length >= 5)
+    const combined = (await history()).filter(row => row.direction === 'character').slice(-2)
+    assert.deepEqual(combined.map(row => [row.content, !!row.audio, row.images.length]), [['今天很开心。', true, 0], ['', false, 1]])
+    assert.deepEqual(speech.map(row => [row.text, row.willingness]), [['今天很开心。', .9]], 'Only the authored words reach TTS, once')
+    enableVoice(false); speak = false
     const [id1, id2] = await host.bot.sendMessage('private:local-user', `直接文本${h('img', { src: stickerDeliveryUrl('', assetId) })}`)
     assert.ok(id1 && id2)
     assert.deepEqual((await history()).filter(row => [id1, id2].includes(row.id)).map(row => [row.content, row.images.length]), [['直接文本', 0], ['', 1]])
@@ -142,7 +167,7 @@ test('M4 actual host describes GIF, injects mobile catalog, normalizes model med
     requests.length = 0
     host = await startHost({ ...config, card: parseJsonCard(JSON.stringify({ name: '新角色', description: '空库测试' })) })
     assert.equal(host.app.interlude.config.stickers.enabled, false)
-    assert.equal((await host.dispatch('images.get', { id: pair[0].images[0] }) as any).dataUri, uri)
+    assert.equal((await host.dispatch('images.get', { id: pair[1].images[0] }) as any).dataUri, uri)
     await host.dispatch('messages.sendLocal', { requestId: 'm4-empty-library-request', content: '你好' })
     await until(async () => requests.length > 0)
     const emptyPrompt = requests[0].messages[0].content

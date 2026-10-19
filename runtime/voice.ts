@@ -64,7 +64,8 @@ export async function oneBotVoiceDelivery<T>(bridge: VoiceBridgeConfig | undefin
       bot.sendMessage(channelId, `<audio src="data:audio/silk;base64,${silk.toString('base64')}"/>`),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('record receipt timed out')), 15000) }),
     ])
-    if (Array.isArray(receipt) && !receipt.length) throw new Error('record receipt missing')
+    const ids = Array.isArray(receipt) ? receipt : [receipt]
+    if (!ids.length || !ids.every(id => typeof id === 'string' ? !!id.trim() : typeof id === 'number' && Number.isFinite(id))) throw new Error('record receipt missing')
     return receipt
   } catch (error) {
     // OneBot SenderError carries an explicit nonzero retcode. A network error,
