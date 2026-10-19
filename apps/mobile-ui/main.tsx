@@ -153,7 +153,7 @@ function App() {
   const active = cards.find(card => card.id === selected)
   const characterName = story?.story?.setting?.character?.name || active?.card.name || ''
   const native = Capacitor.isNativePlatform()
-  const voices = useVoices(bridge, native, setNotice)
+  const voices = useVoices(bridge, native)
   const appearance = useAppearance(bridge, native, setNotice)
   const [diagnostic, setDiagnostic] = useState<Record<string, unknown> | null>(null)
   const navigation = useRef<HTMLElement>(null)
