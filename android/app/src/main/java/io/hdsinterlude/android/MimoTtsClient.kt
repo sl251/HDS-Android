@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v1/chat/completions", private val timeout: Int = 90000) {
+class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v1/chat/completions", private val timeout: Int = 90000, private val connectTimeout: Int = 15000) {
     class Failure(val reason: String) : Exception(reason)
     data class Result(val wav: ByteArray)
     fun synthesize(key: String, model: String, voice: String, text: String, style: String): Result {
@@ -14,7 +14,7 @@ class MimoTtsClient(private val endpoint: String = "https://api.xiaomimimo.com/v
         val watchdog = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "hds-tts-timeout").apply { isDaemon = true } }
         val deadline = watchdog.schedule({ c.disconnect() }, timeout.toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
         try {
-            c.requestMethod = "POST"; c.connectTimeout = timeout; c.readTimeout = timeout; c.instanceFollowRedirects = false; c.doOutput = true
+            c.requestMethod = "POST"; c.connectTimeout = connectTimeout; c.readTimeout = timeout; c.instanceFollowRedirects = false; c.doOutput = true
             c.setRequestProperty("api-key", key); c.setRequestProperty("Content-Type", "application/json")
             // Voice design uses a user-message description rather than audio.voice.
             val design = model == "mimo-v2.5-tts-voicedesign"
