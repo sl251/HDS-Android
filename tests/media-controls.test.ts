@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { stickerImportReason } from '../apps/mobile-ui/sticker-state'
 import { defaultOptions, newProvider } from '../apps/mobile-ui/ModelCenter'
-import { exclusiveMediaPrompt } from '../runtime/stickers'
+import { mobileVoicePrompt, normalizeVoiceDecision } from '../runtime/voice-decision'
 import { voiceInstruction, stickerInstruction } from '../upstream/hds-interlude/src/narrator'
 import { oneBotVoiceDelivery } from '../runtime/voice'
 import { createServer } from 'node:http'
@@ -20,11 +20,18 @@ test('sticker imports require a configured vision route before opening the picke
   assert.equal(stickerImportReason({ ...settings, providers: [{ ...provider, id: 'vision', useForMain: false }], modelOptions: { ...settings.modelOptions, visionProviderId: 'vision' } }), undefined)
 })
 
-test('available media prompts ask for one medium and preserve absent capabilities', () => {
-  assert.equal(exclusiveMediaPrompt('ordinary prompt'), 'ordinary prompt')
-  const prompt = exclusiveMediaPrompt(voiceInstruction({ platform: 'local', quoteReply: false, reactions: [], voice: { enabled: true, threshold: .7 } }) + '\n' + stickerInstruction([{ assetId: 'x', group: 'g', description: '开心', aliases: [], animated: true }]))
-  assert.match(prompt, /Choose text OR voice/); assert.match(prompt, /"placement":"standalone"/)
-  assert.doesNotMatch(prompt, /after-text|文字本身永远是主体/)
+test('voice extension preserves upstream sticker choices and both configured thresholds', () => {
+  assert.equal(mobileVoicePrompt('ordinary prompt'), 'ordinary prompt')
+  const voice = { enabled: true, threshold: .85 }
+  const stickers = stickerInstruction([{ assetId: 'x', group: 'g', description: '开心', aliases: [], animated: true }], .45)
+  const prompt = mobileVoicePrompt(voiceInstruction({ platform: 'local', quoteReply: false, reactions: [], voice }) + '\n' + stickers, voice)
+  assert.ok(prompt.endsWith(stickers), 'The upstream sticker prompt is unchanged')
+  assert.match(prompt, /standalone\|after-text/)
+  assert.match(prompt, /reaches 0.85/); assert.match(prompt, /reaches 0.45/)
+  assert.match(prompt, /TOP LEVEL/)
+  assert.doesNotMatch(prompt, /daily|文字本身永远是主体/)
+  for (const value of [undefined, null, {}, [], { willingness: '0.9' }, { willingness: NaN }, { willingness: Infinity }, { willingness: -1 }, { willingness: 1.1 }]) assert.equal(normalizeVoiceDecision(value), undefined)
+  for (const willingness of [0, .9, 1]) assert.deepEqual(normalizeVoiceDecision({ willingness, extra: 'ignored' }), { willingness })
 })
 
 test('voice success returns its receipt; transport uncertainty sends no fallback text', async () => {
@@ -41,7 +48,7 @@ test('voice success returns its receipt; transport uncertainty sends no fallback
     const bot = { platform: 'onebot', sendMessage: async (_: string, content: string) => { assert.match(content, /^<audio /); return ['voice'] } }
     assert.deepEqual(await oneBotVoiceDelivery(bridge, bot, 'group:1', ['<quote id="1"/>', '你好'], .9, '', fallback), ['voice'])
     assert.equal(texts, 0)
-    for (const sendMessage of [async () => { throw new Error('connection lost') }, async () => []]) {
+    for (const sendMessage of [async () => { throw new Error('connection lost') }, ...[[], undefined, null, '', [''], [null]].map(receipt => async () => receipt as any)]) {
       await assert.rejects(oneBotVoiceDelivery(bridge, { ...bot, sendMessage }, '1', '你好', .9, '', fallback), /transport-timeout:voice-send/)
       assert.equal(texts, 0)
     }

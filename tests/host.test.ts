@@ -81,12 +81,14 @@ test('real Koishi/HDS/SQLite host persists inbound IDs, builds card context and 
       return (write as any)(chunk, ...args)
     }) as typeof process.stdout.write
     try {
-      const [id] = await host.bot.sendMessage('private:local-user', '<img src="x"/>')
+      const [id] = await host.bot.sendMessage('private:local-user', '测试消息')
       assert.equal(pushes.length, 1)
       const pushed = JSON.parse(pushes[0].slice(13))
-      assert.equal(pushed.id, id); assert.equal(pushed.content, '[图片]')
+      assert.equal(pushed.id, id); assert.equal(pushed.content, '测试消息')
       const saved = (await host.app.database.get('mobile_message' as never, { id } as never))[0] as { occurredAt: Date }
       assert.equal(pushed.occurredAt, saved.occurredAt.toISOString())
+      // Unknown media must fail the whole local send rather than writing a blank row.
+      await assert.rejects(() => host!.bot.sendMessage('private:local-user', '<img src="x"/>'), /sticker is unavailable/)
       await assert.rejects(() => host!.bot.sendMessage('unauthorized', '无权限'))
       assert.equal(pushes.length, 1, 'No stdout push without successful authorized persistence')
     } finally { process.stdout.write = write }

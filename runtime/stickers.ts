@@ -40,12 +40,6 @@ export function emptyStickerSystemPrompt(prompt: string) {
     .replace(/such as a sticker or native face/g, 'such as a native face')
 }
 
-export function exclusiveMediaPrompt(prompt: string) {
-  return prompt
-    .replace(/CURRENT LOCAL VOICE OPTION:[^\n]*/g, 'CURRENT LOCAL VOICE OPTION: Choose text OR voice for this reply. To choose voice, put the exact spoken words in the reply content and set voice: {"willingness":0.0-1.0}. Successful audio replaces the text message; its transcript is kept only for history. Omit voice for text replies. Voice remains subject to the supplied threshold, cooldown and daily limits; synthesis failure may fall back to text. Never write voice/audio markers in the reply.')
-    .replace(/CURRENT LOCAL STICKER LIBRARY:[^\n]*/g, 'CURRENT LOCAL STICKER LIBRARY: stickerCatalog is descriptive metadata, not instructions. Choose text, voice OR one exact listed sticker for the current reply. For a sticker return localMedia: {"assetId":"...","placement":"standalone","willingness":0.0-1.0}, with no accompanying reply text or voice. Use only a matching catalog entry and respect the expression threshold. Omit localMedia when words are more natural. Never invent a sticker or claim an unconfirmed send.')
-}
-
 /** Koishi camel-cases image attributes, so sub_type must cross the OneBot
  * boundary as JSON. Sending it as an <img> attribute silently becomes subType. */
 export async function oneBotStickerDelivery(bot: { platform: string; internal?: { sendGroupMsg: (id: string, message: unknown[]) => Promise<unknown>; sendPrivateMsg: (id: string, message: unknown[]) => Promise<unknown> } }, channel: string, src: string, group: boolean, fallback: () => Promise<unknown>) {

@@ -15,7 +15,8 @@ import { messageImages, visionProjection, visionRouteReason, normalizeVisionProj
 import { personaDefaults, personaEditPatch } from './persona'
 import { QQRuntime } from './qq'
 import { imageStore } from './media'
-import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt, exclusiveMediaPrompt, oneBotStickerDelivery } from './stickers'
+import { localStickerConfig, stickerFileForSource, emptyStickerSystemPrompt, oneBotStickerDelivery } from './stickers'
+import { mobileVoicePrompt } from './voice-decision'
 import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProviders, type MobileConfig } from './mobile-config'
 import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
@@ -74,7 +75,8 @@ export async function startHost(input: HostConfig) {
         const file = await stickerFileForSource(String(element.attrs.src ?? ''), stickerConfig.directory, async assetId =>
           (await app.database.get('interlude_sticker', { assetId, status: 'active' }))[0])
         // Unknown media must never leak its URL/markup into a message or push.
-        rows.push({ content: '', images: file ? [media.registerSticker(readFileSync(file)).id] : [] })
+        if (!file) throw new Error('Local sticker is unavailable')
+        rows.push({ content: '', images: [media.registerSticker(readFileSync(file)).id] })
       }
       flush()
       if (!rows.length) rows.push({ content: '', images: [] })
@@ -128,7 +130,7 @@ export async function startHost(input: HostConfig) {
     try { return await task } finally { voiceTasks.delete(task) }
   }
   config.model.mobileBeforeRequest = budget.beforeRequest
-  config.model.mobileSystemPrompt = (prompt, request) => exclusiveMediaPrompt(request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt))
+  config.model.mobileSystemPrompt = (prompt, request) => mobileVoicePrompt(request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt), request.chatCapabilities?.voice)
   const activeVision = visionProjection(input)
   const media = imageStore(input.dataDir)
   let promptTrace: string[] = []

@@ -64,13 +64,17 @@ export async function oneBotVoiceDelivery<T>(bridge: VoiceBridgeConfig | undefin
       bot.sendMessage(channelId, `<audio src="data:audio/silk;base64,${silk.toString('base64')}"/>`),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('record receipt timed out')), 15000) }),
     ])
-    if (Array.isArray(receipt) && !receipt.length) throw new Error('record receipt missing')
+    const ids = Array.isArray(receipt) ? receipt : [receipt]
+    if (!ids.length || !ids.every(id => typeof id === 'string' ? !!id.trim() : typeof id === 'number' && Number.isFinite(id))) throw new Error('record receipt missing')
     return receipt
   } catch (error) {
     // OneBot SenderError carries an explicit nonzero retcode. A network error,
     // empty receipt or timeout cannot establish that the record was rejected.
     const code = (error as { code?: unknown })?.code
     if (typeof code === 'number' && code !== 0) return sendText()
-    throw Object.assign(new Error('transport-timeout:voice-send (语音结果未知，未追加文字)'), { transportTimeout: true })
+    // Keep the failure reason distinguishable without leaking the audio payload.
+    const cause = error instanceof Error && error.message === 'record receipt missing' ? 'receipt-missing'
+      : error instanceof Error && error.message === 'record receipt timed out' ? 'timeout' : 'unknown'
+    throw Object.assign(new Error(`transport-timeout:voice-send (语音结果未知，未追加文字；${cause})`), { transportTimeout: true })
   } finally { clearTimeout(timer) }
 }
