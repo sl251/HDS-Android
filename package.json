@@ -13,8 +13,8 @@
     "test:ui": "npm run build:host && node tests/story-ui.mjs && node tests/preview91-m4-ui.mjs && node tests/qq-policy-ui.mjs && node tests/share-persona-ui.mjs && node tests/m5-ui.mjs && node tests/import-code-ui.mjs"
   },
   "dependencies": {
-    "@capacitor/android": "7.4.3",
-    "@capacitor/core": "7.4.3",
+    "@capacitor/android": "7.6.9",
+    "@capacitor/core": "7.6.9",
     "@cordisjs/plugin-http": "0.6.3",
     "@minatojs/driver-sqlite": "4.7.0",
     "koishi": "4.18.11",
@@ -24,11 +24,11 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "silk-wasm": "3.7.1",
-    "undici": "7.30.0",
+    "undici": "7.30.1",
     "yaml": "2.9.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "7.4.3",
+    "@capacitor/cli": "7.6.9",
     "@types/node": "22.10.5",
     "@types/react": "18.3.18",
     "@types/react-dom": "18.3.5",
@@ -37,6 +37,11 @@
     "playwright-core": "1.51.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
-    "vite": "6.0.7"
+    "vite": "6.4.5"
+  },
+  "overrides": {
+    "@cordisjs/plugin-proxy-agent": {
+      "undici": "6.29.1"
+    }
   }
 }
