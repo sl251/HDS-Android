@@ -72,12 +72,12 @@ flowchart LR
 
 ### 第一步：下载并安装应用
 
-- **最新版本**：`0.1.0-preview.9.5`（仅支持 **ARM64** 架构，需 **Android 8.0** 及以上系统）
-- **官方下载地址**：[GitHub Releases 最新发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.9.5)
-- **安装包文件名**：`HDS-Android-0.1.0-preview.9.5-arm64.apk`
+- **最新版本**：`0.1.0-preview.9.5.1`（仅支持 **ARM64** 架构，需 **Android 8.0** 及以上系统）
+- **官方下载地址**：[GitHub Releases 最新发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.9.5.1)
+- **安装包文件名**：`HDS-Android-0.1.0-preview.9.5.1-arm64.apk`
 - **文件大小**：187,234,070 字节（约 178 MiB）
 - **SHA-256 校验码**：`2201d911bcf671c9756211843e4cb212bd2a93f2e55784a23e915a58e0b21ef4`
-- **完整校验清单**：发布页附件提供了 `SHA256SUMS-preview9.5.txt`
+- **完整校验清单**：发布页附件提供了 `SHA256SUMS-preview9.5.1.txt`
 
 ### 第二步：配置模型大脑
 
@@ -249,9 +249,13 @@ flowchart LR
 ## 📋 版本更新历史
 
 <details>
-<summary><b>点击展开各版本更新说明（最近更新：preview 9.5）</b></summary>
+<summary><b>点击展开各版本更新说明（最近更新：preview 9.5.1）</b></summary>
 
-- **`0.1.0-preview.9.5`（当前最新）**
+- **`0.1.0-preview.9.5.1`（当前最新）**
+  - 安全更新：应用内嵌 Node.js 运行时升级到 24.22.1，修复压缩组件越界写入漏洞（CVE-2026-111497），并核验官方 SHA-256。
+  - 依赖加固：undici、Vite、Capacitor、tar、basic-ftp 等升级到 2026 年 10 月安全版本；165 项单元测试与生产构建全部通过。
+  - 这是安全补丁版，没有新功能、无交互变化；覆盖安装即可，角色、记忆与登录凭据照常保留。
+- **`0.1.0-preview.9.5`**
   - 大修模型调用稳定性：超时、断网、限流和服务商故障会自动重试；密钥错误、配额用完直接换下一个连接，不再把好连接打入 5 分钟冷却。
   - 主叙事超时 60→90 秒，单轮 240 秒总上限；Wi-Fi/流量切换后 DNS 自动恢复，不再连环失败。
   - 消息诊断重做：每条消息一张卡片，六步管道一眼看出卡在哪，失败原因附人话建议；聊天页失败消息可直接跳转定位。
