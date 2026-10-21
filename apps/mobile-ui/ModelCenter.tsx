@@ -3,7 +3,7 @@ import type { ModelOptions, ModelProvider, ModelSettings, NativeBridge } from '.
 import { assigned, assignTask, followsMain, removeProvider } from './model-tasks'
 import presets from '../../android/app/src/main/assets/model-presets.json'
 
-export const defaultOptions: ModelOptions = { mainStreamingMode: 'off', mainResponseFormat: 'json-object', mainTemperature: 0.8, mainMaxTokens: 4096, mainTimeout: 60000, mainPayloadOrder: 'cache-first', failoverEnabled: false, failoverStrategy: 'priority' }
+export const defaultOptions: ModelOptions = { mainStreamingMode: 'off', mainResponseFormat: 'json-object', mainTemperature: 0.8, mainMaxTokens: 4096, mainTimeout: 90000, maxAttemptsPerProvider: 2, mobileTurnDeadlineMs: 240000, cooldownMinutes: 5, mainPayloadOrder: 'cache-first', failoverEnabled: false, failoverStrategy: 'priority' }
 export const newProvider = (): ModelProvider => ({ id: crypto.randomUUID(), preset: 'custom', label: '自定义连接', endpoint: '', model: '', protocol: 'chat-completions', enabled: true, credentialPresent: false, useForMain: true, useForCompaction: true, useForAlter: true, useForEmbedding: false, deepseekThinking: 'inherit', imageInput: 'unknown' })
 const roles = [{ key: 'useForMain', name: '主叙事', description: '对话、生活剧本与主动联系' }, { key: 'useForCompaction', name: '记忆压缩', description: '场景整理、长期记忆与时间导演' }, { key: 'useForAlter', name: '心理分析', description: '事件带来的情绪与氛围变化' }, { key: 'useForEmbedding', name: '向量', description: '长期记忆检索 · 请选择 Embedding 专用模型' }, { key: 'useForWorldSeeding', name: '世界播种', description: '外部事件与配角事件生成 · 可不分配' }] as const
 type Props = { mode?: 'connections' | 'advanced'; settings: ModelSettings; setSettings: React.Dispatch<React.SetStateAction<ModelSettings>>; native: boolean; busy: boolean; bridge: NativeBridge; act: (task: () => Promise<unknown>, success?: string) => Promise<void>; notify: (text: string) => void }
@@ -12,13 +12,17 @@ export function ModelCenter({ mode = 'connections', settings, setSettings, nativ
   const [selected, setSelected] = useState(settings.providers[0]?.id ?? '')
   const [catalogs, setCatalogs] = useState<Record<string, { models: string[]; partial: boolean }>>({})
   const [search, setSearch] = useState('')
+  const [failoverNotice, setFailoverNotice] = useState(false)
   const providers = settings.providers
   useEffect(() => { if (!providers.some(row => row.id === selected)) setSelected(providers[0]?.id ?? '') }, [providers, selected])
   const row = providers.find(value => value.id === selected) ?? providers[0]
   const update = (patch: Partial<ModelProvider>) => {
     if (!row) return
     if (['endpoint', 'protocol', 'model'].some(key => key in patch && patch[key as keyof ModelProvider] !== row[key as keyof ModelProvider])) patch.imageInput = 'unknown'
-    setSettings(current => ({ ...current, providers: current.providers.map(value => value.id === row.id ? { ...value, ...patch } : value), modelOptions: { ...current.modelOptions, ...(patch.enabled === false && current.modelOptions.visionProviderId === row.id ? { visionProviderId: '', visionEnabled: false } : {}) } }))
+    const enableFailover = patch.useForMain === true && !row.useForMain && row.enabled
+      && providers.filter(value => value.enabled && value.useForMain).length === 1 && !settings.modelOptions.failoverEnabled
+    setSettings(current => ({ ...current, providers: current.providers.map(value => value.id === row.id ? { ...value, ...patch } : value), modelOptions: { ...current.modelOptions, ...(enableFailover ? { failoverEnabled: true } : {}), ...(patch.enabled === false && current.modelOptions.visionProviderId === row.id ? { visionProviderId: '', visionEnabled: false } : {}) } }))
+    if (enableFailover) { setFailoverNotice(true); notify('已分配第 2 条主叙事连接，自动开启备用切换；可撤销。') }
     if (['endpoint', 'apiKey', 'preset', 'protocol', 'modelsEndpoint', 'clearKey'].some(key => key in patch)) setCatalogs(current => { const next = { ...current }; delete next[row.id]; return next })
   }
   const option = (patch: Partial<ModelOptions>) => setSettings(current => ({ ...current, modelOptions: { ...current.modelOptions, ...patch } }))
@@ -38,6 +42,7 @@ export function ModelCenter({ mode = 'connections', settings, setSettings, nativ
   return <section className="model-center">
     {mode === 'connections' && <><h2>模型与识图</h2>
     <p className="caption">每条连接只填一次。把擅长写作的模型交给主叙事，把轻量模型交给记忆与情绪。</p>
+    {failoverNotice && <div role="status"><p>已开启主叙事备用切换，失败重试与切换可能产生额外 API 消耗。</p><button className="secondary" disabled={busy} onClick={() => { option({ failoverEnabled: false }); setFailoverNotice(false); notify('已撤销自动开启备用切换。') }}>撤销开启备用切换</button></div>}
     <details><summary>任务分工</summary>
     <div className="model-roles">{roles.map((role, index) => {
       const ids = assigned(providers, role.key)
@@ -74,9 +79,14 @@ export function ModelCenter({ mode = 'connections', settings, setSettings, nativ
       {settings.modelOptions.visionEnabled && <label>识图模型<select aria-label="识图模型" disabled={busy} value={settings.modelOptions.visionProviderId || ''} onChange={event => option({ visionProviderId: event.target.value })}><option value="">沿用主叙事 · 直接看图</option>{providers.filter(provider => provider.enabled).map(provider => <option key={provider.id} value={provider.id}>{provider.model || provider.label} · {provider.label}</option>)}</select><span className="caption">沿用主叙事会直接发送图片给所有主模型候选；文本模型请选择独立识图。独立识图模型先描述画面，再交给主叙事续写。请选择支持图片的模型，图片会发送给所选服务商，可能增加费用。</span></label>}
     </details>
     </>}
-    {mode === 'advanced' && <details className="generation-settings" open><summary>生成与备用切换</summary><label className="toggle"><input type="checkbox" disabled={busy} checked={settings.modelOptions.mainStreamingMode === 'experimental'} onChange={event => option({ mainStreamingMode: event.target.checked ? 'experimental' : 'off', ...(event.target.checked ? { mainResponseFormat: 'json-object' } : {}) })} /><div><b>流式首条回复</b><p>首句写好就先送达，其余故事继续生成。需要服务商支持流式回复。</p></div></label><label className="toggle"><input type="checkbox" disabled={busy} checked={settings.modelOptions.failoverEnabled} onChange={event => option({ failoverEnabled: event.target.checked })} /><div><b>主叙事失败时切换备用</b><p>为主叙事分配多条连接后生效；首条回复已送达时，不重发可见回复。</p></div></label><details className="advanced"><summary>采样、输出与兼容设置</summary><fieldset disabled={busy}>
+    {mode === 'advanced' && <details className="generation-settings" open><summary>生成与备用切换</summary>
+      <button className="secondary" disabled={busy} onClick={() => { option({ mainTimeout: 90000, maxAttemptsPerProvider: 2, mobileTurnDeadlineMs: 240000, cooldownMinutes: 5, failoverEnabled: providers.filter(value => value.enabled && value.useForMain).length > 1 }); notify('已应用推荐配置：90 秒超时、失败重试 1 次、整轮 4 分钟；多条主叙事连接启用备用切换。') }}>应用推荐配置</button>
+      <p className="caption">推荐 90 秒超时、失败重试 1 次、整轮 4 分钟；有多条主叙事连接时开启备用切换。</p>
+      <fieldset disabled={busy}><div className="field-pair"><label>失败自动重试次数（不含首次）<input type="number" min="0" max="2" step="1" value={(settings.modelOptions.maxAttemptsPerProvider ?? 2) - 1} onChange={event => option({ maxAttemptsPerProvider: Number(event.target.value) + 1 })} /><span className="caption">重试会产生额外 API 消耗。</span></label><label>请求超时（秒）<input type="number" min="5" max="300" value={settings.modelOptions.mainTimeout / 1000} onChange={event => option({ mainTimeout: Number(event.target.value) * 1000 })} /></label></div></fieldset>
+      <label className="toggle"><input type="checkbox" disabled={busy} checked={settings.modelOptions.mainStreamingMode === 'experimental'} onChange={event => option({ mainStreamingMode: event.target.checked ? 'experimental' : 'off', ...(event.target.checked ? { mainResponseFormat: 'json-object' } : {}) })} /><div><b>流式首条回复</b><p>首句写好就先送达，其余故事继续生成。需要服务商支持流式回复。</p></div></label><label className="toggle"><input type="checkbox" disabled={busy} checked={settings.modelOptions.failoverEnabled} onChange={event => option({ failoverEnabled: event.target.checked })} /><div><b>主叙事失败时切换备用</b><p>为主叙事分配多条连接后生效；首条回复已送达时，不重发可见回复。重试与切换会产生额外 API 消耗。</p></div></label><details className="advanced"><summary>采样、输出与兼容设置</summary><fieldset disabled={busy}>
       <div className="field-pair"><label>采样温度<input type="number" min="0" max="2" step="0.1" value={settings.modelOptions.mainTemperature} onChange={event => option({ mainTemperature: Number(event.target.value) })} /></label><label>最大输出 tokens<input type="number" min="256" max="100000" step="256" value={settings.modelOptions.mainMaxTokens} onChange={event => option({ mainMaxTokens: Number(event.target.value) })} /></label></div>
-      <div className="field-pair"><label>请求超时（秒）<input type="number" min="5" max="300" value={settings.modelOptions.mainTimeout / 1000} onChange={event => option({ mainTimeout: Number(event.target.value) * 1000 })} /></label><label>模型选择顺序<select value={settings.modelOptions.failoverStrategy} onChange={event => option({ failoverStrategy: event.target.value as ModelOptions['failoverStrategy'] })}><option value="priority">按连接优先级</option><option value="round-robin">轮询分担</option></select></label></div>
+      <div className="field-pair"><label>冷却时间（分钟）<input type="number" min="0" max="60" step="1" value={settings.modelOptions.cooldownMinutes ?? 5} onChange={event => option({ cooldownMinutes: Number(event.target.value) })} /></label><label>模型选择顺序<select value={settings.modelOptions.failoverStrategy} onChange={event => option({ failoverStrategy: event.target.value as ModelOptions['failoverStrategy'] })}><option value="priority">按连接优先级</option><option value="round-robin">轮询分担</option></select></label></div>
+      <label>整轮时间上限（秒）<input type="number" min="60" max="600" step="1" value={(settings.modelOptions.mobileTurnDeadlineMs ?? 240000) / 1000} onChange={event => option({ mobileTurnDeadlineMs: Number(event.target.value) * 1000 })} /></label>
       <label>结构化输出<select value={settings.modelOptions.mainResponseFormat} onChange={event => option({ mainResponseFormat: event.target.value as ModelOptions['mainResponseFormat'], ...(event.target.value === 'prompt-only' ? { mainStreamingMode: 'off' } : {}) })}><option value="json-object">JSON 模式（支持流式首条）</option><option value="prompt-only">仅提示词约束（兼容模式）</option></select></label><label>提示词排列<select value={settings.modelOptions.mainPayloadOrder} onChange={event => option({ mainPayloadOrder: event.target.value as ModelOptions['mainPayloadOrder'] })}><option value="cache-first">稳定内容优先 · 便于前缀缓存</option><option value="legacy">原始排列 · 兼容模式</option></select></label>
     </fieldset></details></details>}
   </section>

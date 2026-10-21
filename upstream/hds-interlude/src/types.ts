@@ -849,6 +849,8 @@ export interface NarrativeContractFeatures {
 }
 
 export interface NarrativeRequest {
+  /** A persisted retry of an explicit user turn retains the foreground budget exemption. */
+  mobileForeground?: boolean
   scheduledContactPolicy?: { delayedMinSeconds: number; delayedMaxMinutes: number; commitmentMinSeconds: number; commitmentMaxHours: number }
   urgeEnabled?: boolean
   /** 合约自动拼装：按功能开关与窗口数据裁剪系统合约板块；缺省 = 完整合约。 */

@@ -5,6 +5,15 @@ import org.json.JSONObject
 
 /** Settings migration/validation without Android or network access. Secrets never enter public rows. */
 class ModelSettingsCodec(private val presets: JSONArray) {
+    /** Only the exact historical default changes; explicit failover choices survive. */
+    fun migrate(settings: JSONObject): Boolean {
+        if (settings.optInt("schema", 0) >= 3) return false
+        settings.optJSONObject("modelOptions")?.let { options ->
+            if (options.optDouble("mainTimeout", Double.NaN) == 60000.0) options.put("mainTimeout", 90000)
+        }
+        settings.put("schema", 3)
+        return true
+    }
     private val roles = listOf("useForMain", "useForCompaction", "useForAlter", "useForEmbedding", "useForWorldSeeding")
     // A pristine extra row is an accidental add, not a runnable connection.
     // Never discard a draft with typed values or a previously saved secret.
@@ -122,7 +131,10 @@ class ModelSettingsCodec(private val presets: JSONArray) {
         result.put("visionProviderId", visionId)
         number("mainTemperature", 0.8, 0.0, 2.0)
         number("mainMaxTokens", 4096.0, 256.0, 100000.0, true)
-        number("mainTimeout", 60000.0, 5000.0, 300000.0, true)
+        number("mainTimeout", 90000.0, 5000.0, 300000.0, true)
+        number("maxAttemptsPerProvider", 2.0, 1.0, 3.0, true)
+        number("mobileTurnDeadlineMs", 240000.0, 60000.0, 600000.0, true)
+        number("cooldownMinutes", 5.0, 0.0, 60.0, true)
         require(result.getString("mainStreamingMode") != "experimental" || result.getString("mainResponseFormat") == "json-object") { "HDS 流式首条回复需要 JSON 模式" }
         return result
     }

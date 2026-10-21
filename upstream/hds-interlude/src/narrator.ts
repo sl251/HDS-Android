@@ -122,6 +122,10 @@ export interface FailoverConfig {
 }
 
 export interface ModelConfig {
+  /** Mobile host only: classify failures; async filters may honor Retry-After. */
+  mobileRetryFilter?: (error: unknown, detail: { task: string; attempt: number; providerId?: string }) => 'retry' | 'next' | 'abort' | undefined | Promise<'retry' | 'next' | 'abort' | undefined>
+  /** Mobile-only turn budget; unset upstream configurations retain their behavior. */
+  mobileTurnDeadlineMs?: number
   /** Mobile host only: reserve a model attempt before any network transport. */
   mobileBeforeRequest?: (foreground?: boolean) => void
   /** Android host: character context only; engine protocol remains first. */
@@ -403,6 +407,13 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
   }
 
   async decide(request: NarrativeRequest): Promise<NarrativeDecision> {
+    const turnStart = Date.now()
+    const checkTurnDeadline = () => {
+      if ((this.config.mobileRetryFilter || this.config.mobileTurnDeadlineMs !== undefined)
+        && Date.now() - turnStart > (this.config.mobileTurnDeadlineMs ?? 240_000)) {
+        throw Object.assign(new Error('Mobile narrative turn deadline exceeded.'), { code: 'HDS_MOBILE_TURN_DEADLINE' })
+      }
+    }
     // 主叙事调用允许逐服务商重试与故障切换：一次失败不能让故事卡死在某个 endpoint。
     const assigned = this.assignedProviders('main')
     const mainModelId = effectiveMainModelId(this.config)
@@ -430,6 +441,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
     try {
       for (const provider of providers) {
         const attempts = Math.max(1, this.config.failover.maxAttemptsPerProvider)
+        let retryAction: 'retry' | 'next' | 'abort' | undefined
         const overrides = {
           model: assigned.length ? provider.model : route.model || provider.model,
           temperature: hasMainRoute ? this.config.mainTemperature ?? provider.temperature : provider.temperature,
@@ -439,17 +451,27 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
           responseFormat: hasMainRoute ? this.config.mainResponseFormat ?? route.responseFormat ?? provider.responseFormat : provider.responseFormat,
         }
         for (let attempt = 1; attempt <= attempts; attempt++) {
+          checkTurnDeadline()
           try {
-            const decision = await this.requestProvider(provider, requestWithEarlyReply, overrides, usages, '主叙事')
+            const decision = await this.requestProvider(provider, requestWithEarlyReply, overrides, usages, '主叙事', attempt)
             // A provider that recovers should be eligible immediately; do not
             // retain an earlier failure's cooldown after a successful response.
             this.cooldownUntil.delete(providerKey(provider))
             return decision
           } catch (error) {
+            const filteredError = earlyReplyCommitted
+              ? Object.assign(new Error('Narrative stream failed after an early visible reply.'), { code: 'HDS_MOBILE_EARLY_REPLY' }) : error
+            retryAction = this.config.mobileRetryFilter
+              ? await this.config.mobileRetryFilter(filteredError, { task: '主叙事', attempt, providerId: provider.id }) : undefined
             // 停机/重载（HMR）期间重试必然失败且污染冷却表：立即中止整条链路。
             if (isContextDisposedError(error) || (error as { code?: string })?.code === 'HDS_MOBILE_BUDGET') throw error
             const detail = describeHttpError(error)
             if (earlyReplyCommitted) throw new Error(`Narrative stream failed after an early visible reply: ${detail}`)
+            if (retryAction === 'abort') throw error
+            if (retryAction === 'next') {
+              failures.push(`${provider.label || provider.id} (attempt ${attempt}): ${detail}`)
+              break
+            }
             // 思考型网关把 reasoning 计入输出预算:小 cap 下推理吃满,残句 JSON
             // 必然解析失败,同 cap 重打只会耗满全部 attempts(侧端任务早有同款
             // 恢复)。识别疑似截断后去掉 max_tokens 原样重试一次,成功路径不发
@@ -458,12 +480,18 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
               && provider.protocol !== 'anthropic-messages'
               && /invalid JSON|Unterminated|Unexpected token|empty response|输出未完成|incomplete/i.test(detail)) {
               this.logger?.warn?.('主叙事疑似被思考预算截断(%s),去掉 max_tokens 重试一次', detail.slice(0, 160))
+              checkTurnDeadline()
               try {
-                const retried = await this.requestProvider(provider, requestWithEarlyReply, { ...overrides, maxTokens: 0 }, usages, '主叙事')
+                const retried = await this.requestProvider(provider, requestWithEarlyReply, { ...overrides, maxTokens: 0 }, usages, '主叙事', attempt)
                 this.cooldownUntil.delete(providerKey(provider))
                 return retried
               } catch (retryError) {
+                if (isContextDisposedError(retryError) || (retryError as { code?: string })?.code === 'HDS_MOBILE_BUDGET' || earlyReplyCommitted) throw retryError
+                retryAction = this.config.mobileRetryFilter
+                  ? await this.config.mobileRetryFilter(retryError, { task: '主叙事', attempt, providerId: provider.id }) : undefined
+                if (retryAction === 'abort') throw retryError
                 failures.push(`${provider.label || provider.id} (uncapped retry): ${describeHttpError(retryError)}`)
+                if (retryAction === 'next') break
               }
             }
             failures.push(`${provider.label || provider.id} (attempt ${attempt}): ${detail}`)
@@ -474,7 +502,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
           }
         }
 
-        this.cooldownUntil.set(providerKey(provider), Date.now() + this.config.failover.cooldownMinutes * 60_000)
+        if (retryAction !== 'next') this.cooldownUntil.set(providerKey(provider), Date.now() + this.config.failover.cooldownMinutes * 60_000)
         if (!this.config.failover.enabled) break
       }
 
@@ -969,7 +997,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
     return this.config.failover.enabled ? ordered : ordered.slice(0, 1)
   }
 
-  private async requestProvider(provider: ProviderConfig, request: NarrativeRequest, overrides: ChatRequestOverrides = {}, usages: TokenUsageRecord[] = [], task = '主叙事'): Promise<NarrativeDecision> {
+  private async requestProvider(provider: ProviderConfig, request: NarrativeRequest, overrides: ChatRequestOverrides = {}, usages: TokenUsageRecord[] = [], task = '主叙事', attempt = 1): Promise<NarrativeDecision> {
     const cacheFirstPayload = this.config.mainPayloadOrder === 'cache-first'
     const collect = (raw: unknown) => this.collectUsage(usages, task, provider, overrides.model || provider.model, raw)
     const payload = JSON.stringify(toPromptPayload(request, { cacheFirst: cacheFirstPayload }))
@@ -1032,7 +1060,8 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
       ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
       ...parseObject(provider.extraHeaders, 'extraHeaders', this.logger),
     }
-    if (streamingEarlyReply || (provider.zhipuOfficial && provider.protocol === 'chat-completions')) this.config?.mobileBeforeRequest?.(request.phase === 'user-message')
+    const foreground = request.phase === 'user-message' || request.mobileForeground === true
+    if (streamingEarlyReply || (provider.zhipuOfficial && provider.protocol === 'chat-completions')) this.config?.mobileBeforeRequest?.(foreground)
     const text = provider.protocol === 'anthropic-messages' && streamingEarlyReply
       ? await requestAnthropicStreaming(provider.endpoint, anthropicBody(requestBody, provider, cacheFirstPayload),
         anthropicHeaders(provider, parseObject(provider.extraHeaders, 'extraHeaders', this.logger)) as Record<string, string>,
@@ -1047,7 +1076,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
       : streamingEarlyReply
         ? await requestOpenAICompatibleStreaming(provider.endpoint, withDeepSeekThinking(provider, { ...requestBody, stream: true, stream_options: { include_usage: true } }), headers, overrides.timeout ?? provider.timeout, onStreamText, collect, provider.proxyAgent)
         : await (async () => {
-            const response = await this.postChat(provider, requestBody, overrides.timeout ?? provider.timeout, cacheFirstPayload, request.phase === 'user-message')
+            const response = await this.postChat(provider, requestBody, overrides.timeout ?? provider.timeout, cacheFirstPayload, foreground)
             collect(response?.usage)
 
             return extractChatText(response)

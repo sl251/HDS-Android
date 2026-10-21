@@ -1,4 +1,4 @@
-// Host overlay: observability and non-retryable rejection handling.
+// Host overlay: observability. Retry policy lives in runtime/model-retry.ts.
 // No upstream source files or narrative decisions are changed.
 export function withMessageDiagnostics(source, kind) {
   source = source.replace(/\r\n/g, '\n')
@@ -32,7 +32,8 @@ export function withMessageDiagnostics(source, kind) {
     edit('          await this.scheduleNarrativeRetry(current.id, currentParticipant.id, now)', "          diagnosticEvent('processing', 'retry')\n          await this.scheduleNarrativeRetry(current.id, currentParticipant.id, now)")
     edit("        this.reportStandalone('warn', '合并写作任务失败：参与者=%s 错误=%s', turn.participantId, error)", "        diagnosticEvent('processing', 'failed', { reason: diagnosticError(error) })\n        this.reportStandalone('warn', '合并写作任务失败：参与者=%s 错误=%s', turn.participantId, error)")
     edit('      this.turnEngine.endFlush(key, requestId)', "      diagnosticEvent('processing', turn.obsoleteRequestIds.has(requestId) ? 'requeued' : 'settled')\n      this.turnEngine.endFlush(key, requestId)")
-    edit('      this.health?.recordNarrativeFailed(story.id)', "      diagnosticEvent('model', 'failed', { reason: diagnosticError(error) })\n      this.health?.recordNarrativeFailed(story.id)")
+    edit('    const startedAt = Date.now()\n    this.reportOperation', '    const mobileModelEventStart = (this.narrator as any).mobileModelEventCount ?? 0\n    const startedAt = Date.now()\n    this.reportOperation')
+    edit('      this.health?.recordNarrativeFailed(story.id)', "      if (((this.narrator as any).mobileModelEventCount ?? 0) === mobileModelEventStart) diagnosticEvent('model', 'failed', { reason: diagnosticError(error) })\n      this.health?.recordNarrativeFailed(story.id)")
     edit('    return { messages: prepared, commit, scriptEntry }', "    diagnosticEvent('commit', 'succeeded', { entryId: scriptEntry?.id })\n    return { messages: prepared, commit, scriptEntry }")
     // Due replies may create a fresh script entry. Carry only durable entry references
     // into that model turn, then persist its new entry association for later transport.
@@ -44,15 +45,12 @@ export function withMessageDiagnostics(source, kind) {
           const streamRecovery = dueBatch.every(intent => intent.type === 'narrative-retry' && intent.payload?.streamRecovery === true)`)
   }
   if (kind === 'narrator') {
-    const signature = "  private async requestProvider(provider: ProviderConfig, request: NarrativeRequest, overrides: ChatRequestOverrides = {}, usages: TokenUsageRecord[] = [], task = '主叙事'): Promise<NarrativeDecision> {"
+    const signature = "  private async requestProvider(provider: ProviderConfig, request: NarrativeRequest, overrides: ChatRequestOverrides = {}, usages: TokenUsageRecord[] = [], task = '主叙事', attempt = 1): Promise<NarrativeDecision> {"
     edit(signature, `${signature}
-    return diagnosticCall('model', () => this.mobileRequestProvider(provider, request, overrides, usages, task), { providerSlot: Math.max(0, this.config.providers.findIndex(row => row.id === provider.id) + 1) })
+    ;(this as any).mobileModelEventCount = ((this as any).mobileModelEventCount ?? 0) + 1
+    return diagnosticCall('model', () => this.mobileRequestProvider(provider, request, overrides, usages, task, attempt), { attempt, providerSlot: Math.max(0, this.config.providers.findIndex(row => row.id === provider.id) + 1) })
   }
-  private async mobileRequestProvider(provider: ProviderConfig, request: NarrativeRequest, overrides: ChatRequestOverrides = {}, usages: TokenUsageRecord[] = [], task = '主叙事'): Promise<NarrativeDecision> {`)
-    // Repeating an explicitly rejected credential/quota request cannot repair it.
-    // Keep the existing candidate order and configured fallback behavior.
-    const rejected = "            failures.push(`${provider.label || provider.id} (attempt ${attempt}): ${detail}`)\n            this.logger?.debug(\n              '叙事模型服务商失败"
-    edit(rejected, rejected.replace('            this.logger?.debug(', "            if (['provider_quota', 'authentication', 'permission'].includes(diagnosticError(error))) break\n            this.logger?.debug("))
+  private async mobileRequestProvider(provider: ProviderConfig, request: NarrativeRequest, overrides: ChatRequestOverrides = {}, usages: TokenUsageRecord[] = [], task = '主叙事', attempt = 1): Promise<NarrativeDecision> {`)
   }
   return imports + source
 }

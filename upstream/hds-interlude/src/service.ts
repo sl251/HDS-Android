@@ -5274,6 +5274,7 @@ export class InterludeService extends Service {
       windowHasAdminNotes,
     })
     const narrated = await this.narrator.decide({
+      ...(phase === 'intent-due' && dueIntents.some(intent => intent.type === 'narrative-retry' && intent.payload?.userInitiated === true) ? { mobileForeground: true } : {}),
       urgeEnabled: this.urgeConfig.enabled && !dueIntents.some(intent => intent.type === 'narrative-retry'),
       scheduledContactPolicy: { delayedMinSeconds: this.config.runtime.minimumDelayedReplySeconds, delayedMaxMinutes: this.config.runtime.maximumDelayedReplyMinutes, commitmentMinSeconds: this.config.runtime.minimumFollowUpCommitmentSeconds ?? 300, commitmentMaxHours: 12 },
       phase, refreshContinuity, outputRecovery, story, from, now, userMessage, userReportedTimes, images, audio, visualObservations, historicalGroupImages, timelinePlan, developmentTendencies,

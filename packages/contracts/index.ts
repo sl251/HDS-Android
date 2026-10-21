@@ -13,6 +13,7 @@ export type ModelProvider = {
 export type ModelOptions = {
   mainStreamingMode: 'off' | 'experimental'; mainResponseFormat: 'json-object' | 'prompt-only';
   mainTemperature: number; mainMaxTokens: number; mainTimeout: number;
+  maxAttemptsPerProvider: number; mobileTurnDeadlineMs: number; cooldownMinutes: number;
   mainPayloadOrder: 'cache-first' | 'legacy'; failoverEnabled: boolean; failoverStrategy: 'priority' | 'round-robin'; visionEnabled?: boolean; visionProviderId?: string;
 }
 export type MobileConfig = { sections?: Record<string, Record<string, unknown>>; backgroundLimit?: number }

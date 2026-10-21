@@ -65,6 +65,8 @@ class HdsRuntime private constructor(private val context: Context) {
     fun refreshServiceHealth(done: () -> Unit) {
         executor.execute {
             if (state == "healthy" && !profileMaintenance) {
+                try { refreshResolver() }
+                catch (_: Exception) { log("网络 DNS 配置暂未刷新；下次健康检查重试") }
                 try { backgroundBudget = rpc("health", JSONObject()).getJSONObject("data").optJSONObject("budget") ?: JSONObject(); serviceHealthFailed = false }
                 catch (_: Exception) { serviceHealthFailed = true; log("前台健康检查暂未响应；未重放消息或重启业务") }
             }
@@ -265,6 +267,11 @@ class HdsRuntime private constructor(private val context: Context) {
         executor.execute { try { startNow() } catch (failure: Throwable) { voiceBridge?.close(); voiceBridge = null; process?.destroy(); process = null; fail("HDS 启动失败", failure); HdsService.stop(context) } }
     }
     @Volatile private var voiceBridge: VoiceBridge? = null
+    private fun refreshResolver() {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val dns = connectivity.activeNetwork?.let { connectivity.getLinkProperties(it)?.dnsServers }?.mapNotNull { it.hostAddress }?.filter { !it.contains('%') }.orEmpty()
+        File(rootfs, "etc/resolv.conf").writeText(resolverConfig(dns))
+    }
     private fun startNow() {
         cleanStop = false
         backgroundBudget = JSONObject(); serviceHealthFailed = false
@@ -278,9 +285,7 @@ class HdsRuntime private constructor(private val context: Context) {
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val temporary = File(context.cacheDir, "hds-proot").apply { mkdirs() }
         File(rootfs, "tmp").mkdirs()
-        val connectivity = context.getSystemService(ConnectivityManager::class.java)
-        val dns = connectivity.activeNetwork?.let { connectivity.getLinkProperties(it)?.dnsServers }?.mapNotNull { it.hostAddress }?.filter { !it.contains('%') }.orEmpty()
-        File(rootfs, "etc/resolv.conf").writeText((if (dns.isEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns).joinToString("\n") { "nameserver $it" } + "\n")
+        refreshResolver()
         port = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
         val args = listOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,

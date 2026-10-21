@@ -6,6 +6,39 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ModelSettingsCodecTest {
+    @Test fun reliabilityDefaultsAndExplicitValuesSurviveNativePersistence() {
+        val defaults = codec.options(JSONObject())
+        assertEquals(90000, defaults.getInt("mainTimeout"))
+        assertEquals(2, defaults.getInt("maxAttemptsPerProvider"))
+        assertEquals(240000, defaults.getInt("mobileTurnDeadlineMs"))
+        assertEquals(5, defaults.getInt("cooldownMinutes"))
+        assertFalse(defaults.getBoolean("failoverEnabled"))
+        assertEquals("off", defaults.getString("mainStreamingMode"))
+        for (attempts in 1..3) for (deadline in listOf(60000, 240000, 600000)) {
+            val saved = codec.options(JSONObject().put("maxAttemptsPerProvider", attempts).put("mobileTurnDeadlineMs", deadline).put("cooldownMinutes", 12))
+            val restored = codec.options(JSONObject(saved.toString()))
+            assertEquals(attempts, restored.getInt("maxAttemptsPerProvider"))
+            assertEquals(deadline, restored.getInt("mobileTurnDeadlineMs"))
+            assertEquals(12, restored.getInt("cooldownMinutes"))
+        }
+        for ((field, values) in mapOf("maxAttemptsPerProvider" to listOf(0.0, 4.0, 1.5), "mobileTurnDeadlineMs" to listOf(59999.0, 600001.0, 60000.5), "cooldownMinutes" to listOf(-1.0, 61.0, 0.5))) {
+            for (value in values) assertThrows(IllegalArgumentException::class.java) { codec.options(JSONObject().put(field, value)) }
+        }
+    }
+    @Test fun schemaThreeMigrationOnlyChangesExactOldTimeoutDefaultAndPreservesFailover() {
+        for (schema in listOf(0, 1, 2, 3)) for (timeout in listOf(60000, 75000, 120000)) for (failover in listOf(false, true)) {
+            val settings = JSONObject().put("schema", schema).put("modelOptions", JSONObject().put("mainTimeout", timeout).put("failoverEnabled", failover)).put("encryptedKey", "keep")
+            assertEquals(schema < 3, codec.migrate(settings))
+            assertEquals(3, settings.getInt("schema"))
+            assertEquals(if (schema < 3 && timeout == 60000) 90000 else timeout, settings.getJSONObject("modelOptions").getInt("mainTimeout"))
+            assertEquals(failover, settings.getJSONObject("modelOptions").getBoolean("failoverEnabled"))
+            assertEquals("keep", settings.getString("encryptedKey"))
+            assertFalse(codec.migrate(settings))
+        }
+        val legacy = JSONObject().put("modelOptions", JSONObject())
+        assertTrue(codec.migrate(legacy)); assertFalse(legacy.getJSONObject("modelOptions").has("failoverEnabled"))
+        assertEquals(90000, codec.options(legacy.getJSONObject("modelOptions")).getInt("mainTimeout"))
+    }
     @Test fun embeddingAssignmentSurvivesNativePersistenceAndRemainsOptional() {
         val normalized = codec.normalize(row().put("useForEmbedding", true))
         assertTrue(normalized.getBoolean("useForEmbedding"))

@@ -37,7 +37,9 @@ class HdsStore(private val context: Context) {
         return generator.generateKey()
     }
     private val models by lazy { ModelSettingsCodec(JSONArray(context.assets.open("model-presets.json").bufferedReader().use { it.readText() })) }
-    @Synchronized fun privateSettings(): JSONObject = read(settingsFile)
+    @Synchronized fun privateSettings(): JSONObject = read(settingsFile).also {
+        if (settingsFile.exists() && models.migrate(it)) write(settingsFile, it)
+    }
     @Synchronized fun publicSettings(): JSONObject {
         val source = privateSettings()
         val providers = models.publicRows(source)
@@ -111,7 +113,7 @@ class HdsStore(private val context: Context) {
             saved.put(row)
         }
         models.validateRows(saved)
-        source.put("providers", saved).put("modelOptions", models.options(input.optJSONObject("modelOptions") ?: JSONObject())).put("schema", 2)
+        source.put("providers", saved).put("modelOptions", models.options(input.optJSONObject("modelOptions") ?: JSONObject())).put("schema", 3)
         // Atomic migration: obsolete singleton credentials disappear only after a valid save.
         for (field in listOf("endpoint", "model", "encryptedKey", "keyIv")) source.remove(field)
         for (field in listOf("userName", "userProfile")) {
