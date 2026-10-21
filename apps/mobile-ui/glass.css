@@ -25,3 +25,20 @@ nav{bottom:calc(12px + var(--safe-bottom));width:calc(100% - 32px);max-width:560
 @media(max-width:360px){.model-center>.settings-group,section.settings-group{padding-left:15px;padding-right:15px}.page-heading h1{font-size:27px}.status{font-size:10px;padding:7px 9px}.modal{padding:20px}nav{width:calc(100% - 24px)}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 @media(prefers-reduced-transparency:reduce){nav,.composer,.status,.bubble,.settings-group,.wake-panel{background:rgb(var(--surface-rgb));backdrop-filter:none}}
+
+/* A single indicator moves across the four equal navigation buttons. */
+nav .nav-indicator{position:absolute;left:8px;top:4px;width:calc((100% - 16px) / 4);height:3px;border-radius:3px;background:var(--accent);transform:translateX(calc(var(--active-tab,0) * 100%));transition:transform 200ms var(--ease);pointer-events:none}
+nav button{flex:1 1 0}
+
+.onboarding-overlay{position:fixed;inset:0;z-index:200;isolation:isolate;outline:none;overscroll-behavior:contain;background:#13223899}
+.onboarding-overlay.has-target{background:transparent}
+.onboarding-highlight{position:fixed;border:2px solid var(--accent);border-radius:18px;box-shadow:0 0 0 100vmax #13223899,0 0 0 5px var(--accent-soft);pointer-events:none}
+.onboarding-card{position:fixed;left:50%;transform:translateX(-50%);width:min(360px,calc(100% - 32px));max-height:calc(var(--guide-height,100dvh) - 24px);overflow:auto;overscroll-behavior:contain;padding:24px;border:1px solid var(--line);border-radius:24px;background:var(--paper);color:var(--ink);box-shadow:var(--shadow);opacity:0;transition:opacity 75ms var(--ease)}
+.onboarding-overlay.is-visible .onboarding-card{opacity:1}
+.onboarding-card h2{font-size:20px;line-height:1.5;margin:12px 0}
+.onboarding-card p{font-size:13px;line-height:1.9;overflow-wrap:anywhere}
+.onboarding-card .onboarding-progress{font-size:12px;color:var(--accent);margin:0}
+.onboarding-actions{display:flex;align-items:center;gap:8px;margin-top:20px}
+.onboarding-actions button{min-height:44px;padding:8px 12px;flex:1;white-space:nowrap;font-size:12px}
+.onboarding-actions .text-button{flex:0 0 auto}
+@media(max-width:360px){.onboarding-card{padding:22px}.onboarding-actions{gap:6px}}

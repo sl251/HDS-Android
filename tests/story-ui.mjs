@@ -6,6 +6,7 @@ const debugMessages = []
 const browserArgs = process.env.HDS_BROWSER_LOW_RESOURCES === '1' ? ['--single-process', '--no-zygote', '--disable-gpu'] : []
 const browser = await chromium.launch(process.env.HDS_BROWSER ? { executablePath: process.env.HDS_BROWSER, headless: true, args: browserArgs } : { channel: 'msedge', headless: true, args: browserArgs })
 await mkdir('artifacts/preview9.1-m4', { recursive: true })
+await mkdir('artifacts/p2', { recursive: true })
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
   debugPage = page
@@ -41,9 +42,13 @@ try {
     window.androidBridge = {}
     window.Capacitor = {
       convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch','saveMessageDiagnostics'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch','saveMessageDiagnostics','voiceState','previewVoice','voiceAudio','pickVoiceAudio','cancelVoiceRecording'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
+        if (method === 'voiceState') return { voices: Array.from({ length: 20 }, (_, i) => ({ id: `voice-${i}`, name: `音色 ${i + 1}`, type: 'builtin', value: '茉莉' })), characters: {}, defaultVoiceId: 'voice-0', cooldown: 5, credentialPresent: false }
+        if (method === 'previewVoice' || method === 'pickVoiceAudio') return { audioId: 'a'.repeat(64), duration: 2 }
+        if (method === 'voiceAudio') return { dataUri: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAwF0AAIC7AAACABAAZGF0YQAAAAA=' }
+        if (method === 'cancelVoiceRecording') return {}
         if (method === 'notificationSettings') return f.notifications || { enabled: false, permission: 'prompt', available: false }
         if (method === 'setMessageNotifications') { f.notifications = { enabled: options.enabled, permission: 'denied', available: false }; return f.notifications }
         if (method === 'openNotificationSettings') { f.openedNotificationSettings = true; return {} }
@@ -120,6 +125,157 @@ try {
     }
   })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
+  // P2: exercise first launch before any fixture writes the completion marker.
+  await page.setViewportSize({ width: 360, height: 780 })
+  const guide = page.getByRole('dialog', { name: '欢迎来到 HDS', exact: true })
+  const guideStep = async index => page.waitForFunction(value => document.querySelector('.onboarding-overlay.is-visible')?.dataset.step === String(value), index)
+  await guideStep(1)
+  assert.equal(await page.evaluate(() => localStorage.getItem('hds.onboarding.v1')), null)
+  assert.equal(await page.locator('.app').evaluate(element => element.inert), true)
+  const highlighted = async () => page.locator('.onboarding-highlight').evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
+  })
+  const guideTitles = ['欢迎来到 HDS', '先认识故事的主角', '连接会回话的模型', '唤醒后，说第一句话', '在见闻里读故事', '信箱里，留意新的来信', '消息出问题，先看这里']
+  const guidePages = ['chat', 'cards', 'settings', 'chat', 'story', 'inbox', 'settings']
+  for (let index = 1; index <= 7; index++) {
+    await guideStep(index)
+    await page.getByRole('dialog', { name: guideTitles[index - 1], exact: true }).waitFor()
+    assert.equal(await page.locator('main').getAttribute('data-page'), guidePages[index - 1])
+    assert.equal(await highlighted(), true, `Step ${index} highlights a visible element ref`)
+    assert.equal(await page.locator('.onboarding-card').evaluate(element => element.scrollWidth <= element.clientWidth && element.getBoundingClientRect().bottom <= innerHeight), true)
+    assert.equal(await page.locator('.onboarding-actions').evaluate(element => [...element.querySelectorAll('button')].every(button => button.getBoundingClientRect().height >= 44)), true)
+    await page.screenshot({ path: `artifacts/p2/onboarding-${index}-360.png` })
+    if (index === 1) {
+      // Keyboard navigation stays inside the overlay; underlying buttons cannot receive focus.
+      await page.keyboard.press('Tab')
+      assert.equal(await page.getByRole('button', { name: '跳过', exact: true }).evaluate(element => element === document.activeElement), true)
+      await page.keyboard.press('Shift+Tab')
+      assert.equal(await page.getByRole('button', { name: '下一步', exact: true }).evaluate(element => element === document.activeElement), true)
+    }
+    await page.getByRole('button', { name: index === 7 ? '开始使用' : '下一步', exact: true }).click()
+  }
+  await page.locator('.onboarding-overlay').waitFor({ state: 'detached' })
+  assert.equal(await page.evaluate(() => localStorage.getItem('hds.onboarding.v1')), '1')
+  assert.equal(await page.locator('.app').evaluate(element => element.inert), false)
+  await page.reload()
+  await page.getByRole('textbox', { name: '消息内容' }).waitFor()
+  assert.equal(await page.locator('.onboarding-overlay').count(), 0, 'Completion persists across launches')
+  await page.evaluate(() => localStorage.removeItem('hds.onboarding.v1'))
+  await page.reload(); await guideStep(1)
+  await page.getByRole('button', { name: '下一步', exact: true }).click(); await guideStep(2)
+  await page.getByRole('button', { name: '上一步', exact: true }).click(); await guideStep(1)
+  await page.getByRole('button', { name: '跳过', exact: true }).click()
+  await page.locator('.onboarding-overlay').waitFor({ state: 'detached' })
+  assert.equal(await page.evaluate(() => localStorage.getItem('hds.onboarding.v1')), '1')
+  await page.reload(); await page.getByRole('textbox', { name: '消息内容' }).waitFor()
+  assert.equal(await page.locator('.onboarding-overlay').count(), 0, 'Skipping persists across launches')
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  const replayGuide = page.getByRole('button', { name: /^重看新手引导/ })
+  await replayGuide.click(); await guideStep(1)
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' })
+  assert.equal(await page.locator('.onboarding-card').evaluate(element => getComputedStyle(element).transitionDuration), '0s')
+  await page.screenshot({ path: 'artifacts/p2/onboarding-dark-360.png' })
+  await page.getByRole('button', { name: '下一步', exact: true }).click(); await guideStep(2)
+  assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
+  await page.locator('.onboarding-overlay').waitFor({ state: 'detached' })
+  await replayGuide.waitFor()
+  await page.emulateMedia({ reducedMotion: 'no-preference', colorScheme: 'light' })
+  console.log('PASS P2 onboarding: seven steps, element-ref highlights, 360px cards/touch targets, inert background, keyboard trap, previous/next/finish/skip, persisted marker, replay, native back and reduced motion.')
+
+  const swipe = async (selector, dx, dy = 0, startX = 180, mode = 'normal') => page.locator(selector).first().evaluate((element, args) => {
+    const point = (x, y, identifier = 1) => new Touch({ identifier, target: element, clientX: x, clientY: y })
+    const start = point(args.startX, 300), end = point(args.startX + args.dx, 300 + args.dy)
+    element.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start], changedTouches: [start] }))
+    const move = new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: args.mode === 'multi' ? [end, point(160, 320, 2)] : [end], changedTouches: [end] })
+    element.dispatchEvent(move)
+    if (args.mode === 'cancel') element.dispatchEvent(new TouchEvent('touchcancel', { bubbles: true, changedTouches: [end] }))
+    element.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [end] }))
+    return move.defaultPrevented
+  }, { dx, dy, startX, mode })
+  const checkPage = async (key, label) => {
+    await page.waitForFunction(value => document.querySelector('main')?.dataset.page === value && document.querySelector('main')?.classList.contains('page-idle'), key)
+    assert.equal(await page.locator('nav button.active').getAttribute('aria-label'), label)
+    assert.equal(await page.locator('nav button[aria-current="page"]').count(), 1)
+    await page.waitForTimeout(220)
+    const indicator = await page.locator('nav').evaluate(element => {
+      const active = element.querySelector('button.active').getBoundingClientRect(), bar = element.querySelector('.nav-indicator').getBoundingClientRect()
+      return { left: Math.abs(active.left - bar.left), width: Math.abs(active.width - bar.width), height: bar.height }
+    })
+    assert.ok(indicator.left < 1 && indicator.width < 1 && indicator.height >= 2 && indicator.height <= 3)
+  }
+  await page.getByRole('button', { name: '故事', exact: true }).click(); await checkPage('chat', '故事')
+  for (const [dx, dy, startX, mode] of [[-59, 0, 180], [-90, 60, 180], [-60, 90, 180], [100, 0, 2], [-100, 0, 350], [-100, 0, 180, 'multi'], [-100, 0, 180, 'cancel']]) {
+    assert.equal(await swipe('main', dx, dy, startX, mode), false, 'Touchmove never prevents native scrolling')
+    await checkPage('chat', '故事')
+  }
+  await swipe('.composer-wrap', -100); await checkPage('chat', '故事')
+  await swipe('textarea[aria-label="消息内容"]', -100); await checkPage('chat', '故事')
+  await swipe('main', 100); await checkPage('chat', '故事')
+  for (const [key, label] of [['story', '见闻'], ['inbox', '信箱'], ['settings', '空间']]) {
+    await swipe('main', -60, 20); await checkPage(key, label)
+  }
+  await swipe('main', -100); await checkPage('settings', '空间')
+  for (const [key, label] of [['inbox', '信箱'], ['story', '见闻'], ['chat', '故事']]) {
+    await swipe('main', 100, 20); await checkPage(key, label)
+  }
+  await swipe('main', -100); await checkPage('story', '见闻')
+  await swipe('main', -100); await checkPage('inbox', '信箱')
+  assert.equal(await page.getByRole('button', { name: '返回空间', exact: true }).count(), 0, 'Swipe uses the Inbox tab source')
+  assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
+  await checkPage('story', '见闻')
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^模型连接/ }).click()
+  await swipe('main', 100); await checkPage('inbox', '信箱')
+  await swipe('main', -100); await checkPage('settings', '空间')
+  await replayGuide.waitFor()
+  assert.equal(await page.locator('.space-detail').count(), 0, 'Swipe into settings returns to its root')
+  await page.getByRole('button', { name: /^语音与音色/ }).click()
+  await page.getByRole('button', { name: /音色工作台/ }).click()
+  const workbench = page.getByRole('dialog', { name: '音色工作台', exact: true })
+  await workbench.waitFor()
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 780 })
+    const spacing = await workbench.evaluate(element => {
+      const css = getComputedStyle(element), bounds = element.getBoundingClientRect(), caption = element.querySelector('.caption').getBoundingClientRect(), field = element.querySelector('textarea').getBoundingClientRect()
+      return { padding: parseFloat(css.paddingLeft), maxHeight: parseFloat(css.maxHeight), overflow: css.overflowY, scrollable: element.scrollHeight > element.clientHeight, captionGap: caption.left - bounds.left, fieldLeft: field.left - bounds.left, fieldRight: bounds.right - field.right }
+    })
+    assert.equal(spacing.padding, width === 360 ? 22 : 28)
+    assert.ok(Math.abs(spacing.maxHeight - 780 * .86) < 1)
+    assert.equal(spacing.overflow, 'auto'); assert.equal(spacing.scrollable, true)
+    assert.ok(spacing.captionGap >= 22 && spacing.fieldLeft >= 16 && spacing.fieldRight >= 16)
+    await page.screenshot({ path: `artifacts/p2/voice-design-${width}.png` })
+  }
+  await swipe('.voice-workbench textarea', -100); await checkPage('settings', '空间')
+  await workbench.getByLabel('创建方式', { exact: true }).selectOption('reference')
+  await workbench.getByRole('button', { name: '导入 wav / mp3', exact: true }).click()
+  await workbench.getByLabel('音色试听播放器').waitFor()
+  await page.setViewportSize({ width: 360, height: 780 })
+  assert.equal(await workbench.getByLabel('音色试听播放器').evaluate(element => {
+    const modal = element.closest('.voice-workbench').getBoundingClientRect(), bounds = element.getBoundingClientRect()
+    return bounds.left - modal.left >= 16 && modal.right - bounds.right >= 16
+  }), true)
+  await swipe('.voice-workbench', -100); await checkPage('settings', '空间')
+  await page.screenshot({ path: 'artifacts/p2/voice-reference-360.png' })
+  await workbench.evaluate(element => { element.scrollTop = element.scrollHeight })
+  await workbench.getByText('音色 20', { exact: true }).waitFor()
+  assert.equal(await workbench.evaluate(element => element.scrollTop > 0 && element.scrollHeight - element.clientHeight - element.scrollTop < 2), true)
+  await page.screenshot({ path: 'artifacts/p2/voice-library-scroll-360.png' })
+  await workbench.getByRole('button', { name: '关闭音色工作台', exact: true }).click()
+  await page.getByRole('button', { name: '故事', exact: true }).click(); await checkPage('chat', '故事')
+  await page.getByRole('button', { name: '切换角色或故事', exact: true }).click()
+  await swipe('.modal-backdrop', -100); await checkPage('chat', '故事')
+  await page.getByRole('button', { name: '关闭角色选择', exact: true }).click()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await swipe('main', -100); await checkPage('story', '见闻')
+  assert.equal(await page.locator('main').evaluate(element => getComputedStyle(element).transitionDuration), '0s')
+  assert.equal(await page.locator('nav .nav-indicator').evaluate(element => getComputedStyle(element).transitionDuration), '0s')
+  await page.getByRole('button', { name: '故事', exact: true }).click(); await checkPage('chat', '故事')
+  await page.emulateMedia({ reducedMotion: 'no-preference', colorScheme: 'light' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  console.log('PASS P2 navigation/voice: bidirectional thresholded swipes, vertical/multitouch/cancel/edge exclusions, tab state + indicator alignment, Inbox return source, settings root, composer/modal isolation, reduced motion, 22/28px workbench padding, 86dvh scrolling and design/reference control gaps.')
+  if (!process.env.HDS_P2_ONLY) {
   if (!process.env.HDS_P1_ONLY) {
   if (!process.env.HDS_M3_ONLY) {
   await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
@@ -650,6 +806,9 @@ try {
   assert.equal(await page.evaluate(() => window.__storyFixture.sent.content), '')
   await page.getByRole('button', { name: '打开表情包', exact: true }).click()
   await page.getByRole('button', { name: '发送最近表情', exact: true }).waitFor()
+  await swipe('.sticker-drawer', -100)
+  await checkPage('chat', '故事')
+  assert.equal(await page.getByRole('region', { name: '表情抽屉' }).count(), 1, 'Drawer gestures preserve both the page and drawer')
   await page.getByRole('button', { name: '收起表情抽屉' }).click()
   // A WebView restart retains both library and the local message-id marker.
   const sentSticker = await page.evaluate(() => window.__storyFixture.messages)
@@ -878,8 +1037,9 @@ try {
   await page.waitForFunction(() => !document.querySelector('.message-failure-hint'))
   console.log('PASS P1: grouped six-step pipeline, all filters, model failure hint → shared focus parameter → focused card, ordered details, advice, seconds/relative time, provider labels/fallback, attempts, 320/360/390/740 px touch targets, export, clear, focus restore and native back.')
 
+  }
   assert.deepEqual(errors, [])
-  if (!process.env.HDS_M3_ONLY && !process.env.HDS_P1_ONLY) console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
+  if (!process.env.HDS_P2_ONLY && !process.env.HDS_M3_ONLY && !process.env.HDS_P1_ONLY) console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
 } catch (error) {
   if (debugPage) {
     console.error('Browser diagnostics:', JSON.stringify(debugMessages))

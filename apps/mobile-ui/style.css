@@ -91,8 +91,11 @@ nav button.active::after{content:'';width:4px;height:4px;border-radius:50%;backg
 
 /* M3 motion: three UI transitions plus image gestures; all motion is transform/opacity. */
 :root{--fast:120ms;--base:200ms;--slow:320ms;--ease:cubic-bezier(.2,0,0,1)}
-main[data-page=chat],main[data-page=story],main[data-page=settings]{animation:page-enter var(--base) var(--ease)}
-@keyframes page-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* Both the outgoing and incoming screen use CSS transitions. */
+main.page-transition{opacity:1;transform:none;transition:opacity var(--page-duration,150ms) var(--ease),transform var(--page-duration,150ms) var(--ease)}
+main.page-exit{opacity:0;transform:translateX(calc(-1 * var(--page-offset,0px)));transition-duration:75ms}
+main.page-enter{opacity:0;transform:translateX(var(--page-offset,0px));transition:none}
+main.page-edge{transform:translateX(calc(var(--page-offset,0px) / 3));transition-duration:100ms}
 .message-enter{animation:message-enter var(--slow) var(--ease) both;animation-delay:calc(var(--i)*30ms)}
 @keyframes message-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 .messages>.message,.timeline>article,.memory-drawer article{content-visibility:auto;contain-intrinsic-size:auto 140px}
@@ -176,6 +179,11 @@ nav .nav-unread { background:#c23e43; color:white; border-radius:9px; transform:
 .sticker-manager .sticker-grid>div>button{min-height:44px;width:100%;margin-top:4px}
 .voice-workbench .actions{display:flex;flex-wrap:wrap;gap:10px}
 .voice-workbench .actions button{min-height:44px;padding:10px 14px}
+.modal.voice-workbench{padding:28px;max-height:86dvh;overflow:auto;overscroll-behavior:contain}
+.voice-workbench>.caption{margin:20px 0 24px;line-height:1.9}
+.voice-workbench .voice-library{margin-top:18px}
+.voice-workbench textarea,.voice-workbench audio{max-width:100%;min-width:0}
+@media(max-width:360px){.modal.voice-workbench{padding:22px}}
 @media(max-width:360px){.sticker-manager .media-import-actions{grid-template-columns:1fr}.sticker-manager .sticker-group>.actions .danger{margin-left:0}}
 /* Keep the existing glass palette; make frequent settings reachable in one step. */
 .settings-directory { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 16px; }

@@ -16,6 +16,7 @@ export async function characterFixture(styles = false) {
   const page = await browser.newPage()
   const errors = []; page.on('pageerror', error => errors.push(error.message))
   await page.addInitScript(() => {
+    localStorage.setItem('hds.onboarding.v1', '1')
     const card = { format: 'v2', name: '已有角色', description: '已编辑的人设', personality: '', scenario: '', firstMessage: '你好', alternateGreetings: ['晚安'], examples: '', systemPrompt: '', postHistoryInstructions: '', creatorNotes: '', warnings: [], raw: { spec: 'chara_card_v2', spec_version: '2.0', data: { name: '旧名字', description: '旧人设', extensions: { safe: true, apiKey: 'SECRET' } } } }
     const empty = new URL(location.href).searchParams.has('empty')
     const f = window.fixture = { calls: [], cards: empty ? [] : [{ id: 'first', importedAt: new Date().toISOString(), card }], exported: [], selected: empty ? '' : 'first', failSave: false, failSelect: false, exportMode: '', hold: false, release: null,

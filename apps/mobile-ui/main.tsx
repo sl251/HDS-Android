@@ -5,6 +5,7 @@ import { fromBase64, parseCard, type Card } from '../../packages/card-format'
 import type { DiagnosticsMessageFocus, QQConversation, SchedulingStatus, Message, ModelSettings, NativeBridge, RuntimeStatus, SavedCard } from '../../packages/contracts'
 import { messageImages, imageEntryReason, visionProjection, visionRouteReason, refreshCoordinator, mergeMessages, localRequestFailure } from '../../packages/contracts'
 import './style.css'
+import { Onboarding, onboardingStorageKey, type OnboardingTarget } from './Onboarding'
 import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
 import { CardEditor } from './CardEditor'
 import { StorySettingEditor } from './StorySettingEditor'
@@ -48,6 +49,8 @@ const spaceEntries = [
 ] as const
 type SpacePage = typeof spaceEntries[number]['key']
 type Page = 'chat' | 'inbox' | 'cards' | 'story' | 'settings'
+const tabs = ['chat', 'story', 'inbox', 'settings'] as const
+type Tab = typeof tabs[number]
 const labels: Record<Page, string> = { chat: '故事', inbox: '信箱', cards: '角色', story: '见闻', settings: '空间' }
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
 function Icon({ name }: { name: Page | 'arrow' | 'plus' }) {
@@ -68,6 +71,14 @@ const MessageRow = React.memo(function MessageRow({ message, userName, character
 })
 function App() {
   const [page, updatePage] = useState<Page>('chat')
+  const [onboardingOpen, setOnboardingOpen] = useState(() => { try { return localStorage.getItem(onboardingStorageKey) === null } catch { return true } })
+  const appShell = useRef<HTMLDivElement>(null)
+  const [onboardingTargets] = useState(() => Object.fromEntries(['welcome', 'library', 'models', 'chat', 'story', 'inbox', 'help'].map(key => [key, React.createRef<HTMLElement>()])) as Record<OnboardingTarget, React.RefObject<HTMLElement>>)
+  const guideOrigin = useRef<{ page: Page; space: SpacePage | null }>({ page: 'chat', space: null })
+  const [pageMotion, setPageMotion] = useState<{ phase: 'idle' | 'exit' | 'enter' | 'edge'; direction: number }>({ phase: 'idle', direction: 0 })
+  const pageTimer = useRef<ReturnType<typeof setTimeout>>()
+  const pageFrames = useRef<number[]>([])
+  const touchStart = useRef<{ x: number; y: number; id: number; page: Page } | null>(null)
   const [spacePage, setSpacePage] = useState<SpacePage | null>(null)
   const [messageDiagnostic, setMessageDiagnostic] = useState<string | null>(null)
   const focusMessageDiagnostic = useCallback((message: DiagnosticsMessageFocus) => setMessageDiagnostic(message.messageId), [])
@@ -174,14 +185,72 @@ function App() {
     const anchor = [...document.querySelectorAll<HTMLElement>('[data-read-anchor]')].find(element => element.getBoundingClientRect().bottom > 0)
     positions.current.set(locationKey, { y: window.scrollY, anchor: anchor?.dataset.readAnchor, offset: anchor?.getBoundingClientRect().top, drawers: [...document.querySelectorAll<HTMLDetailsElement>('.memory-drawer')].map(element => element.open) })
   }
-  const setPage = (next: Page) => { savePosition(); updatePage(next) }
-  const openInbox = (source: 'tab' | 'space') => {
-    if (page !== 'inbox') previousTab.current = page === 'cards' ? 'chat' : page
-    setInboxSource(source); setPage('inbox')
+  const cancelPageMotion = () => { clearTimeout(pageTimer.current); pageFrames.current.forEach(cancelAnimationFrame); pageFrames.current = [] }
+  useEffect(() => () => { clearTimeout(pageTimer.current); pageFrames.current.forEach(cancelAnimationFrame) }, [])
+  const setPage = (next: Page, direction = 0) => {
+    cancelPageMotion()
+    if (next === page) { setPageMotion({ phase: 'idle', direction: 0 }); return }
+    savePosition()
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setPageMotion({ phase: 'idle', direction: 0 }); updatePage(next); return }
+    const enter = () => {
+      setPageMotion({ phase: 'enter', direction }); updatePage(next)
+      pageFrames.current.push(requestAnimationFrame(() => {
+        pageFrames.current.push(requestAnimationFrame(() => setPageMotion({ phase: 'idle', direction })))
+      }))
+    }
+    // Clicks keep the existing immediate navigation semantics, then fade in.
+    if (!direction) { enter(); return }
+    setPageMotion({ phase: 'exit', direction })
+    pageTimer.current = setTimeout(enter, 90)
   }
-  const openSpace = (next: typeof spacePage) => { savePosition(); setSpacePage(next); updatePage('settings') }
+  const openInbox = (source: 'tab' | 'space', direction = 0) => {
+    if (page !== 'inbox') previousTab.current = page === 'cards' ? 'chat' : page
+    setInboxSource(source); setPage('inbox', direction)
+  }
+  const openSpace = (next: typeof spacePage, direction = 0) => { if (page === 'settings') savePosition(); setSpacePage(next); setPage('settings', direction) }
+  const selectTab = (next: Tab, direction = 0) => next === 'inbox' ? openInbox('tab', direction) : next === 'settings' ? openSpace(null, direction) : setPage(next, direction)
+  const prepareOnboarding = (target: OnboardingTarget) => {
+    cancelPageMotion(); setPageMotion({ phase: 'idle', direction: 0 }); touchStart.current = null
+    if (target === 'library') updatePage('cards')
+    else if (target === 'models' || target === 'help') { setSpacePage(null); updatePage('settings') }
+    else if (target === 'story') { updateDetail('story'); updatePage('story') }
+    else if (target === 'inbox') { setInboxSource('tab'); updatePage('inbox') }
+    else updatePage('chat')
+  }
+  const closeOnboarding = () => {
+    try { localStorage.setItem(onboardingStorageKey, '1') } catch { setNotice('本机存储暂不可用，下次打开时可能再次显示引导。') }
+    cancelPageMotion(); setPageMotion({ phase: 'idle', direction: 0 }); setOnboardingOpen(false)
+    setSpacePage(guideOrigin.current.space); updatePage(guideOrigin.current.page)
+  }
+  const startOnboarding = () => { savePosition(); guideOrigin.current = { page, space: spacePage }; setOnboardingOpen(true) }
+  const beginSwipe = (event: React.TouchEvent<HTMLElement>) => {
+    touchStart.current = null
+    if (onboardingOpen || pageMotion.phase !== 'idle' || event.touches.length !== 1 || !tabs.includes(page as Tab)) return
+    const target = event.target as HTMLElement
+    if (target.closest('.modal-backdrop, .sticker-drawer, .composer-wrap, input, textarea, select, audio, [contenteditable="true"]') || document.querySelector('[aria-modal="true"], .image-viewer')) return
+    const touch = event.touches[0]
+    // Leave the screen edges to the system's back gesture.
+    if (touch.clientX <= 24 || touch.clientX >= innerWidth - 24) return
+    touchStart.current = { x: touch.clientX, y: touch.clientY, id: touch.identifier, page }
+  }
+  const endSwipe = (event: React.TouchEvent<HTMLElement>) => {
+    const start = touchStart.current; touchStart.current = null
+    if (!start || start.page !== page || event.touches.length) return
+    const touch = Array.from(event.changedTouches).find(value => value.identifier === start.id)
+    if (!touch) return
+    const dx = touch.clientX - start.x, dy = touch.clientY - start.y
+    if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) * 1.5) return
+    const direction = dx < 0 ? 1 : -1
+    const next = tabs[tabs.indexOf(page as Tab) + direction]
+    if (next) selectTab(next, direction)
+    else if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      cancelPageMotion(); setPageMotion({ phase: 'edge', direction: -direction })
+      pageTimer.current = setTimeout(() => setPageMotion({ phase: 'idle', direction: -direction }), 100)
+    }
+  }
   useEffect(() => {
     const handleBack = () => {
+      if (onboardingOpen) { closeOnboarding(); return true }
       if (stickerManager) { stickerManagerBack.current?.(); return true }
       if (stickerDrawer) { setStickerDrawer(false); return true }
       if (exportOpen) { if (!busy) setExportOpen(false); return true }
@@ -212,6 +281,7 @@ function App() {
     return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('wheel', moved); window.removeEventListener('touchstart', moved) }
   }, [])
   useLayoutEffect(() => {
+    if (onboardingOpen) return
     if ((page === 'story' && !story) || (page === 'chat' && !messages.length)) return
     if (restored.current === locationKey) return
     restored.current = locationKey; userMoved.current = false
@@ -228,13 +298,13 @@ function App() {
     restore(); const frame = requestAnimationFrame(restore)
     const observer = new ResizeObserver(restore); const main = document.querySelector('main'); if (main) observer.observe(main)
     return () => { cancelAnimationFrame(frame); observer.disconnect() }
-  }, [locationKey, !!story, !!messages.length])
+  }, [locationKey, !!story, !!messages.length, onboardingOpen])
   useLayoutEffect(() => {
-    if (page !== 'chat') return
+    if (page !== 'chat' || onboardingOpen) return
     const follow = () => { if (nearBottom.current || forceBottom.current) { window.scrollTo(0, document.documentElement.scrollHeight); forceBottom.current = false } }
     follow(); const observer = new ResizeObserver(follow); const list = document.querySelector('.messages'); if (list) observer.observe(list)
     return () => observer.disconnect()
-  }, [page, messages])
+  }, [page, messages, onboardingOpen])
   useLayoutEffect(() => {
     const element = composer.current
     if (!element) return
@@ -408,6 +478,7 @@ function App() {
     // same conversation was previously left scrolled into older history.
     for (const key of positions.current.keys()) if (key.startsWith(`${cardId}:`)) positions.current.delete(key)
     restored.current = ''; nearBottom.current = true; forceBottom.current = true; userMoved.current = false
+    cancelPageMotion(); setPageMotion({ phase: 'idle', direction: 0 })
     setNewMessages(0); setSwitcher(false); updatePage('chat')
     if ((await bridge.status()).state === 'healthy') await refreshHistory()
     requestAnimationFrame(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -540,9 +611,9 @@ function App() {
   const wakePanel = <div className={`wake-panel ${transitioning ? 'waking' : ''}`} role="status"><div><b>{active?.card.name || '故事'} · {runtimeLabel}</b><p>{runtime?.state === 'installing' ? '首次准备约 1 分钟，请稍候…' : runtime?.state === 'starting' ? '正在翻开属于你们的这一页。' : '之前的经历留在这里，下一句话由你开始。'}</p></div>{transitioning ? <progress aria-label={runtimeLabel} /> : <button className="primary wake-button" disabled={!native || busy || !settingsReady} onClick={wake}>{!active ? '选择主角' : !modelReady ? '连接故事模型' : runtime?.state === 'failed' ? '再次唤醒' : '点击唤醒'}<Icon name="arrow" /></button>}{runtime?.state === 'installing' && <button className="text-button" onClick={() => act(() => bridge.cancelInstall())}>取消准备</button>}{runtime?.error && <p className="error">{runtime.error}</p>}</div>
   return <>
     {appearance.value.backgroundData && <BackgroundImage source={appearance.value.backgroundData} opacity={appearance.value.backgroundOpacity} blur={appearance.value.backgroundBlur} failed={() => setNotice('背景图片无法显示，请在界面设置中重新选择图片。')} />}
-    <div className="app">
-    <header><div className="wordmark">HDS<span>INTERLUDE</span></div><div className="header-actions"><button className={`status ${runtime?.state === 'healthy' ? 'online' : ''}`} disabled={busy || transitioning || (native && !settingsReady)} onClick={() => healthy ? setPage('chat') : native ? void wake() : setPage('settings')}><i />{runtimeLabel}</button></div></header>
-    <main className="accordion" key={page} data-page={page} onBlurCapture={() => { void persistSettings().catch(() => {}) }}>
+    <div className="app" ref={appShell}>
+    <header><div className="wordmark" ref={onboardingTargets.welcome as React.RefObject<HTMLDivElement>}>HDS<span>INTERLUDE</span></div><div className="header-actions"><button className={`status ${runtime?.state === 'healthy' ? 'online' : ''}`} disabled={busy || transitioning || (native && !settingsReady)} onClick={() => healthy ? setPage('chat') : native ? void wake() : setPage('settings')}><i />{runtimeLabel}</button></div></header>
+    <main className={`accordion page-transition page-${pageMotion.phase}`} style={{ '--page-offset': `${pageMotion.direction * 24}px`, '--page-duration': '150ms' } as React.CSSProperties} key={page} data-page={page} onTouchStart={beginSwipe} onTouchMove={event => { if (event.touches.length !== 1) touchStart.current = null }} onTouchEnd={endSwipe} onTouchCancel={() => { touchStart.current = null }} onBlurCapture={() => { void persistSettings().catch(() => {}) }}>
       {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
       {restartNeeded && <div className="restart-banner" role="status"><div><b>新配置已就绪</b><span>重启后生效，剧情与记忆会保留。</span></div><button disabled={busy || sending || transitioning} onClick={restart}>立即重启生效</button></div>}
       {page === 'inbox' && <Inbox bridge={bridge} healthy={runtime?.state === 'healthy'} native={native} configure={() => openSpace(null)} onRootBack={inboxSource === 'space' ? () => openSpace(null) : undefined} backHandler={inboxBack} onUnread={setInboxUnread} />}
@@ -553,18 +624,18 @@ function App() {
         {requestState === 'unknown' && <p role="status">发送结果未知，请保留原内容安全重试。<button disabled={sending || busy || !healthy} onClick={() => void send(retryTarget ?? undefined)}>重试发送</button></p>}
         {requestState === 'failed' && <div role="status"><MessageStatus message={{ direction: 'user', status: 'failed' }} disabled={sending || busy || !healthy} onRetry={() => void send(retryTarget ?? undefined)} /></div>}
         {active && !healthy && wakePanel}
-        <div className="composer-wrap">{stickerDrawer && stickerEntryVisible(stickers) && <StickerDrawer library={stickers} disabled={sending || busy || !healthy} close={() => setStickerDrawer(false)} send={(packId, asset) => void send(undefined, { packId, asset })} />}{attachments.length > 0 && <div className="attachment-tray">{attachments.map(image => <div key={image.id}><img src={image.dataUri} alt="待发送图片" /><button aria-label="移除图片" disabled={sending || busy} onClick={() => setAttachments(current => current.filter(item => item.id !== image.id))}>×</button></div>)}</div>}<form className="composer" onSubmit={event => { event.preventDefault(); if (!composing.current) void send() }}><button type="button" className="attach-button" aria-label="添加图片" disabled={busy || sending} aria-disabled={!!attachmentReason} aria-describedby="image-entry-hint" onClick={() => void pickImage()}>＋</button>{stickerEntryVisible(stickers) && <button type="button" className="sticker-entry" aria-label="打开表情包" aria-expanded={stickerDrawer} disabled={busy || sending} onClick={() => { composer.current?.blur(); setStickerDrawer(value => !value) }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 14q4 5 8 0M8 8v2M16 8v2" /></svg></button>}<textarea ref={composer} disabled={sending} rows={1} value={draft} onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false }} onKeyDown={event => { const action = composerEnter({ key: event.key, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode }, composing.current); if (action === 'send') { event.preventDefault(); void send() } }} onPaste={event => { const images = [...event.clipboardData.items].filter(item => item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => file !== null); if (images.length) { event.preventDefault(); void pickImage(images) } }} onChange={event => setDraft(event.target.value)} placeholder={runtime?.state === 'healthy' ? '写下你想说的话…' : '先写下来，唤醒后就能发送…'} maxLength={12000} aria-label="消息内容" /><button className="send" disabled={!native || runtime?.state !== 'healthy' || sending || busy || (!draft.trim() && !attachments.length)} aria-label="发送消息"><Icon name="arrow" /></button></form><p id="image-entry-hint" className="composer-hint">{attachmentReason || '最多 3 张图片 · 在空间中选择图片理解模型'}</p></div>
+        <div className="composer-wrap" ref={onboardingTargets.chat as React.RefObject<HTMLDivElement>}>{stickerDrawer && stickerEntryVisible(stickers) && <StickerDrawer library={stickers} disabled={sending || busy || !healthy} close={() => setStickerDrawer(false)} send={(packId, asset) => void send(undefined, { packId, asset })} />}{attachments.length > 0 && <div className="attachment-tray">{attachments.map(image => <div key={image.id}><img src={image.dataUri} alt="待发送图片" /><button aria-label="移除图片" disabled={sending || busy} onClick={() => setAttachments(current => current.filter(item => item.id !== image.id))}>×</button></div>)}</div>}<form className="composer" onSubmit={event => { event.preventDefault(); if (!composing.current) void send() }}><button type="button" className="attach-button" aria-label="添加图片" disabled={busy || sending} aria-disabled={!!attachmentReason} aria-describedby="image-entry-hint" onClick={() => void pickImage()}>＋</button>{stickerEntryVisible(stickers) && <button type="button" className="sticker-entry" aria-label="打开表情包" aria-expanded={stickerDrawer} disabled={busy || sending} onClick={() => { composer.current?.blur(); setStickerDrawer(value => !value) }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 14q4 5 8 0M8 8v2M16 8v2" /></svg></button>}<textarea ref={composer} disabled={sending} rows={1} value={draft} onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false }} onKeyDown={event => { const action = composerEnter({ key: event.key, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode }, composing.current); if (action === 'send') { event.preventDefault(); void send() } }} onPaste={event => { const images = [...event.clipboardData.items].filter(item => item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => file !== null); if (images.length) { event.preventDefault(); void pickImage(images) } }} onChange={event => setDraft(event.target.value)} placeholder={runtime?.state === 'healthy' ? '写下你想说的话…' : '先写下来，唤醒后就能发送…'} maxLength={12000} aria-label="消息内容" /><button className="send" disabled={!native || runtime?.state !== 'healthy' || sending || busy || (!draft.trim() && !attachments.length)} aria-label="发送消息"><Icon name="arrow" /></button></form><p id="image-entry-hint" className="composer-hint">{attachmentReason || '最多 3 张图片 · 在空间中选择图片理解模型'}</p></div>
       </>}
       {page === 'cards' && <>
         <div className="page-heading"><div><div className="eyebrow">CHARACTER LIBRARY</div><h1>故事里的人<span>。</span></h1><p>人设是起点，经历让她成为自己。</p></div><button className="text-button" onClick={() => setPage('chat')}>返回故事</button></div>
-        <div className="actions"><button className="primary" disabled={!native || busy} onClick={importCard}><Icon name="plus" />导入角色卡</button><button className="secondary" disabled={!native || busy} onClick={() => setCreateOpen(true)}>手动创建</button><button className="secondary" disabled={!native || busy} onClick={() => { setImportCodeOpen(true) }}>用导入码导入</button><button className="secondary" disabled={!native || busy || !selected} onClick={() => openCardExport(selected)}>导出</button></div>
+        <div className="actions" ref={onboardingTargets.library as React.RefObject<HTMLDivElement>}><button className="primary" disabled={!native || busy} onClick={importCard}><Icon name="plus" />导入角色卡</button><button className="secondary" disabled={!native || busy} onClick={() => setCreateOpen(true)}>手动创建</button><button className="secondary" disabled={!native || busy} onClick={() => { setImportCodeOpen(true) }}>用导入码导入</button><button className="secondary" disabled={!native || busy || !selected} onClick={() => openCardExport(selected)}>导出</button></div>
         <p className="caption">JSON / PNG / YAML · 酒馆 V1–V3 · typ0 / HDS koishi.yml<br />CHARX、压缩 PNG 元数据和第三方扩展暂不支持执行。</p>
         <div className="card-list">{cards.map((saved, index) => <article className={`character ${saved.id === selected ? 'chosen' : ''}`} key={saved.id}><div className="character-number">{String(index + 1).padStart(2, '0')}</div><div className="character-body"><div className="character-title"><h2>{saved.card.name}</h2>{saved.id === selected && <span className="tag">当前角色</span>}</div><p>{saved.card.description || saved.card.personality || '尚未填写角色描述'}</p><span className="caption">{saved.card.format.toUpperCase()} · {saved.card.lorebook ? '含世界书' : '独立人设'} · {new Date(saved.importedAt).toLocaleDateString('zh-CN')}</span><div className="card-actions"><button disabled={busy || sending || transitioning || saved.id === selected} onClick={() => switchCard(saved.id)}>{saved.id === selected ? '正在使用' : '使用这个角色'}</button><button onClick={() => setPreview({ card: saved.card, base64: '' })}>查看人设</button><button disabled={busy} onClick={() => setEditingCard(saved)}>编辑</button><button disabled={busy} onClick={() => openCardExport(saved.id)}>导出角色卡</button><button disabled={busy} className="danger" onClick={() => setDeleteTarget(saved)}>删除</button></div></div></article>)}</div>
         {!cards.length && <div className="quiet-empty">角色库还很安静。<br />为第一段故事选一个主角吧。</div>}
       </>}
       {page === 'story' && <>
         <div className="page-heading"><div><div className="eyebrow">BEYOND THE CONVERSATION</div><h1>生活的切面<span>。</span></h1><p>记住走过的日常，也读懂未说出口的心事。</p></div><span className="chapter">02 / 见闻</span></div>
-        <div className="tabs"><button className={detail === 'story' ? 'active' : ''} onClick={() => setDetail('story')}>故事时间线</button><button className={detail === 'memory' ? 'active' : ''} onClick={() => setDetail('memory')}>长期记忆</button><button className={detail === 'mind' ? 'active' : ''} onClick={() => setDetail('mind')}>此刻心绪</button></div>
+        <div className="tabs" ref={onboardingTargets.story as React.RefObject<HTMLDivElement>}><button className={detail === 'story' ? 'active' : ''} onClick={() => setDetail('story')}>故事时间线</button><button className={detail === 'memory' ? 'active' : ''} onClick={() => setDetail('memory')}>长期记忆</button><button className={detail === 'mind' ? 'active' : ''} onClick={() => setDetail('mind')}>此刻心绪</button></div>
         {runtime?.state !== 'healthy' ? wakePanel : <>
           <div className="inline-actions"><button onClick={() => { openSpace('world'); setSettingEditor(true) }}>修改故事设定</button><button onClick={toLatest}>回到最新</button><button onClick={() => act(async () => { await refreshStory() })}>刷新</button><button onClick={() => act(async () => { await bridge.rpc({ method: story?.story?.status === 'paused' ? 'story.resume' : 'story.pause' }); await refreshStory() }, '故事状态已更新。')}>{story?.story?.status === 'paused' ? '恢复故事' : '暂停故事'}</button></div>
           {detail === 'story' ? <div className="timeline">{story?.entries.filter(entry => entry.kind === 'script' || entry.kind === 'setup').map(entry => <article key={entry.id} data-read-anchor={`entry-${entry.id}`}><time>{new Date(entry.occurredAt).toLocaleString('zh-CN')}</time><p>{entry.content}</p></article>)}{!story?.entries.some(entry => entry.kind === 'script') && <p className="quiet-empty">还没有生成生活剧本。对话后可在这里查看。</p>}</div> : detail === 'mind' ? <div className="mind-card"><span className="eyebrow">INNER WEATHER</span><h2>{active?.card.name || '角色'}的心绪</h2><p>{story?.story?.state?.alterSystem?.emotionalOffset?.description || '心绪还没有留下记录。随着故事继续，这里会记下细微的变化。'}</p></div> : <div className="timeline"><MemoryTools key={selected} cardId={selected} bridge={bridge} facts={story?.facts || []} intents={story?.intents || []} schedulingStatus={story?.schedulingStatus || []} paused={story?.story?.status === 'paused'} overlay={story?.overlay?.state || {}} busy={busy} act={act} refresh={refreshStory} />{story?.memories.map(memory => <article key={`memory-${memory.id}`} data-read-anchor={`memory-${memory.id}`}><span className="eyebrow">压缩记忆 #{memory.id}</span><p>{memory.summary || memory.content}</p></article>)}{!story?.facts.length && !story?.memories.length && <p className="quiet-empty">经历积累后，记忆会在这里出现。</p>}</div>}
@@ -574,9 +645,10 @@ function App() {
         <div className="page-heading"><div><div className="eyebrow">YOUR OWN LITTLE WORLD</div><h1>{spacePage ? spaceEntries.find(item => item.key === spacePage)?.label : '你的小小世界'}<span>。</span></h1></div>{spacePage && <button className="text-button" onClick={() => openSpace(null)}>返回空间</button>}</div>
         {!spacePage ? <div className="space-home">
           <section className="space-wake"><div className="section-title"><h2>故事的节奏</h2><span className="tag">{runtimeLabel}</span></div>{healthy ? <button className="secondary" disabled={busy || sending} onClick={() => act(async () => { await bridge.stop(); setRuntime(await bridge.status()) }, '故事暂时歇息，经历都已留存。')}>让故事休息一下</button> : wakePanel}</section>
-          <div className="settings-directory">{spaceEntries.filter(item => !['advanced', 'system'].includes(item.key)).map(item => <button className="settings-entry" key={item.key} onClick={() => openSpace(item.key)}><span>{item.label}<small>{item.caption}</small></span><Icon name="arrow" /></button>)}</div>
+          <div className="settings-directory">{spaceEntries.filter(item => !['advanced', 'system'].includes(item.key)).map(item => <button ref={item.key === 'models' ? onboardingTargets.models as React.RefObject<HTMLButtonElement> : undefined} className="settings-entry" key={item.key} onClick={() => openSpace(item.key)}><span>{item.label}<small>{item.caption}</small></span><Icon name="arrow" /></button>)}</div>
           <button className="settings-entry" onClick={() => setStickerManager(true)}><span>表情包<small>我的表情与角色表情 · 独立素材池</small></span><Icon name="arrow" /></button>
-          <button className="settings-entry" onClick={() => setMessageDiagnostic('')}><span>消息诊断<small>处理过程、未回复与调用失败原因</small></span><Icon name="arrow" /></button>
+          <button ref={onboardingTargets.help as React.RefObject<HTMLButtonElement>} className="settings-entry" onClick={() => setMessageDiagnostic('')}><span>消息诊断<small>处理过程、未回复与调用失败原因</small></span><Icon name="arrow" /></button>
+          <button className="settings-entry" onClick={startOnboarding}><span>重看新手引导<small>认识角色、模型连接与消息诊断</small></span><Icon name="arrow" /></button>
           <div className="settings-secondary">{spaceEntries.filter(item => ['advanced', 'system'].includes(item.key)).map(item => <button className="settings-entry" key={item.key} onClick={() => openSpace(item.key)}><span>{item.label}<small>{item.caption}</small></span><Icon name="arrow" /></button>)}</div>
         </div> : <div className="space-detail" data-settings-category={spacePage}>
           <div className="save-status" role="status"><span>{native ? saveState : '界面预览 · 设置不会保存'}</span>{saveError && <><p className="error">{saveError}</p><button className="text-button" disabled={busy} onClick={() => void persistSettings().catch(() => {})}>重试保存</button></>}</div>
@@ -602,7 +674,7 @@ function App() {
       </>}
 
     </main>
-    <nav ref={navigation} aria-label="主导航">{(['chat', 'story', 'inbox', 'settings'] as Page[]).map(key => <button key={key} className={key === page || (key === 'chat' && page === 'cards') ? 'active' : ''} onClick={() => key === 'inbox' ? openInbox('tab') : key === 'settings' ? openSpace(null) : setPage(key)} aria-current={key === page || (key === 'chat' && page === 'cards') ? 'page' : undefined} aria-label={labels[key]}><Icon name={key} /><span>{labels[key]}</span>{key === 'inbox' && inboxUnread > 0 && <span className="letter-unread nav-unread" aria-label={`${inboxUnread} 条未读`}>{inboxUnread > 99 ? '99+' : inboxUnread}</span>}</button>)}</nav>
+    <nav ref={navigation} aria-label="主导航" style={{ '--active-tab': tabs.indexOf(page === 'cards' ? 'chat' : page) } as React.CSSProperties}><span className="nav-indicator" aria-hidden="true" />{tabs.map(key => <button ref={key === 'inbox' ? onboardingTargets.inbox as React.RefObject<HTMLButtonElement> : undefined} key={key} className={key === page || (key === 'chat' && page === 'cards') ? 'active' : ''} onClick={() => selectTab(key)} aria-current={key === page || (key === 'chat' && page === 'cards') ? 'page' : undefined} aria-label={labels[key]}><Icon name={key} /><span>{labels[key]}</span>{key === 'inbox' && inboxUnread > 0 && <span className="letter-unread nav-unread" aria-label={`${inboxUnread} 条未读`}>{inboxUnread > 99 ? '99+' : inboxUnread}</span>}</button>)}</nav>
     {messageDiagnostic !== null && <MessageDiagnostics key={selected} bridge={bridge} healthy={healthy} messageId={messageDiagnostic} messages={messages} close={() => setMessageDiagnostic(null)} />}
     {settingEditor && <StorySettingEditor key={selected} bridge={bridge} close={() => setSettingEditor(false)} saved={async () => { await refreshStory(); setNotice('故事设定已更新。') }} />}
     {stickerManager && <StickerManager back={stickerManagerBack} library={stickers} bridge={bridge} native={native} change={value => { saveStickers(value); if (runtimeRef.current?.state === 'healthy') setRestartNeeded(true) }} close={() => setStickerManager(false)} notify={setNotice} importReason={!settingsReady ? '正在读取模型设置，请稍候…' : stickerImportReason(settings)} beforeImport={async () => { const reason = stickerImportReason(settingsRef.current); if (reason) throw new Error(reason); await persistSettings() }} configureVision={() => { setStickerManager(false); openSpace('models') }} />}
@@ -614,7 +686,7 @@ function App() {
     {exportOpen && <CharacterExportModal bridge={bridge} native={native} cardId={exportCardId} ready={native && settingsReady && !!exportCardId} name={cards.find(row => row.id === exportCardId)?.card.name || ''} config={settings.mobileConfig} revision={() => exportCardId} busy={busy} working={setBusy} close={() => setExportOpen(false)} />}
     {importCodeOpen && <CharacterImportModal busy={busy} working={setBusy} save={input => saveImportedCard(input)} close={() => setImportCodeOpen(false)} />}
     {createOpen && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="创建角色"><div className="section-title"><h2>写下一个人</h2><button aria-label="关闭" onClick={() => setCreateOpen(false)}>×</button></div><label>角色名称<input value={newName} onChange={event => setNewName(event.target.value)} maxLength={128} /></label><label>角色描述<textarea rows={6} value={newProfile} onChange={event => setNewProfile(event.target.value)} maxLength={262144} placeholder="身份、性格、说话方式与生活背景…" /></label><button className="primary wide" disabled={!newName.trim() || !newProfile.trim()} onClick={() => { const raw = JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: { name: newName.trim(), description: newProfile, personality: '', scenario: '', first_mes: '', mes_example: '', extensions: {} } }); const bytes = new TextEncoder().encode(raw); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); setPreview({ card: parseCard(bytes), base64: btoa(binary) }); setCreateOpen(false); setNewName(''); setNewProfile('') }}>预览角色<Icon name="arrow" /></button></section></div>}
-  </div></>
+  </div>{onboardingOpen && <Onboarding targets={onboardingTargets} background={appShell} prepare={prepareOnboarding} close={closeOnboarding} />}</>
 }
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
 

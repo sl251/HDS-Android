@@ -91,6 +91,7 @@ try {
     window.__audioPlays = 0
     const originalPlay = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function() { window.__audioPlays++; return originalPlay.call(this) }
+    localStorage.setItem('hds.onboarding.v1', '1')
     window.androidBridge = {}
     window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: methods.map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => { const response = await fetch(gatewayUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, options }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data } }

@@ -49,6 +49,7 @@ try {
   page = await browser.newPage({ viewport: { width: 390, height: 844 } }); page.setDefaultTimeout(20000)
   const errors = []; page.on('pageerror', error => errors.push(error.message))
   await page.addInitScript(url => {
+    localStorage.setItem('hds.onboarding.v1', '1')
     window.androidBridge = {}
     const methods = ['settings', 'cards', 'status', 'saveSettings', 'appearance', 'notificationSettings', 'notificationLaunch', 'voiceState', 'rpc']
     window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: methods.map(name => ({ name, rtype: 'promise' })) }], nativePromise: async (_, method, options) => {
