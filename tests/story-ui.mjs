@@ -41,7 +41,7 @@ try {
     window.androidBridge = {}
     window.Capacitor = {
       convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch','saveMessageDiagnostics'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
         if (method === 'notificationSettings') return f.notifications || { enabled: false, permission: 'prompt', available: false }
@@ -71,7 +71,17 @@ try {
         if (method === 'stop') { f.status.state = 'stopped'; f.status.running = false; return {} }
         if (method === 'selectCard') { f.status.state = 'stopped'; f.status.running = false; f.prefs.activeCard = options.id; return {} }
         if (method === 'cancelInstall') { f.status.state = 'stopped'; f.status.running = false; return {} }
+        if (method === 'saveMessageDiagnostics') { f.diagnosticExport = options; return { cancelled: false } }
         if (method === 'rpc') {
+          if (options.method === 'diagnostics.messages') {
+            (f.diagnosticRequests ||= []).push(structuredClone(options.payload || {}))
+            const events = f.diagnosticEvents || [], id = options.payload?.messageId
+            const ids = new Set(events.filter(event => event.messageId === id).flatMap(event => event.requestIds))
+            if (id) ids.add(id)
+            return { data: { events: events.filter(event => !id || event.messageId === id || event.requestIds.some(value => ids.has(value))), storageAvailable: true } }
+          }
+          if (options.method === 'diagnostics.clear') { f.diagnosticEvents = []; return { data: { cleared: true } } }
+
           if (options.method === 'qq.status') return { data: { phase: 'stopped', installed: false, running: false, loggedIn: false, online: false, progress: '', error: '', account: '', nickname: '', qr: '', policy: { enabled: false, users: [], groups: [] }, logs: [] } }
           if (options.method === 'qq.history') return { data: [] }
           if (options.method === 'qq.conversations') return { data: f.conversations || [{ id: 'private:10001', name: '外部朋友', last: '有空聊聊', time: Date.now(), unread: 3 }, { id: 'group:10002', name: '外部群聊', last: '晚上好', time: Date.now(), unread: 2 }] }
@@ -110,6 +120,7 @@ try {
     }
   })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
+  if (!process.env.HDS_P1_ONLY) {
   if (!process.env.HDS_M3_ONLY) {
   await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
   assert.deepEqual(await page.locator('nav button').allTextContents(), ['故事','见闻','信箱','空间'])
@@ -773,8 +784,102 @@ try {
   console.log('PASS M3: notification card switching during send clears only the acknowledged card draft.')
   console.log('PASS M3: historical thinking toggle, native long-image overflow and browser touch scrolling, slow downward gesture, pinch zoom, zoomed pan without dismissal, top-edge downward close, blank/Escape close, body scroll lock/focus restore and reduced-motion fuse.')
 
+  }
+  // P1 uses the real diagnostics.messages event-array shape; no provider calls are fabricated.
+  await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
+  await page.evaluate(() => {
+    const f = window.__storyFixture, now = Date.now()
+    f.status = { ...f.status, state: 'healthy', installed: true, running: true, environmentState: 'ready' }
+    f.messages = [{ id: 'p1-target-message', direction: 'user', content: '诊断消息预览'.repeat(9), status: 'accepted', occurredAt: new Date(now - 180000).toISOString() }, { id: 'p1-recovered-message', direction: 'user', content: '已经恢复的回合', status: 'accepted', occurredAt: new Date(now - 60000).toISOString() }]
+    const event = (id, at, stage, outcome, extra = {}) => ({ id, at, stage, outcome, requestIds: ['p1-target-message'], ...extra })
+    f.diagnosticEvents = [event('p1-failed', now - 178000, 'model', 'failed', { reason: 'timeout', attempt: 2, elapsedMs: 1250, providerSlot: 1, providerLabel: '故事模型' }), event('p1-submitted', now - 180000, 'submission', 'accepted'), event('p1-started', now - 179000, 'model', 'started', { attempt: 2 }), event('p1-settled', now - 177000, 'processing', 'settled'),
+      event('p1-old-failure', now - 60000, 'model', 'failed', { requestIds: ['p1-recovered-message'], reason: 'network' }), event('p1-recovery', now - 59000, 'model', 'succeeded', { requestIds: ['p1-recovered-message'], attempt: 2 }), event('p1-silent', now - 58000, 'decision', 'none', { requestIds: ['p1-recovered-message'] }),
+      event('p1-delayed', now - 30000, 'decision', 'delayed', { requestIds: ['p1-delayed-message'] })]
+  })
+  const p1Hint = page.locator('[data-read-anchor="message-p1-target-message"] .message-failure-hint')
+  await p1Hint.waitFor()
+  assert.match(await p1Hint.innerText(), /该消息模型调用失败 · 请求超时 ·\s*查看诊断/)
+  assert.equal(await page.locator('.message-failure-hint').count(), 1, 'Recovered model attempts must not mark another chat message as failed')
+  assert.equal(await p1Hint.evaluate(element => getComputedStyle(element).position), 'static')
+  await p1Hint.click({ button: 'right' })
+  assert.equal(await page.getByRole('dialog', { name: '消息诊断', exact: true }).count(), 0, 'Context menus must not navigate')
+  await p1Hint.getByRole('button', { name: '查看诊断', exact: true }).click()
+  const p1Dialog = page.getByRole('dialog', { name: '消息诊断', exact: true })
+  const p1Target = p1Dialog.locator('[data-diagnostic-message="p1-target-message"]')
+  await p1Target.waitFor()
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-diagnostic-message') === 'p1-target-message')
+  assert.equal(await p1Dialog.getByLabel('查看范围').inputValue(), 'p1-target-message')
+  assert.equal(await page.evaluate(() => window.__storyFixture.diagnosticRequests.some(payload => payload?.messageId === 'p1-target-message')), true)
+  assert.equal(await p1Dialog.locator('.diagnostic-message-card').count(), 1)
+  assert.equal(await p1Target.locator('.diagnostic-pipeline > li').count(), 6)
+  assert.equal(await p1Target.locator('[data-stage="model"]').getAttribute('data-state'), 'failed')
+  assert.equal(await p1Target.locator('[data-stage="model"]').getAttribute('aria-current'), 'step')
+  assert.equal(await p1Target.locator('[data-stage="model"]').evaluate(element => getComputedStyle(element).color), 'rgb(229, 72, 77)')
+  assert.match(await p1Target.locator('.diagnostic-advice').innerText(), /120 秒/)
+  assert.equal(await p1Target.locator('.diagnostic-card-heading > b').innerText(), '诊断消息预览'.repeat(9).slice(0, 40) + '…')
+  assert.equal(await p1Target.locator('.diagnostic-card-heading time').innerText(), '3 分钟前')
+  assert.deepEqual(await p1Target.locator('[data-event-id]').evaluateAll(elements => elements.map(element => element.dataset.eventId)), ['p1-submitted', 'p1-started', 'p1-failed', 'p1-settled'])
+  assert.match(await p1Target.innerText(), /1.3 秒/); assert.match(await p1Target.innerText(), /第 2 次尝试/); assert.match(await p1Target.innerText(), /故事模型/)
+  assert.equal(await p1Target.locator('.diagnostic-pipeline > li').evaluateAll(elements => elements.every((element, index) => element.getAttribute('aria-label').includes(`第${index + 1}步`))), true)
+  for (const width of [320, 360, 390, 740]) {
+    await page.setViewportSize({ width, height: 844 })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+    assert.equal(await p1Dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1), true)
+    assert.equal(await p1Dialog.locator('button,select').evaluateAll(elements => elements.every(element => element.getBoundingClientRect().height >= 44)), true)
+    await p1Target.evaluate(element => element.scrollIntoView({ block: 'start' }))
+    assert.equal(await p1Dialog.getByRole('button', { name: '关闭消息诊断' }).isVisible(), true)
+    await page.screenshot({ path: `artifacts/p1/diagnostics-${width}.png` })
+  }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await p1Dialog.getByRole('button', { name: '导出脱敏记录' }).click()
+  assert.deepEqual(await page.evaluate(() => window.__storyFixture.diagnosticExport), { messageId: 'p1-target-message' })
+  await p1Dialog.getByLabel('查看范围').selectOption('')
+  await page.waitForFunction(() => document.querySelectorAll('.diagnostic-message-card').length === 3)
+  await p1Dialog.getByRole('button', { name: '失败', exact: true }).click()
+  assert.equal(await p1Dialog.locator('.diagnostic-message-card').count(), 1)
+  await p1Dialog.getByRole('button', { name: '全部', exact: true }).click()
+  assert.match(await p1Dialog.locator('[data-diagnostic-message="p1-recovered-message"]').innerText(), /重试后已恢复/)
+  assert.match(await p1Dialog.locator('[data-diagnostic-message="p1-delayed-message"]').innerText(), /等待后续投递/)
+  await p1Dialog.getByRole('button', { name: '关闭消息诊断' }).click()
+  await p1Dialog.waitFor({ state: 'detached' })
+  assert.equal(await p1Hint.getByRole('button').evaluate(element => element === document.activeElement), true)
+  const composerBounds = await page.getByLabel('消息内容', { exact: true }).boundingBox()
+  assert.ok(composerBounds.height >= 42 && composerBounds.y + composerBounds.height <= 844)
+  await page.evaluate(() => {
+    const f = window.__storyFixture, now = Date.now()
+    f.diagnosticEvents = Array.from({ length: 1999 }, (_, n) => ({ id: `p1-stress-${n}`, at: now + n, requestIds: [`p1-stress-message-${n % 205}`], stage: 'model', outcome: 'succeeded', elapsedMs: 500, providerSlot: 2 }))
+    f.diagnosticEvents.unshift({ id: 'p1-older-focus', at: now - 3600000, requestIds: ['p1-target-message'], stage: 'model', outcome: 'failed', reason: 'network', providerSlot: 2 })
+  })
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^消息诊断/ }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.diagnostic-message-card').length === 200)
+  assert.equal(await p1Dialog.locator('.diagnostic-events').count(), 0, 'Details remain unmounted until expanded')
+  await p1Dialog.getByRole('button', { name: '最新', exact: true }).click()
+  assert.equal(await p1Dialog.locator('.diagnostic-message-card').count(), 20)
+  await p1Dialog.getByRole('button', { name: '全部', exact: true }).click()
+  const startedP1 = Date.now()
+  await p1Dialog.getByLabel('查看范围').selectOption('p1-target-message')
+  await p1Target.waitFor()
+  assert.equal(await p1Dialog.locator('.diagnostic-message-card').count(), 1)
+  await p1Target.getByRole('button', { name: /展开明细/ }).click()
+  assert.match(await p1Target.innerText(), /连接 #2/)
+  console.log(`PASS P1 performance: 2000 events, 206 messages capped at 200 cards; older message scope rendered in ${Date.now() - startedP1} ms.`)
+  await p1Dialog.getByRole('button', { name: '清空本故事记录' }).click()
+  await p1Dialog.getByRole('button', { name: '确认清空', exact: true }).click()
+  await p1Dialog.getByText('这条消息暂无保留的诊断记录。', { exact: true }).waitFor()
+  await p1Dialog.getByLabel('查看范围').selectOption('')
+  await p1Dialog.getByText('一切正常，暂无诊断记录', { exact: true }).waitFor()
+  await p1Dialog.getByRole('button', { name: '关闭消息诊断' }).focus()
+  await page.keyboard.press('Shift+Tab')
+  assert.equal(await p1Dialog.getByRole('button', { name: '清空本故事记录' }).evaluate(element => element === document.activeElement), true)
+  assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
+  await p1Dialog.waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: '故事', exact: true }).click()
+  await page.waitForFunction(() => !document.querySelector('.message-failure-hint'))
+  console.log('PASS P1: grouped six-step pipeline, all filters, model failure hint → shared focus parameter → focused card, ordered details, advice, seconds/relative time, provider labels/fallback, attempts, 320/360/390/740 px touch targets, export, clear, focus restore and native back.')
+
   assert.deepEqual(errors, [])
-  if (!process.env.HDS_M3_ONLY) console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
+  if (!process.env.HDS_M3_ONLY && !process.env.HDS_P1_ONLY) console.log('PASS: wake/progress/focus, settings accordions, persisted file backgrounds and reload/cache, text replies with legacy image objects, explicit light/dark logs, pure-image preview/send, memory source/add/forget, archive confirmation, autosave race/retry, restart, role switch and 320/390/740 px light/dark layouts. Native calls are fixtures, not device verification.')
 } catch (error) {
   if (debugPage) {
     console.error('Browser diagnostics:', JSON.stringify(debugMessages))

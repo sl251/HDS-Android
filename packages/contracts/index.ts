@@ -1,6 +1,12 @@
 import { messageAudio, type MessageAudio, type VoiceState, type VoiceBinding, type Voice } from './voice'
 export * from './voice'
 import type { Card } from '../card-format'
+import type { DiagnosticEvent } from './diagnostics'
+/** Local UI navigation uses this contract; it does not create a native IPC channel. */
+export type DiagnosticsMessageFocus = { type: 'diagnostics.message.focus'; messageId: string }
+export const diagnosticsMessageFocus = (messageId: string): DiagnosticsMessageFocus => ({ type: 'diagnostics.message.focus', messageId })
+export type DiagnosticMessageEvent = DiagnosticEvent & { providerLabel?: string }
+export type DiagnosticMessagesResult = { events: DiagnosticMessageEvent[]; storageAvailable: boolean }
 export type SavedCard = { id: string; card: Card; importedAt: string }
 export type RuntimeStatus = { state: string; installed: boolean; environmentState: 'missing' | 'ready' | 'update-required' | 'repair-required'; running: boolean; cleanupPending: boolean; progress: string; error: string; diagnostic: Record<string, unknown>; logs: string[]; device: { model: string; android: string; sdk: number; abi: string; pageSize: number; availableBytes: number; build: string; webview: string }; version: string; hds: string }
 export type ModelProvider = {

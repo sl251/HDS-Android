@@ -36,6 +36,8 @@ export async function startHost(input: HostConfig) {
   if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('Invalid model endpoint')
   mkdirSync(input.dataDir, { recursive: true })
   const diagnostics = new MessageDiagnostics(join(input.dataDir, 'message-diagnostics.json'))
+  // Old slots cannot be mapped to today's connection order after a restart.
+  const historicalDiagnosticIds = new Set(diagnostics.list().events.map(event => event.id))
   if (input.qqDir) mkdirSync(input.qqDir, { recursive: true })
   const restoreMarker = join(input.dataDir, 'restore-held.json')
   let restoreHeld = existsSync(restoreMarker)
@@ -118,6 +120,7 @@ export async function startHost(input: HostConfig) {
   config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
   ;(config.model as any).mobileStickerDelivery = oneBotStickerDelivery
   Object.assign(config.model, { mobileDiagnostics: diagnostics })
+  const diagnosticProviderLabels = config.model.providers.map(provider => provider.label?.trim().slice(0, 80))
   const voiceTasks = new Set<Promise<unknown>>()
   const drainVoice = async () => { while (voiceTasks.size) await Promise.allSettled([...voiceTasks]) }
   ;(config.model as any).mobileOneBotVoiceDelivery = async (bot: Bot, channelId: string, content: string, willingness: unknown, sendText: () => Promise<unknown>) => {
@@ -198,7 +201,13 @@ export async function startHost(input: HostConfig) {
   }) : undefined
   const dispatch = async (method: string, payload: Record<string, unknown>) => {
     if (closing) throw new Error('核心正在关闭，请稍后再试')
-    if (method === 'diagnostics.messages') return diagnostics.list(typeof payload.messageId === 'string' ? payload.messageId : undefined)
+    if (method === 'diagnostics.messages') {
+      const result = diagnostics.list(typeof payload.messageId === 'string' ? payload.messageId : undefined)
+      return { ...result, events: result.events.map(event => {
+        const label = !historicalDiagnosticIds.has(event.id) && event.providerSlot ? diagnosticProviderLabels[event.providerSlot - 1] : undefined
+        return label ? { ...event, providerLabel: label } : event
+      }) }
+    }
     if (method === 'diagnostics.clear') { diagnostics.clear(); return { cleared: true } }
     if (method.startsWith('qq.')) { if (!qq) throw new Error('QQ 本机目录未配置'); return qq.dispatch(method, payload) }
     if (method === 'images.upload') return { id: media.save(payload.dataUri).id }

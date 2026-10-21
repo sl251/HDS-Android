@@ -1,0 +1,32 @@
+.modal.message-diagnostics { max-height:calc(100dvh - 36px - var(--safe-bottom, 0px)); scroll-padding-top:72px; }
+.message-diagnostics > .section-title { position:sticky; top:0; z-index:1; padding:8px 0; background:rgb(var(--surface-rgb)); }
+.message-diagnostics button,.message-diagnostics select { min-height:44px; }
+.diagnostic-filters { display:flex; gap:8px; }
+.diagnostic-filters button { flex:1; border:1px solid var(--line); border-radius:14px; }
+.diagnostic-filters [aria-pressed=true] { color:var(--accent); background:var(--accent-soft); border-color:var(--accent); }
+.message-diagnostics .actions { flex-wrap:wrap; gap:8px; }
+.message-diagnostics .diagnostic-messages,.message-diagnostics .diagnostic-pipeline { list-style:none; padding:0; margin:16px 0; color:var(--ink); }
+.diagnostic-message-card { margin:14px 0; padding:16px; border:1px solid var(--line); border-radius:20px; background:rgba(var(--surface-rgb),var(--panel-alpha)); box-shadow:var(--glint); overflow-wrap:anywhere; scroll-margin:12px; }
+.diagnostic-message-card[data-failed=true] { border-color:#e5484d; }
+.diagnostic-message-card[data-focused=true],.diagnostic-message-card:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.diagnostic-card-heading { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; font-size:14px; }
+.diagnostic-card-heading time { color:var(--muted); font-size:12px; }
+.diagnostic-message-card .diagnostic-summary { font-size:12px; color:var(--muted); }
+.diagnostic-message-card .diagnostic-advice { margin:0 0 14px; padding:12px; border-left:3px solid #e5484d; border-radius:8px; background:var(--accent-soft); }
+.message-diagnostics .diagnostic-pipeline { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.diagnostic-pipeline li { min-width:0; padding:8px; border:1px solid var(--line); border-radius:12px; font-size:12px; line-height:1.65; }
+.diagnostic-pipeline small { display:block; color:var(--muted); }
+.diagnostic-pipeline [aria-current=step] { border-color:var(--accent); background:var(--accent-soft); box-shadow:inset 0 0 0 1px var(--accent); }
+.diagnostic-pipeline [data-state=failed] { border-color:#e5484d; color:#e5484d; }
+.diagnostic-pipeline [data-state=failed][aria-current=step] { box-shadow:inset 0 0 0 1px #e5484d; }
+.diagnostic-pipeline [data-state=failed] small { color:#e5484d; }
+.diagnostic-pipeline [data-state=skipped] { border-style:dashed; }
+.diagnostic-expand { color:var(--accent); text-align:left; }
+.diagnostic-message-card .diagnostic-events { margin:8px 0; padding:0; }
+.diagnostic-events .diagnostic-event-heading { display:flex; flex-wrap:wrap; }
+.diagnostic-events [data-outcome=failed] { border-left-color:#e5484d; }
+.diagnostic-events .diagnostic-attempt { display:inline-block; padding:3px 8px; border-radius:8px; color:var(--accent); background:var(--accent-soft); }
+.diagnostic-events code { user-select:text; overflow-wrap:anywhere; }
+.message-failure-hint { position:static; display:flex; flex-wrap:wrap; align-items:center; gap:0 4px; margin-top:6px; font-size:11px; line-height:1.7; color:#e5484d; }
+.message-failure-hint button { min-height:44px; padding:6px 4px; color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
+@media(min-width:600px) { .message-diagnostics .diagnostic-pipeline { grid-template-columns:repeat(6,minmax(0,1fr)); } }
