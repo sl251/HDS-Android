@@ -26,6 +26,7 @@ export async function postJsonViaProxy(
   headers: Record<string, string>,
   timeoutMs: number,
   proxyAgent: string,
+  options?: { redirect?: RequestRedirect; signal?: AbortSignal },
 ): Promise<unknown> {
   let undici: typeof import('undici')
   try {
@@ -39,7 +40,8 @@ export async function postJsonViaProxy(
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(Math.max(1_000, timeoutMs)),
+      signal: options?.signal ?? AbortSignal.timeout(Math.max(1_000, timeoutMs)),
+      redirect: options?.redirect,
       dispatcher: agent,
     })
     const text = await response.text()

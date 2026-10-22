@@ -494,6 +494,7 @@ export interface NarrativeFact {
   confidence: number
   unresolved: boolean
   embedding?: number[]
+  embeddingIdentity?: string | null
   status: 'active' | 'superseded'
   sourceEntryIds: number[]
   lastSeenAt: Date
@@ -705,6 +706,7 @@ export interface StickerAsset {
   status: 'pending' | 'active' | 'missing'
   /** Optional semantic vector for catalog filtering; empty until the Embedding backfill reaches this asset. */
   embedding?: number[]
+  embeddingIdentity?: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -1191,7 +1193,7 @@ export interface NarrativeCompactor {
 
 export interface NarrativeEmbedder {
   identity?(): string
-  embed(input: string): Promise<number[]>
+  embed(input: string, context?: { foreground?: boolean; deadline?: number; signal?: AbortSignal }): Promise<number[]>
 }
 
 // ========== Alter System Types ==========

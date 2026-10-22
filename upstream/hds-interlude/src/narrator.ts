@@ -21,7 +21,7 @@ import { factEvidenceForPrompt, KNOWLEDGE_WRITING_FRAME } from './script/knowled
 import { interactionEvidence } from './script/development'
 import {
   effectiveMainModelId, ModelRoutingTable, ModelTask,
-  providerKey, resolveModelRouting,
+  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint,
 } from './model-routing'
 
 export {
@@ -165,6 +165,7 @@ export interface ModelConfig {
   mainPayloadOrder?: 'legacy' | 'cache-first'
   compaction?: CompactionConfig
   embedding?: EmbeddingConfig
+  mobileRetrievalEvent?: (event: RetrievalEvent) => void
   /** OpenAI-compatible native image inputs for the current private-message turn. */
   vision?: VisionConfig
   /** OpenAI-compatible native audio inputs for the current private-message turn. */
@@ -309,47 +310,33 @@ export class OpenAICompatibleEmbedder implements NarrativeEmbedder {
   }
 
   identity(): string {
-    const route = this.routing.embedding
-    const provider = route.providers[0]
-    const config = this.config.embedding
+    const target = resolveEffectiveEmbeddingTarget(this.config, this.routing)
+    if (target.reason) return ''
     return createHash('sha256').update(JSON.stringify([
-      config?.endpoint?.trim() || (provider ? deriveEmbeddingEndpoint(provider.endpoint) : ''),
-      route.assigned ? provider?.model : route.target.model,
-      config?.dimensions, config?.maxInputCharacters,
+      target.endpoint, target.model, target.dimensions, this.config.embedding?.maxInputCharacters ?? 4000,
     ])).digest('hex').slice(0, 24)
   }
 
-  async embed(input: string): Promise<number[]> {
+  async embed(input: string, context: RetrievalRequestContext = {}): Promise<number[]> {
     const embedding = this.config.embedding
-    const assigned = this.routing.embedding.assigned ? this.routing.embedding.providers[0] : undefined
-    if (!embedding?.enabled || (!assigned && !embedding.modelId?.trim() && !embedding.model?.trim())) return []
-    const target = this.routing.embedding.target
-    const provider = assigned ?? this.routing.embedding.providers[0]
-    if (!provider) return []
-    const endpoint = embedding.endpoint.trim() || deriveEmbeddingEndpoint(provider.endpoint)
-    if (!endpoint) return []
-
-    const text = input.trim().slice(0, Math.max(1, embedding.maxInputCharacters))
-    if (!text) return []
-    const body = {
-      model: assigned?.model || target.model,
-      input: text,
-      ...(embedding.dimensions > 0 ? { dimensions: embedding.dimensions } : {}),
+    if (!embedding?.enabled || !input.trim()) return []
+    const target = resolveEffectiveEmbeddingTarget(this.config, this.routing)
+    const started = Date.now()
+    try {
+      if (target.reason) throw new RetrievalError(target.reason)
+      const body = { model: target.model, input: input.trim().slice(0, Math.max(1, embedding.maxInputCharacters ?? 4000)),
+        ...(target.dimensions > 0 ? { dimensions: target.dimensions } : {}) }
+      this.config.mobileBeforeRequest?.(context.foreground === true)
+      const response = await retrievalPost(this.ctx, target.provider!, target.endpoint, body, target.timeout, context) as EmbeddingResponse
+      const vector = response?.data?.[0]?.embedding
+      if (!validRetrievalVector(vector) || target.dimensions > 0 && vector.length !== target.dimensions) throw new RetrievalError('invalid_response')
+      emitRetrieval(this.config, { task: 'embedding', status: 'succeeded', providerId: target.provider?.id, elapsedMs: Date.now() - started, vectorDimensions: vector.length })
+      return vector
+    } catch (error) {
+      const failure = classifyRetrievalError(error)
+      emitRetrieval(this.config, { task: 'embedding', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
+      throw new RetrievalError(failure.category, failure.httpStatus)
     }
-    const headers = {
-      'content-type': 'application/json',
-      ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
-      ...parseObject(provider.extraHeaders, 'extraHeaders'),
-    }
-    this.config?.mobileBeforeRequest?.()
-    const response = provider.proxyAgent
-      ? await postJsonViaProxy(endpoint, body, headers, embedding.timeout, provider.proxyAgent) as EmbeddingResponse
-      : await this.ctx.http.post<EmbeddingResponse>(endpoint, body, { headers, timeout: embedding.timeout })
-    const vector = response.data?.[0]?.embedding
-    if (!Array.isArray(vector) || !vector.length || !vector.every(value => typeof value === 'number' && Number.isFinite(value))) {
-      throw new Error('Embedding provider returned an invalid vector.')
-    }
-    return vector
   }
 
 }
@@ -1167,7 +1154,7 @@ export function createCompactor(ctx: Context, config: ModelConfig, silentLogs = 
 
 export function createEmbedder(ctx: Context, config: ModelConfig, routing?: ModelRoutingTable): NarrativeEmbedder {
   const resolved = routing ?? resolveModelRouting(config)
-  if (!resolved.embedding.available || !config.embedding?.enabled) {
+  if (!config.embedding?.enabled) {
     return new SilentEmbedder()
   }
   return new OpenAICompatibleEmbedder(ctx, config, resolved)
@@ -1684,13 +1671,8 @@ function rotate<T>(values: T[], offset: number) {
   return [...values.slice(start), ...values.slice(0, start)]
 }
 
-function deriveEmbeddingEndpoint(chatEndpoint: string) {
-  // The automatic route only handles the conventional OpenAI-compatible path.
-  // Non-standard gateways should use model.embedding.endpoint explicitly.
-  const endpoint = chatEndpoint.trim()
-  return /\/chat\/completions\/?(?:\?.*)?$/i.test(endpoint)
-    ? endpoint.replace(/\/chat\/completions\/?(?:\?.*)?$/i, '/embeddings')
-    : ''
+export function deriveEmbeddingEndpoint(chatEndpoint: string) {
+  return deriveRetrievalEndpoint(chatEndpoint, 'embedding')
 }
 
 function phaseInstruction(phase: NarrativeRequest['phase'], groupTurn = false) {
@@ -2825,3 +2807,43 @@ function toSchedulePreplanPayload(request: SchedulePreplanReviewRequest) {
   }
 }
 
+
+export interface RetrievalRequestContext { foreground?: boolean; deadline?: number; signal?: AbortSignal; externalRerank?: boolean }
+export interface RetrievalEvent { task: 'embedding' | 'rerank'; status: 'succeeded' | 'fallback'; providerId?: string; category?: string; httpStatus?: number; elapsedMs?: number; vectorDimensions?: number; resultCount?: number }
+export class RetrievalError extends Error {
+  constructor(public category: string, public httpStatus?: number) { super(category) }
+}
+export function emitRetrieval(config: ModelConfig, event: RetrievalEvent) {
+  try { config.mobileRetrievalEvent?.(event) } catch { /* Diagnostic IO cannot fail retrieval. */ }
+}
+export function validRetrievalVector(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length > 0 && value.every(n => typeof n === 'number' && Number.isFinite(n)) && value.some(n => n !== 0)
+}
+export function classifyRetrievalError(error: any): { category: string; httpStatus?: number } {
+  if (error instanceof RetrievalError) return { category: error.category, ...(error.httpStatus ? { httpStatus: error.httpStatus } : {}) }
+  const httpStatus = Number(error?.response?.status || /HTTP (\d{3})/.exec(String(error?.message))?.[1]) || undefined
+  const detail = String(error?.message ?? '').slice(0, 2048) + JSON.stringify(error?.response?.data ?? '').slice(0, 2048)
+  const category = /model ratio not found/i.test(detail) ? 'gateway_model_ratio'
+    : httpStatus && httpStatus >= 500 && /convert_request_failed/i.test(detail) ? 'gateway_convert_request'
+    : httpStatus === 401 ? 'authentication' : httpStatus === 403 ? 'permission'
+    : httpStatus === 404 || httpStatus === 405 ? 'route_not_found'
+    : httpStatus === 400 || httpStatus === 422 ? 'invalid_request'
+    : httpStatus === 402 || /insufficient.*(?:balance|quota)|余额不足/i.test(detail) ? 'provider_quota'
+    : httpStatus === 429 ? 'throttled_or_quota' : httpStatus && httpStatus >= 500 ? 'provider_error'
+    : httpStatus && httpStatus >= 300 && httpStatus < 400 ? 'redirect_rejected'
+    : /预算|background.*budget/i.test(detail) ? 'background_budget'
+    : /timeout|timed out|ETIMEDOUT|deadline/i.test(detail) ? 'timeout'
+    : /abort|cancel/i.test(detail) ? 'cancelled'
+    : /JSON|invalid.*response/i.test(detail) ? 'invalid_response' : 'network'
+  return { category, ...(httpStatus ? { httpStatus } : {}) }
+}
+async function retrievalPost(ctx: Context, provider: ProviderConfig, endpoint: string, body: unknown, timeout: number, context: RetrievalRequestContext) {
+  const remaining = context.deadline === undefined ? timeout : Math.min(timeout, context.deadline - Date.now())
+  if (remaining <= 0) throw new RetrievalError('timeout')
+  const headers = { 'content-type': 'application/json', ...parseObject(provider.extraHeaders, 'extraHeaders'),
+    ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}) }
+  const signal = context.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining)
+  return provider.proxyAgent
+    ? postJsonViaProxy(endpoint, body, headers, remaining, provider.proxyAgent, { redirect: 'manual', signal })
+    : ctx.http.post(endpoint, body, { headers, timeout: remaining, redirect: 'manual', signal, validateStatus: status => status >= 200 && status < 300 })
+}

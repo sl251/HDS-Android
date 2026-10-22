@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import * as HDS from '../upstream/hds-interlude/src/index'
 import { cardPrompt, type Card } from '../packages/card-format'
+import { effectiveRetrievalConfig } from './retrieval-config'
 import { mobileModelConfig } from './model-config'
 import type { ModelOptions, ModelProvider } from '../packages/contracts'
 import { messageImages, visionProjection, visionRouteReason, normalizeVisionProjection } from '../packages/contracts'
@@ -107,12 +108,12 @@ export async function startHost(input: HostConfig) {
   const stickerConfig = localStickerConfig(input.dataDir)
   const mapped = mapMobileConfig(mobile, input.autoAdvance)
   const model = mobileModelConfig(input)
+  const retrieval = effectiveRetrievalConfig({ ...model, ...mapped.model } as any)
   const config = HDS.Config({
     stickers: { ...stickerConfig, deliveryMode: 'http', deliveryBaseUrl: `http://127.0.0.1:${input.port}` },
     ...mapped,
     storyDefaults: personaDefaults(input.card, input.userProfile),
-    model: { ...model, embedding: mapped.model.embedding,
-      providers: embeddingProviders(model.providers, mapped.model.embedding) },
+    model: retrieval.model,
     logging: { level: 'info', verbosity: 'standard', colors: false, kaomoji: false, logMessageContent: false, logScriptPreview: false },
     qzone: { enabled: false }, browser: { enabled: false },
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
@@ -263,7 +264,7 @@ export async function startHost(input: HostConfig) {
       const visionRestartRequired = desiredVision !== undefined && JSON.stringify(desiredVision) !== JSON.stringify(activeVision)
       return { restartRequired: lifeRestartRequired || visionRestartRequired, visionRestartRequired, activeVision, reasons: [...(lifeRestartRequired ? ['mobile-config-changed'] : []), ...(visionRestartRequired ? ['vision-config-changed'] : [])] }
     }
-    if (method === 'config.status') return { sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (section.key === 'embedding' ? config.model.embedding : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
+    if (method === 'config.status') return { retrieval: retrieval.status, sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (section.key === 'embedding' ? config.model.embedding : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
     if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.since') {
       const query = messagesSinceQuery(payload.since)

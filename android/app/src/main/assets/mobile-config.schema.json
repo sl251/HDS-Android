@@ -500,7 +500,40 @@
           "key": "providerId",
           "type": "string",
           "default": "",
-          "description": "向量模型连接编号；留空时使用模型分工中的向量连接。"
+          "description": "向量模型连接编号；留空时使用模型分工中的向量连接。",
+          "maxLength": 128
+        },
+        {
+          "key": "endpoint",
+          "type": "string",
+          "default": "",
+          "description": "Embedding 完整地址；留空时从所选模型连接的 Chat 地址推导。",
+          "maxLength": 2048
+        },
+        {
+          "key": "model",
+          "type": "string",
+          "default": "",
+          "description": "显式向量模型名；留空使用连接模型。",
+          "maxLength": 256
+        },
+        {
+          "key": "dimensions",
+          "type": "number",
+          "default": 0,
+          "description": "向量维度；0 表示由服务商决定。",
+          "min": 0,
+          "max": 32768,
+          "step": 1
+        },
+        {
+          "key": "timeout",
+          "type": "number",
+          "default": 10000,
+          "description": "Embedding 请求超时，单位毫秒。",
+          "min": 500,
+          "max": 120000,
+          "step": 1
         }
       ]
     },

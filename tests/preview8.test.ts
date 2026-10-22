@@ -24,10 +24,10 @@ test('supported schema derives upstream defaults; master switch gates independen
   assert.throws(() => normalizeMobileConfig({ backgroundLimit: -1 }))
 })
 
-test('mobile alter output budget defaults to 400 and respects explicit user settings', () => {
+test('mobile alter output budget defaults to 2000 and respects explicit user settings', () => {
   for (const autoAdvance of [false, true]) {
-    assert.equal(mapMobileConfig(undefined, autoAdvance).alterSystem.maxTokens, 400)
-    assert.equal(mapMobileConfig({ sections: { alterSystem: { enabled: true } } }, autoAdvance).alterSystem.maxTokens, 400)
+    assert.equal(mapMobileConfig(undefined, autoAdvance).alterSystem.maxTokens, 2000)
+    assert.equal(mapMobileConfig({ sections: { alterSystem: { enabled: true } } }, autoAdvance).alterSystem.maxTokens, 2000)
     for (const maxTokens of [128, 400, 2000]) assert.equal(mapMobileConfig({ sections: { alterSystem: { maxTokens } } }, autoAdvance).alterSystem.maxTokens, maxTokens)
   }
 })

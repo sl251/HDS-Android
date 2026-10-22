@@ -22,6 +22,15 @@ object ModelEndpoint {
         return "${uri.scheme}://${uri.rawAuthority}$resolved" + (uri.rawQuery?.let { "?$it" } ?: "")
     }
 
+    fun validateRetrievalEndpoint(value: String): String {
+        val uri = try { URI(value.trim()) } catch (_: Exception) { throw IllegalArgumentException("应为 HTTP(S) 地址，不含凭据或片段") }
+        require(uri.scheme?.lowercase() in listOf("http", "https") && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null && value.trim().none { it.code <= 32 || it.code == 127 }) {
+            "应为 HTTP(S) 地址，不含凭据或片段"
+        }
+        require(uri.port in -1..65535) { "应为 HTTP(S) 地址，不含凭据或片段" }
+        return value.trim()
+    }
+
     fun models(value: String, explicit: String = ""): String {
         if (explicit.isNotBlank()) {
             val uri = URI(explicit.trim())

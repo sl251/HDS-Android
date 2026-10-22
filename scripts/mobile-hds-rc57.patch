@@ -1,3 +1,45 @@
+--- a/database.ts
++++ b/database.ts
+@@ -42,10 +42,13 @@
+   // Existing installations already have the original tables registered by a
+   // parent context. Do not rebuild those schemas on reload, but keep adding
+   // genuinely new tables introduced by later releases.
+   if (existingTables.interlude_story) {
+     registerScriptEntryEmbedding(ctx, existingTables)
++    for (const table of ['interlude_fact', 'interlude_sticker'] as const) {
++      if (existingTables[table] && !existingTables[table].fields?.embeddingIdentity) ctx.model.extend(table, { embeddingIdentity: { type: 'string', length: 64, nullable: true } })
++    }
+     if (existingTables.interlude_fact && !existingTables.interlude_fact.fields?.knowledge) {
+       ctx.model.extend('interlude_fact', { knowledge: 'json' })
+     }
+     if (existingTables.interlude_qzone_post && !existingTables.interlude_qzone_post.fields?.endpointId) {
+       ctx.model.extend('interlude_qzone_post', { endpointId: 'string(63)' })
+@@ -120,11 +123,11 @@
+   // 长期事实是全局叙事材料；participantId 仅为旧数据库兼容保留，
+   // 不再表达事实主体或可见性。来源条目仍供审计或重建。
+   ctx.model.extend('interlude_fact', {
+     knowledge: 'json',
+     id: 'unsigned', storyId: 'string(255)', participantId: 'string(255)', scope: 'string(32)', content: 'text',
+-    importance: 'double', confidence: 'double', unresolved: 'boolean', embedding: 'json', status: 'string(16)', sourceEntryIds: 'json',
++    importance: 'double', confidence: 'double', unresolved: 'boolean', embedding: 'json', embeddingIdentity: { type: 'string', length: 64, nullable: true }, status: 'string(16)', sourceEntryIds: 'json',
+     lastSeenAt: 'timestamp', createdAt: 'timestamp', updatedAt: 'timestamp',
+   }, { primary: 'id', autoInc: true, indexes: ['storyId', 'status', 'importance'] })
+ 
+   // 设定变化先以提案存在，经过证据与阈值检查后才写入 story.state 的 overlay。
+   ctx.model.extend('interlude_state_patch', {
+@@ -177,11 +180,11 @@
+ function registerStickerTable(ctx: Context) {
+   if ((ctx.model as any).tables?.interlude_sticker) return
+   ctx.model.extend('interlude_sticker', {
+     id: 'unsigned', assetId: 'string(255)', filePath: 'string(1024)', group: 'string(128)', mimeType: 'string(127)',
+     animated: 'boolean', size: 'unsigned', hash: 'string(64)', description: 'text', aliases: 'json', status: 'string(16)',
+-    embedding: 'json',
++    embedding: 'json', embeddingIdentity: { type: 'string', length: 64, nullable: true },
+     createdAt: 'timestamp', updatedAt: 'timestamp',
+   }, { primary: 'id', autoInc: true, unique: ['assetId'], indexes: ['status', 'group', 'updatedAt'] })
+ }
+ 
+ function registerSeededEventTable(ctx: Context) {
 --- a/endpoints.ts
 +++ b/endpoints.ts
 @@ -8,11 +8,11 @@
@@ -65,9 +107,51 @@
 -}
 +  return row?.channelKind === 'local' ? 'local' : row?.channelKind === 'wechat' ? 'wechat' : 'qq'
 +}
+--- a/http-proxy.ts
++++ b/http-proxy.ts
+@@ -24,10 +24,11 @@
+   url: string,
+   body: unknown,
+   headers: Record<string, string>,
+   timeoutMs: number,
+   proxyAgent: string,
++  options?: { redirect?: RequestRedirect; signal?: AbortSignal },
+ ): Promise<unknown> {
+   let undici: typeof import('undici')
+   try {
+     undici = require('undici')
+   } catch {
+@@ -37,11 +38,12 @@
+   try {
+     const response = await undici.fetch(url, {
+       method: 'POST',
+       headers: { 'content-type': 'application/json', ...headers },
+       body: JSON.stringify(body),
+-      signal: AbortSignal.timeout(Math.max(1_000, timeoutMs)),
++      signal: options?.signal ?? AbortSignal.timeout(Math.max(1_000, timeoutMs)),
++      redirect: options?.redirect,
+       dispatcher: agent,
+     })
+     const text = await response.text()
+     if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}${clipResponseDetail(text)}`)
+     try {
 --- a/index.ts
 +++ b/index.ts
-@@ -233,10 +233,11 @@
+@@ -180,10 +180,13 @@
+   mainPrompt: Schema.string().role('textarea').default('Continue the character-centered life script with grounded actions, motives, relationships, and ordinary time passing.').description('已迁移到配置页最底部的主提示词分区；此处保留仅为兼容旧配置的自定义值。').hidden(),
+   formatPrompt: Schema.string().role('textarea').default('').description('结构化输出补充规则。'),
+   fixedPrompt: Schema.string().role('textarea').default('').description('通用长期规则。'),
+   stylePrompt: Schema.string().role('textarea').default(DEFAULT_STYLE_PROMPT).description('全局叙事文风；故事级 style 可进一步覆盖。默认为完整的生活剧本写作指引（2026-10-15 起）。'),
+   embedding: (Schema.object({
++    providerId: Schema.string().default('').description('向量连接编号；留空使用向量任务分工。'),
++    model: Schema.string().default('').description('显式向量模型名；留空使用连接模型。'),
++    modelId: Schema.string().default('').description('历史模型目录编号。').hidden(),
+     enabled: Schema.boolean().default(false).description('启用长期事实的语义检索。模型由上方“用作 Embedding 模型”用途开关选择。'),
+     semanticHistory: Schema.boolean().default(false).description('启用历史语义召回。'),
+     liveQuery: Schema.boolean().default(false).description('是否在每次实时对话中额外请求 Embedding 做语义检索。关闭可减少一次网络请求、降低回复延迟；后台向量补齐不受影响。'),
+     endpoint: Schema.string().default('').description('Embedding 完整地址；留空时从所选模型连接的 Chat 地址推导。'),
+     dimensions: Schema.natural().min(0).max(32_768).default(0).description('向量维度；0 表示由服务商决定。'),
+@@ -233,10 +236,11 @@
      maxCharacters: Schema.natural().min(500).max(32_000).default(2_000).description('合并转发注入当前事件的最大字符数。'),
      maxDepth: Schema.natural().max(8).default(3).description('嵌套合并转发最多展开层数。'),
    }).default({ enabled: true, maxNodes: 30, maxCharacters: 2_000, maxDepth: 3 }).description('【消息扩展】QQ 合并转发读取预算。'),
@@ -79,7 +163,7 @@
    memoryLimit: Schema.natural().min(1).max(200).default(20).description('主叙事读取的长期事实数量；会经过相关性重排。'),
    maxScriptCharacters: Schema.natural().min(500).max(12_000).default(1_400).description('单次写作允许追加的剧本文本上限。'),
    maxMessageCharacters: Schema.natural().min(1).max(12_000).default(1_500).description('单条可见消息的最大字符数。'),
-@@ -475,11 +476,11 @@
+@@ -475,11 +479,11 @@
    ignoreSelfMessages: Schema.boolean().default(true).description('忽略机器人自身产生的消息事件。'),
  })
  
@@ -92,8 +176,122 @@
    allowedReactions: Schema.array(Schema.union(['like', 'smile', 'laugh', 'heart', 'surprised', 'sad', 'angry'])).role('table')
      .default(['like', 'smile', 'laugh', 'heart'] as ChatReactionName[])
      .description('主模型可以选择的语义表情；平台连接器负责转换为实际表情编号。'),
+--- a/model-routing.ts
++++ b/model-routing.ts
+@@ -111,19 +111,23 @@
+ export function formatModelRouting(table: ModelRoutingTable) {
+   const tasks: ModelTask[] = ['main', 'compaction', 'timeline', 'alter', 'embedding', 'stickers', 'vision']
+   return tasks.map(task => {
+     const route = table[task]
+     const provider = route.providers[0]
+-    const model = route.assigned ? provider?.model : route.target.model || provider?.model
++    const model = task === 'embedding' ? resolveEffectiveEmbeddingTarget({ providers: table.providers, embedding: { ...route.target, enabled: route.available } } as ModelConfig, table).model : route.assigned ? provider?.model : route.target.model || provider?.model
+     return `${task}=${route.available ? `${provider?.label || provider?.id}/${model || '未指定'}` : '未配置'}[${route.reason}]`
+   }).join(' ')
+ }
+ 
+ function resolveRoute(task: Exclude<ModelTask, 'timeline' | 'stickers' | 'vision'>, providers: ProviderConfig[], target: ResolvedModelTarget, requireChatModel: boolean): ResolvedModelRoute {
+   // Messages API has no embeddings endpoint. Keep vector traffic on its own compatible connection.
+   if (task === 'embedding') providers = providers.filter(provider => provider.protocol !== 'anthropic-messages' && provider.protocol !== 'gemini-interactions')
+-  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && provider.model && isAssignedTo(provider, task))
++  if (task === 'embedding' && target.providerId) {
++    const selected = providers.filter(provider => provider.enabled && provider.endpoint && provider.id === target.providerId)
++    return { task, target, providers: selected, assigned: false, available: !!selected.length, reason: selected.length ? 'task-config' : 'unavailable' }
++  }
++  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && (provider.model || target.model) && isAssignedTo(provider, task))
+   if (assigned.length) return { task, target, providers: assigned, assigned: true, available: true, reason: 'assigned-provider' }
+ 
+   const targeted = target.providerId
+     ? providers.filter(provider => provider.enabled && provider.endpoint && (provider.id === target.providerId || providerKey(provider) === target.providerId))
+     : []
+@@ -131,21 +135,27 @@
+   if (targetedUsable.length) {
+     const profileSelected = !!target.providerId && !!target.model
+     return { task, target, providers: targetedUsable, assigned: false, available: true, reason: profileSelected ? 'model-profile' : 'task-config' }
+   }
+ 
++  if (task === 'embedding') return { task, target, providers: [], assigned: false, available: false, reason: 'unavailable' }
++
+   // Keep legacy installations operational, but never treat an embedding-only
+   // connection as a chat fallback. Explicit task assignment remains preferred.
+   const fallback = providers.filter(provider => provider.enabled && provider.endpoint
+     && (!requireChatModel || !!provider.model)
+     && !isExclusivelyNonChat(provider))
+   if (fallback.length) return { task, target, providers: fallback, assigned: false, available: true, reason: 'legacy-fallback' }
+   return { task, target, providers: [], assigned: false, available: false, reason: 'unavailable' }
+ }
+ 
+ function resolveAssignedOnlyRoute(task: 'stickers' | 'vision', providers: ProviderConfig[]): ResolvedModelRoute {
+-  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && provider.model && isAssignedTo(provider, task))
++  if (task === 'embedding' && target.providerId) {
++    const selected = providers.filter(provider => provider.enabled && provider.endpoint && provider.id === target.providerId)
++    return { task, target, providers: selected, assigned: false, available: !!selected.length, reason: selected.length ? 'task-config' : 'unavailable' }
++  }
++  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && (provider.model || target.model) && isAssignedTo(provider, task))
+   return {
+     task,
+     target: { providerId: assigned[0]?.id ?? '', model: assigned[0]?.model ?? '' },
+     providers: assigned,
+     assigned: assigned.length > 0,
+@@ -228,5 +238,43 @@
+     if (dashscopeRegion === 'us') return 'https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions'
+     return 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+   }
+   return ''
+ }
++
++/** Shared by requests, index identity, probes and routing diagnostics. */
++export function validateRetrievalEndpoint(value: string): URL {
++  let url: URL
++  try { url = new URL(value.trim()) } catch { throw new Error('endpoint_required') }
++  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || /[\u0000-\u0020\u007f]/.test(value.trim())) throw new Error('endpoint_required')
++  return url
++}
++
++export function deriveRetrievalEndpoint(value: string, task: 'embedding' | 'rerank'): string {
++  const url = validateRetrievalEndpoint(value)
++  const suffix = task === 'embedding' ? 'embeddings' : 'rerank'
++  const path = url.pathname.replace(/\/+$/, '')
++  if (!path) url.pathname = `/v1/${suffix}`
++  else if (new RegExp(`/${suffix}$`, 'i').test(path)) return url.toString()
++  else if (/\/chat\/completions$/i.test(path)) url.pathname = path.replace(/\/chat\/completions$/i, `/${suffix}`)
++  else if (/\/v\d+(?:beta\d*)?$/i.test(path)) url.pathname = `${path}/${suffix}`
++  else throw new Error('endpoint_required')
++  return url.toString()
++}
++
++export function resolveEffectiveEmbeddingTarget(config: ModelConfig, routing?: ModelRoutingTable) {
++  const embedding = config.embedding
++  const table = routing ?? resolveModelRouting(config)
++  const route = table.embedding
++  const provider = route.providers[0]
++  const model = String(embedding?.model?.trim() || route.target.model || provider?.model || '').trim()
++  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
++  let endpoint = ''
++  if (!reason) {
++    try {
++      endpoint = embedding?.endpoint?.trim() ? validateRetrievalEndpoint(embedding.endpoint).toString() : deriveRetrievalEndpoint(provider.endpoint, 'embedding')
++      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider.endpoint).origin) reason = 'endpoint_origin'
++    } catch { reason = 'endpoint_required' }
++  }
++  return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
++    endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
++}
 --- a/narrator.ts
 +++ b/narrator.ts
+@@ -19,11 +19,11 @@
+ import { narrativeEvidence } from './script/life-handoff'
+ import { factEvidenceForPrompt, KNOWLEDGE_WRITING_FRAME } from './script/knowledge-evidence'
+ import { interactionEvidence } from './script/development'
+ import {
+   effectiveMainModelId, ModelRoutingTable, ModelTask,
+-  providerKey, resolveModelRouting,
++  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint,
+ } from './model-routing'
+ 
+ export {
+   configuredProviders, effectiveMainModelId, resolveModelRouting, usesRemoteProviders,
+   ZHIPU_OFFICIAL_CHAT_ENDPOINT,
 @@ -120,10 +120,23 @@
    maxAttemptsPerProvider: number
    cooldownMinutes: number
@@ -118,19 +316,92 @@
    providers: ProviderConfig[]
    failover: FailoverConfig
    mainPrompt?: string
-@@ -326,10 +339,11 @@
-     const headers = {
-       'content-type': 'application/json',
-       ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
-       ...parseObject(provider.extraHeaders, 'extraHeaders'),
-     }
-+    this.config?.mobileBeforeRequest?.()
-     const response = provider.proxyAgent
-       ? await postJsonViaProxy(endpoint, body, headers, embedding.timeout, provider.proxyAgent) as EmbeddingResponse
-       : await this.ctx.http.post<EmbeddingResponse>(endpoint, body, { headers, timeout: embedding.timeout })
-     const vector = response.data?.[0]?.embedding
-     if (!Array.isArray(vector) || !vector.length || !vector.every(value => typeof value === 'number' && Number.isFinite(value))) {
-@@ -391,10 +405,17 @@
+@@ -150,10 +163,11 @@
+   /** cache-first reorders the user payload so stable blocks (history, memory layers) precede
+    * per-turn fields, letting provider prefix caches hit across consecutive turns. */
+   mainPayloadOrder?: 'legacy' | 'cache-first'
+   compaction?: CompactionConfig
+   embedding?: EmbeddingConfig
++  mobileRetrievalEvent?: (event: RetrievalEvent) => void
+   /** OpenAI-compatible native image inputs for the current private-message turn. */
+   vision?: VisionConfig
+   /** OpenAI-compatible native audio inputs for the current private-message turn. */
+   audio?: AudioConfig
+ }
+@@ -294,50 +308,37 @@
+   constructor(private ctx: Context, private config: ModelConfig, routing?: ModelRoutingTable) {
+     this.routing = routing ?? resolveModelRouting(config)
+   }
+ 
+   identity(): string {
+-    const route = this.routing.embedding
+-    const provider = route.providers[0]
+-    const config = this.config.embedding
++    const target = resolveEffectiveEmbeddingTarget(this.config, this.routing)
++    if (target.reason) return ''
+     return createHash('sha256').update(JSON.stringify([
+-      config?.endpoint?.trim() || (provider ? deriveEmbeddingEndpoint(provider.endpoint) : ''),
+-      route.assigned ? provider?.model : route.target.model,
+-      config?.dimensions, config?.maxInputCharacters,
++      target.endpoint, target.model, target.dimensions, this.config.embedding?.maxInputCharacters ?? 4000,
+     ])).digest('hex').slice(0, 24)
+   }
+ 
+-  async embed(input: string): Promise<number[]> {
++  async embed(input: string, context: RetrievalRequestContext = {}): Promise<number[]> {
+     const embedding = this.config.embedding
+-    const assigned = this.routing.embedding.assigned ? this.routing.embedding.providers[0] : undefined
+-    if (!embedding?.enabled || (!assigned && !embedding.modelId?.trim() && !embedding.model?.trim())) return []
+-    const target = this.routing.embedding.target
+-    const provider = assigned ?? this.routing.embedding.providers[0]
+-    if (!provider) return []
+-    const endpoint = embedding.endpoint.trim() || deriveEmbeddingEndpoint(provider.endpoint)
+-    if (!endpoint) return []
+-
+-    const text = input.trim().slice(0, Math.max(1, embedding.maxInputCharacters))
+-    if (!text) return []
+-    const body = {
+-      model: assigned?.model || target.model,
+-      input: text,
+-      ...(embedding.dimensions > 0 ? { dimensions: embedding.dimensions } : {}),
+-    }
+-    const headers = {
+-      'content-type': 'application/json',
+-      ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
+-      ...parseObject(provider.extraHeaders, 'extraHeaders'),
+-    }
+-    const response = provider.proxyAgent
+-      ? await postJsonViaProxy(endpoint, body, headers, embedding.timeout, provider.proxyAgent) as EmbeddingResponse
+-      : await this.ctx.http.post<EmbeddingResponse>(endpoint, body, { headers, timeout: embedding.timeout })
+-    const vector = response.data?.[0]?.embedding
+-    if (!Array.isArray(vector) || !vector.length || !vector.every(value => typeof value === 'number' && Number.isFinite(value))) {
+-      throw new Error('Embedding provider returned an invalid vector.')
+-    }
+-    return vector
++    if (!embedding?.enabled || !input.trim()) return []
++    const target = resolveEffectiveEmbeddingTarget(this.config, this.routing)
++    const started = Date.now()
++    try {
++      if (target.reason) throw new RetrievalError(target.reason)
++      const body = { model: target.model, input: input.trim().slice(0, Math.max(1, embedding.maxInputCharacters ?? 4000)),
++        ...(target.dimensions > 0 ? { dimensions: target.dimensions } : {}) }
++      this.config.mobileBeforeRequest?.(context.foreground === true)
++      const response = await retrievalPost(this.ctx, target.provider!, target.endpoint, body, target.timeout, context) as EmbeddingResponse
++      const vector = response?.data?.[0]?.embedding
++      if (!validRetrievalVector(vector) || target.dimensions > 0 && vector.length !== target.dimensions) throw new RetrievalError('invalid_response')
++      emitRetrieval(this.config, { task: 'embedding', status: 'succeeded', providerId: target.provider?.id, elapsedMs: Date.now() - started, vectorDimensions: vector.length })
++      return vector
++    } catch (error) {
++      const failure = classifyRetrievalError(error)
++      emitRetrieval(this.config, { task: 'embedding', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
++      throw new RetrievalError(failure.category, failure.httpStatus)
++    }
+   }
+ 
+ }
+ 
+ export class OpenAICompatibleNarrator implements NarrativeProvider {
+@@ -391,10 +392,17 @@
    visionAvailable() {
      return this.assignedProviders('vision').length > 0
    }
@@ -148,7 +419,7 @@
      const mainModelId = effectiveMainModelId(this.config)
      const route = this.routing.main.target
      const hasMainRoute = !!mainModelId || !!assigned.length
-@@ -418,55 +439,72 @@
+@@ -418,55 +426,72 @@
        },
      } : request
      try {
@@ -225,7 +496,7 @@
  
        throw new Error(`All narrative providers failed. ${failures.join(' | ')}`)
      } finally {
-@@ -529,10 +567,11 @@
+@@ -529,10 +554,11 @@
      const run = async (capped: boolean): Promise<T> => {
        const remaining = Math.max(1_000, deadline - Date.now())
        if (Date.now() >= deadline) throw new Error(`${task} provider total timeout exceeded.`)
@@ -237,7 +508,7 @@
        }
        const response = await this.postChat(provider, body, remaining)
        collect(response?.usage)
-@@ -783,11 +822,11 @@
+@@ -783,11 +809,11 @@
              if (!description) throw new Error('Alter analysis provider returned no description.')
              this.cooldownUntil.delete(providerKey(provider))
              return { description }
@@ -250,7 +521,7 @@
              this.logger?.debug('Alter System 分析模型失败：%s；尝试=%s', provider.label || provider.id, detail)
            }
          }
-@@ -874,11 +913,11 @@
+@@ -874,11 +900,11 @@
              const text = extractChatText(response).trim().slice(0, 3_000)
              if (text) return [text]
              failures.push(`${provider.label} attempt ${attempt}: empty response`)
@@ -263,7 +534,7 @@
              this.logger?.debug(
                '侧端视觉请求失败 阶段=sidecar-vision provider=%s protocol=%s model=%s attempt=%d 错误=%s',
                provider.label || provider.id, provider.protocol || 'chat-completions', provider.model, attempt, detail,
-@@ -909,11 +948,12 @@
+@@ -909,11 +935,12 @@
      const aggregated = aggregateTokenUsages(usages.map(item => ({ ...item, task })))
      if (!aggregated || !hasUsageFields(aggregated)) return
      this.onUsage(aggregated)
@@ -277,7 +548,7 @@
      // 统一走 undici ProxyAgent——Koishi 4.18 的 cordis http 不支持 proxyAgent
      // 也不读系统代理，需要代理的服务商（如 Google）此前无法访问。
      const payload = provider.protocol === 'anthropic-messages' ? anthropicBody(body, provider, cacheFirst)
-@@ -955,11 +995,11 @@
+@@ -955,11 +982,11 @@
        ? rotate(candidates, this.roundRobinOffset++)
        : candidates
      return this.config.failover.enabled ? ordered : ordered.slice(0, 1)
@@ -290,7 +561,7 @@
      const payload = JSON.stringify(toPromptPayload(request, { cacheFirst: cacheFirstPayload }))
      const streamingEarlyReply = this.config.mainStreamingMode === 'experimental'
        && request.phase === 'user-message'
-@@ -1002,10 +1042,15 @@
+@@ -1002,10 +1029,15 @@
          // 固定合约永远位于 system 层，用户消息只作为结构化“故事事件”提供。
          { role: 'system', content: systemPrompt(request.phase, this.config.mainPrompt, this.config.formatPrompt, this.config.fixedPrompt, this.config.stylePrompt, request.story.setting.style, request.refreshContinuity === true, request.alterEnabled === true, request.agencyEnabled === true, Boolean(request.story.setting.perspective?.trim() || (request.story.setting.perspectives ?? []).some(p => p.trim()) || request.story.state.settingOverlay?.perspective?.trim()), request.outputRecovery === true, request.chatCapabilities, Boolean(request.quotedMessages?.length || request.groupContext?.messages.some(message => !!message.quote)), request.stickerCatalog, !!request.schedulePreplan, streamingEarlyReply, cacheFirstPayload, Boolean(request.groupContext), request.writingOptions, this.resolveSpecialty(provider), request.proactiveContactMode, request.channelSelectionEnabled === true, request.longHorizonGuidance, request.contractFeatures) + urgeInstruction(request.urgeEnabled === true, request.phase) },
          { role: 'user', content: userContent },
@@ -306,7 +577,7 @@
        if (earlyReplyHandled) return
        const reply = extractEarlyNarrativeReply(text, !!request.groupContext)
        if (reply && await request.onEarlyReply!(reply)) earlyReplyHandled = true
-@@ -1013,10 +1058,12 @@
+@@ -1013,10 +1045,12 @@
      const headers = {
        'content-type': 'application/json',
        ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
@@ -319,7 +590,7 @@
          anthropicHeaders(provider, parseObject(provider.extraHeaders, 'extraHeaders', this.logger)) as Record<string, string>,
          overrides.timeout ?? provider.timeout, onStreamText, collect, provider.proxyAgent)
        : provider.zhipuOfficial && provider.protocol === 'chat-completions'
-@@ -1027,11 +1074,11 @@
+@@ -1027,11 +1061,11 @@
            reasoning_effort: provider.reasoningEffort ?? 'high',
          }, headers, onStreamText, collect, undefined, provider.proxyAgent)
        : streamingEarlyReply
@@ -332,7 +603,40 @@
              return extractChatText(response)
            })()
      if (!text) throw new Error('Narrative provider returned an empty response.')
-@@ -1732,14 +1779,14 @@
+@@ -1118,11 +1152,11 @@
+   return new OpenAICompatibleNarrator(ctx, config, silentLogs, onUsage, resolved)
+ }
+ 
+ export function createEmbedder(ctx: Context, config: ModelConfig, routing?: ModelRoutingTable): NarrativeEmbedder {
+   const resolved = routing ?? resolveModelRouting(config)
+-  if (!resolved.embedding.available || !config.embedding?.enabled) {
++  if (!config.embedding?.enabled) {
+     return new SilentEmbedder()
+   }
+   return new OpenAICompatibleEmbedder(ctx, config, resolved)
+ }
+ 
+@@ -1635,17 +1669,12 @@
+ function rotate<T>(values: T[], offset: number) {
+   const start = offset % values.length
+   return [...values.slice(start), ...values.slice(0, start)]
+ }
+ 
+-function deriveEmbeddingEndpoint(chatEndpoint: string) {
+-  // The automatic route only handles the conventional OpenAI-compatible path.
+-  // Non-standard gateways should use model.embedding.endpoint explicitly.
+-  const endpoint = chatEndpoint.trim()
+-  return /\/chat\/completions\/?(?:\?.*)?$/i.test(endpoint)
+-    ? endpoint.replace(/\/chat\/completions\/?(?:\?.*)?$/i, '/embeddings')
+-    : ''
++export function deriveEmbeddingEndpoint(chatEndpoint: string) {
++  return deriveRetrievalEndpoint(chatEndpoint, 'embedding')
+ }
+ 
+ function phaseInstruction(phase: NarrativeRequest['phase'], groupTurn = false) {
+   if (phase === 'user-message') {
+     const instructions = [
+@@ -1732,14 +1761,14 @@
    return 'automaticDeliverySummaries are compact records of background messages that were actually delivered. Their stated conclusion is already communicated: write only a new delta, never restate it as fresh news. If this turn sends interaction.reply.mode=immediate, include automaticDeliverySummary as one short, non-quoted description of the newly communicated delta. Omit it when no message is sent.'
  }
  
@@ -349,7 +653,7 @@
  }
  
  function perspectiveInstruction(enabled: boolean) {
-@@ -1767,11 +1814,16 @@
+@@ -1767,11 +1796,16 @@
  function quotedMessageInstruction(enabled: boolean) {
    if (!enabled) return ''
    return 'CURRENT EVENT QUOTE: a quote field is an earlier message explicitly referenced by the sender. Its speaker and content are observed context, not new words spoken now. Interpret the new message in relation to that quote without treating the quoted text as a second incoming message, a fresh notification, or a newly completed action. Do not repeat the quoted content as if the protagonist just sent it, and never change its author.'
@@ -367,7 +671,7 @@
  }
  
  /** 主叙事全局文风默认值（model.stylePrompt 兜底）。schema 默认与
-@@ -1834,10 +1886,11 @@
+@@ -1834,10 +1868,11 @@
        LITE_JSON_CONTRACT,
        LITE_INTERVAL,
        LITE_UNREAD,
@@ -379,7 +683,7 @@
        ...(stickerCatalog?.length ? [stickerInstruction(stickerCatalog, chatCapabilities?.expressionThreshold ?? 0.7)] : []),
        LITE_NEVER_INVENT,
        LITE_OWNERSHIP,
-@@ -1892,14 +1945,15 @@
+@@ -1892,14 +1927,15 @@
      agencyInstruction(phase, agencyEnabled, proactiveContactMode),
      automaticDeliveryInstruction(phase),
      followUpCommitmentInstruction(phase),
@@ -396,7 +700,7 @@
      'The interval object is the authoritative clock: use interval.nowLocal and interval.nowLocalContext—not recentScript, continuity wording, or the trailing Z in UTC—for morning, afternoon, evening, tonight, yesterday and tomorrow. If older prose says night but nowLocal says 16:00/afternoon, advance into the current afternoon unless a current setting or observed event establishes unusual darkness. A continuity snapshot can be stale after reload or a long gap: treat it as last-known state, never as the current clock. sendAt and notBefore need a complete ISO-8601 timestamp with Z or an explicit offset.',
      phaseInstruction(phase, groupTurn),
      ...(o.extraAfterPhase ? [o.extraAfterPhase] : []),
-@@ -2075,10 +2129,11 @@
+@@ -2075,10 +2111,11 @@
    const continuityUpdatedAt = parseDate(request.story.state.lastContinuityUpdateAt)
    const payload = {
      phase: request.phase,
@@ -408,7 +712,7 @@
        storyTimezone: nowLocalContext.timezone,
        fromLocal: fromLocalContext.local,
        nowLocal: nowLocalContext.local,
-@@ -2291,11 +2346,15 @@
+@@ -2291,11 +2328,15 @@
    ;(payload as any)._channelBatchMultiEndpoint = request.channelData?.batchMultiEndpoint
    ;(payload as any)._channelLastEntryChannel = request.channelData?.lastEntryChannel
    ;(payload as any)._channelCurrentChannel = request.channelData?.currentChannel
@@ -425,7 +729,7 @@
    // relationship branches (shared mode with details sharing).
    const participantIds = new Set(request.recentEntries.map(entry => String(entry.participantId ?? '').trim()).filter(Boolean))
    const keepParticipantId = participantIds.size > 1
-@@ -2341,10 +2400,11 @@
+@@ -2341,10 +2382,11 @@
      groupContext: payload.groupContext,
      ...(request.chatCapabilities ? { chatCapabilities: payload.chatCapabilities } : {}),
      phase: payload.phase,
@@ -437,7 +741,7 @@
      timelinePlan: payload.timelinePlan,
      timelineCarry: payload.timelineCarry,
      continuitySnapshotAgeMinutes: payload.continuitySnapshotAgeMinutes,
-@@ -2353,11 +2413,13 @@
+@@ -2353,11 +2395,13 @@
      developmentTendencies: payload.developmentTendencies,
      currentEvent: payload.currentEvent,
      recentExchange: buildRecentExchange(request, new Set(payload.recentScript.map(entry => entry.id))),
@@ -452,9 +756,81 @@
  /** Cache-first tail block: re-anchors the last few exchanges beside the decision
   * point after the history moved to the front of the payload. The live user
   * message is excluded because currentEvent already carries it verbatim. */
+@@ -2761,5 +2805,45 @@
+       ...narrativeEvidence(entry),
+     })),
+   }
+ }
+ 
++
++export interface RetrievalRequestContext { foreground?: boolean; deadline?: number; signal?: AbortSignal; externalRerank?: boolean }
++export interface RetrievalEvent { task: 'embedding' | 'rerank'; status: 'succeeded' | 'fallback'; providerId?: string; category?: string; httpStatus?: number; elapsedMs?: number; vectorDimensions?: number; resultCount?: number }
++export class RetrievalError extends Error {
++  constructor(public category: string, public httpStatus?: number) { super(category) }
++}
++export function emitRetrieval(config: ModelConfig, event: RetrievalEvent) {
++  try { config.mobileRetrievalEvent?.(event) } catch { /* Diagnostic IO cannot fail retrieval. */ }
++}
++export function validRetrievalVector(value: unknown): value is number[] {
++  return Array.isArray(value) && value.length > 0 && value.every(n => typeof n === 'number' && Number.isFinite(n)) && value.some(n => n !== 0)
++}
++export function classifyRetrievalError(error: any): { category: string; httpStatus?: number } {
++  if (error instanceof RetrievalError) return { category: error.category, ...(error.httpStatus ? { httpStatus: error.httpStatus } : {}) }
++  const httpStatus = Number(error?.response?.status || /HTTP (\d{3})/.exec(String(error?.message))?.[1]) || undefined
++  const detail = String(error?.message ?? '').slice(0, 2048) + JSON.stringify(error?.response?.data ?? '').slice(0, 2048)
++  const category = /model ratio not found/i.test(detail) ? 'gateway_model_ratio'
++    : httpStatus && httpStatus >= 500 && /convert_request_failed/i.test(detail) ? 'gateway_convert_request'
++    : httpStatus === 401 ? 'authentication' : httpStatus === 403 ? 'permission'
++    : httpStatus === 404 || httpStatus === 405 ? 'route_not_found'
++    : httpStatus === 400 || httpStatus === 422 ? 'invalid_request'
++    : httpStatus === 402 || /insufficient.*(?:balance|quota)|余额不足/i.test(detail) ? 'provider_quota'
++    : httpStatus === 429 ? 'throttled_or_quota' : httpStatus && httpStatus >= 500 ? 'provider_error'
++    : httpStatus && httpStatus >= 300 && httpStatus < 400 ? 'redirect_rejected'
++    : /预算|background.*budget/i.test(detail) ? 'background_budget'
++    : /timeout|timed out|ETIMEDOUT|deadline/i.test(detail) ? 'timeout'
++    : /abort|cancel/i.test(detail) ? 'cancelled'
++    : /JSON|invalid.*response/i.test(detail) ? 'invalid_response' : 'network'
++  return { category, ...(httpStatus ? { httpStatus } : {}) }
++}
++async function retrievalPost(ctx: Context, provider: ProviderConfig, endpoint: string, body: unknown, timeout: number, context: RetrievalRequestContext) {
++  const remaining = context.deadline === undefined ? timeout : Math.min(timeout, context.deadline - Date.now())
++  if (remaining <= 0) throw new RetrievalError('timeout')
++  const headers = { 'content-type': 'application/json', ...parseObject(provider.extraHeaders, 'extraHeaders'),
++    ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}) }
++  const signal = context.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining)
++  return provider.proxyAgent
++    ? postJsonViaProxy(endpoint, body, headers, remaining, provider.proxyAgent, { redirect: 'manual', signal })
++    : ctx.http.post(endpoint, body, { headers, timeout: remaining, redirect: 'manual', signal, validateStatus: status => status >= 200 && status < 300 })
++}
 --- a/service.ts
 +++ b/service.ts
-@@ -441,11 +441,11 @@
+@@ -276,10 +276,12 @@
+ }
+ 
+ /** A turn needs a live query vector only for a feature that can actually use
+  * it. An inactive or small sticker library must not silently turn ordinary
+  * fact embedding into a per-message network request. */
++type PreparedFactEmbedding = { vector: number[]; identity?: string }
++
+ export function shouldRequestTurnEmbedding(embedding: ModelConfig['embedding'] | undefined, stickerLibraryEnabled: boolean, stickerCount: number) {
+   if (!embedding?.enabled) return false
+   return embedding.liveQuery === true
+     || embedding.semanticHistory === true
+     || embedding.semanticStickerFilter === true && stickerLibraryEnabled && stickerCount > SEMANTIC_STICKER_LIMIT
+@@ -318,11 +320,11 @@
+   current: InterludeStory
+   participants: InterludeParticipant[]
+   visibleCompactionFacts: NarrativeFact[]
+   compactRequest: CompactionRequest
+   fingerprint: string
+-  factEmbeddings?: Map<string, number[]>
++  factEmbeddings?: Map<string, PreparedFactEmbedding>
+ }
+ 
+ type PreparedCompaction = PreparedCompactionSkip | PreparedCompactionRun
+ 
+ // Only QQ/OneBot CDN hosts are fetched in the native-vision path. This keeps
+@@ -441,11 +443,11 @@
    ignoreSelfMessages: boolean
  }
  
@@ -467,7 +843,7 @@
    allowedReactions: ChatReactionName[]
    nativeFaces: boolean
    expressionThreshold: number
-@@ -545,10 +545,11 @@
+@@ -545,10 +547,11 @@
    autoCreate: boolean
    ignoreCommandMessages: boolean
    allowProactiveMessages: boolean
@@ -479,7 +855,7 @@
    maxStoriesPerSweep: number
    contextEntryLimit: number
    /** Preserve raw entries from this recent time window in addition to the count floor. */
-@@ -1209,10 +1210,12 @@
+@@ -1209,10 +1212,12 @@
        if (!isRecord(raw) || (raw.status !== 'pending' && raw.status !== 'partial') || !Array.isArray(raw.segments)) continue
        const action = raw as unknown as ScriptDeliveryAction
        const rawEvent = events.find(item => isRecord(item) && item.commitId === action.commitId && item.eventId === action.eventId)
@@ -492,7 +868,7 @@
          // 群 pending 段(group-message 事件不带 participantId):从事件/行动的
          // endpointId 解析群目标;有群目标即入候选——此前 continue 让群发段
          // 崩溃后永久 pending 且 deliveryReality 持续报 not-confirmed
-@@ -1970,10 +1973,35 @@
+@@ -1970,10 +1975,35 @@
        occurredAt: now.toISOString(), metadata: { personId: participant.personId },
      }, now, participant.id)
      return participant
@@ -528,14 +904,12 @@
      const now = new Date()
      await this.dbSet('interlude_story', { id: story.id }, { setting, updatedAt: now })
      return { ...story, setting, updatedAt: now }
-@@ -2032,10 +2060,29 @@
-   async adminFacts(storyId: string, limit = 20) {
-     return this.dbGet('interlude_fact', { storyId, status: 'active' }, {
+@@ -2034,10 +2064,29 @@
        limit: Math.max(1, Math.min(limit, 100)),
        sort: { updatedAt: 'desc' },
      })
-+  }
-+
+   }
+ 
 +  async adminSchedulingStatus(storyId: string) {
 +    const rows = await this.dbGet('interlude_script_entry', { storyId, kind: 'admin-note' }, { sort: { id: 'desc' }, limit: 30 })
 +    return rows.flatMap(row => {
@@ -553,12 +927,44 @@
 +      if (existing.some(item => item.requestId === requestId && item.outcome === outcome && item.intentId === intentId && item.reasonCode === reasonCode)) return
 +      await this.appendEntry(storyId, { kind: 'admin-note', actor: 'system', content: '定时联系登记状态：' + reasonCode, occurredAt: now.toISOString(), metadata: { scheduledContactRegistration: { requestId, outcome, reasonCode, ...(intentId ? { intentId } : {}), ...(dueAt ? { dueAt } : {}) } } }, now, participantId)
 +    } catch { this.reportStandalone('warn', 'scheduled-contact status write failed') }
-   }
- 
++  }
++
    async adminPendingIntents(storyId: string, limit = 20) {
      return this.dbGet('interlude_intent', { storyId, status: 'pending' }, {
        limit: Math.max(1, Math.min(limit, 100)),
-@@ -3062,10 +3109,14 @@
+       sort: { notBefore: 'asc' },
+     })
+@@ -2066,14 +2115,15 @@
+   /** Adds a high-confidence fact for corrections that must survive compaction. */
+   async addAdminFact(story: InterludeStory, scope: NarrativeFact['scope'], content: string) {
+     const text = clip(content, this.memoryConfig.factContentCharacters)
+     if (!text || factContentLooksAmbiguous(scope, text)) return false
+     const now = new Date()
++    const indexed = await this.embedIndexedText(text)
+     await this.dbCreate('interlude_fact', {
+       // Legacy column retained for database compatibility; facts are global.
+       storyId: story.id, participantId: '', scope, content: text,
+-      importance: 0.8, confidence: 1, unresolved: false, embedding: await this.embedText(text),
++      importance: 0.8, confidence: 1, unresolved: false, embedding: indexed.vector, embeddingIdentity: indexed.identity,
+       status: 'active', sourceEntryIds: [], lastSeenAt: now, createdAt: now, updatedAt: now,
+     })
+     return true
+   }
+ 
+@@ -2802,11 +2852,11 @@
+         messages: snapshot.messages,
+       }
+       const chatCapabilities = this.groupChatCapabilities(session, groupContext.messages)
+       const userMessage = batch.map((message, index) => `[群聊连续消息 ${index + 1}｜${message.speaker}]\n${message.content}`).join('\n\n')
+       const turnQueryEmbedding = this.semanticTurnEmbeddingEnabled()
+-        ? await this.embedText(userMessage.slice(0, this.config.model.embedding?.maxInputCharacters ?? 4_000))
++        ? await this.embedText(userMessage.slice(0, this.config.model.embedding?.maxInputCharacters ?? 4_000), { foreground: true })
+         : undefined
+       const stickerCatalog = await this.stickerCatalogForSession(session, turnQueryEmbedding)
+       const currentImageSources = Array.from(new Set(batch.flatMap(message => message.imageSources ?? []))).slice(0, 3)
+       const imageSession = batch.find(message => message.imageSession)?.imageSession ?? session
+       const currentImages = await this.loadNativeImages(snapshot.story, currentImageSources, imageSession)
+@@ -3062,10 +3112,14 @@
      if (!quoteReply && !reactions.length && !nativeFaces.length) return undefined
      return { platform: 'qq', quoteReply, reactions, nativeFaces, expressionThreshold: normalizeExpressionThreshold(config.expressionThreshold) }
    }
@@ -573,7 +979,37 @@
      const nativeFaces = config.nativeFaces === true ? normalizeAllowedNativeFaces(config.allowedNativeFaces) : []
      if (!nativeFaces.length) return undefined
      return { platform: 'qq', quoteReply: false, reactions: [], nativeFaces, expressionThreshold: normalizeExpressionThreshold(config.expressionThreshold) }
-@@ -3751,11 +3802,11 @@
+@@ -3658,12 +3712,12 @@
+           description: description.description, aliases: description.aliases, status: 'active', updatedAt: new Date(),
+         }) as StickerAsset | undefined
+         if (updated && this.semanticStickerEmbeddingEnabled()) {
+           // Index a freshly described asset immediately so the semantic filter
+           // can consider it on the very next turn instead of the next scan.
+-          const embedding = await this.embedText(`${description.description} ${description.aliases.join(' ')}`.trim())
+-          if (embedding.length) await this.dbSet('interlude_sticker', { id: item.asset.id }, { embedding, updatedAt: new Date() })
++          const indexed = await this.embedIndexedText(`${description.description} ${description.aliases.join(' ')}`.trim())
++          if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: item.asset.id, status: 'active', hash: item.asset.hash }, { embedding: indexed.vector, embeddingIdentity: indexed.identity, updatedAt: new Date() })
+         }
+         this.reportStandaloneOperation('standard', 'info', '表情包描述完成 素材=%s 分组=%s', item.asset.assetId, item.asset.group)
+       }
+       await this.refreshStickerCatalog()
+       await this.backfillStickerEmbeddings()
+@@ -3740,22 +3794,22 @@
+   /** Vectorize described-but-unindexed sticker assets in the background. The
+    * batch stays small so one scan cannot spend more than a handful of calls. */
+   private async backfillStickerEmbeddings() {
+     if (!this.semanticStickerEmbeddingEnabled()) return
+     const pending = this.stickerCatalog
+-      .filter(asset => asset.description && !asset.embedding?.length)
+-      .slice(0, 8)
++      .filter(asset => asset.description && (!asset.embedding?.length || this.embedder.identity && asset.embeddingIdentity !== this.embedder.identity()))
++      .slice(0, Math.min(5, this.config.model.embedding?.backfillBatchSize ?? 5))
+     for (const asset of pending) {
+       const text = `${asset.description} ${(asset.aliases ?? []).join(' ')}`.trim()
+-      const embedding = await this.embedText(text)
+-      if (embedding.length) await this.dbSet('interlude_sticker', { id: asset.id }, { embedding, updatedAt: new Date() })
++      const indexed = await this.embedIndexedText(text)
++      if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: asset.id, status: 'active', hash: asset.hash, description: asset.description }, { embedding: indexed.vector, embeddingIdentity: indexed.identity, updatedAt: new Date() })
      }
    }
  
@@ -586,7 +1022,33 @@
        assetId: asset.assetId, group: asset.group, description: asset.description, aliases: Array.isArray(asset.aliases) ? asset.aliases : [], animated: asset.animated,
      }))
    }
-@@ -4409,11 +4460,15 @@
+@@ -3765,10 +3819,12 @@
+    * the turn has no query vector, or the catalog is below the limit. */
+   private async rankStickerAssets(turnQueryEmbedding?: number[]): Promise<StickerAsset[]> {
+     const assets = this.stickerCatalog.slice(0, this.stickerConfig.catalogLimit)
+     if (!this.config.model.embedding?.semanticStickerFilter) return assets
+     if (!turnQueryEmbedding?.length || assets.length <= SEMANTIC_STICKER_LIMIT) return assets
++    const identity = this.embedder?.identity?.()
++    if (this.embedder?.identity && (!identity || assets.some(asset => asset.embeddingIdentity !== identity))) return assets
+     return rankStickerCatalog(assets, turnQueryEmbedding, SEMANTIC_STICKER_LIMIT)
+   }
+ 
+   private semanticTurnEmbeddingEnabled() {
+     return shouldRequestTurnEmbedding(
+@@ -3842,11 +3898,11 @@
+     const shareDetails = !!participantId && this.sharedStoryConfig.shareParticipantDetails
+     const identity = this.embedder?.identity?.()
+     for (const [id, item] of cache) {
+       if (excludeIds.has(id)) continue
+       if (!isHistoryEntryVisibleToParticipant(item, participantId, shareDetails)) continue
+-      const semantic = item.embeddingIdentity && item.embeddingIdentity !== identity
++      const semantic = this.embedder.identity && (!identity || item.embeddingIdentity !== identity)
+         ? undefined : cosineSimilarity(turnQueryEmbedding, item.vector ?? [])
+       const spans = item.spans ??= indexOriginal(item.content)
+       const lexical = Math.max(scoreOriginal(primaryKeys, spans).score, scoreOriginal(keys, spans).score * 0.8)
+       const tagged = episodeTagScore(query, item.tags)
+       const source = preferredEntryIds.has(id) ? 1 : 0
+@@ -4409,11 +4465,15 @@
        }
        return false
      })
@@ -602,7 +1064,20 @@
        // 已触发的定时器句柄若不清掉,resume 的 rescheduleTimers 会因 turn.timer
        // 非空而跳过补排,遗留消息重新孤儿化
        const pausedTurn = this.turnEngine.getTurn(key)
-@@ -4663,10 +4718,13 @@
+@@ -4471,11 +4531,11 @@
+         return
+       }
+ 
+       const userMessage = formatBufferedUserMessages(batch)
+       const turnQueryEmbedding = userMessage?.trim() && this.semanticTurnEmbeddingEnabled()
+-        ? await this.embedText(userMessage.trim().slice(0, this.config.model.embedding?.maxInputCharacters ?? 4_000))
++        ? await this.embedText(userMessage.trim().slice(0, this.config.model.embedding?.maxInputCharacters ?? 4_000), { foreground: true })
+         : undefined
+       const quotedMessages: IndexedQuotedMessageContext[] = batch.flatMap((message, index) => message.quote
+         ? [{ ...message.quote, messageIndex: index + 1 }]
+         : [])
+       const stickerCatalog = await this.stickerCatalogForSession(turn.latestSession, turnQueryEmbedding)
+@@ -4663,10 +4723,13 @@
          }
        }
      } finally {
@@ -616,7 +1091,7 @@
    async advanceStory(story: InterludeStory, force = true) {
      if (this.desktopRuntimePhase === 'paused') return []
      if (!this.canHandleStory(story)) return []
-@@ -5005,12 +5063,14 @@
+@@ -5005,12 +5068,14 @@
              const persisted = await this.persistDecision(current, dueParticipant ?? null, decision, dueFrom, now, permitMessages, 'intent-due', dueBatch, false, timelinePlan)
              messages.push(...persisted.messages)
            }
@@ -632,7 +1107,7 @@
                await this.pauseAutomaticAdvanceAfterDelayedReply(story.id, now, dueParticipant?.id ?? '')
              } else if (!advanced && !delayedReplyProcessed) {
                await this.scheduleNextAutomaticAdvance(story.id, now)
-@@ -5046,14 +5106,19 @@
+@@ -5046,14 +5111,19 @@
      }
      if (advanced && !delayedReplyProcessed) {
        const hasMoreFollowUps = dueFollowUps.length > 0 && await this.completeConversationFollowUps(story.id, now)
@@ -652,7 +1127,20 @@
      // facts 负责把很长的过去压缩成连续性线索。参与者摘要让模型知道角色
      // 同时还在与谁维系关系，而不是把每个 QQ 当成独立世界。
      // User and due-intent turns may arrive before the next background sweep.
-@@ -5207,11 +5272,13 @@
+@@ -5064,11 +5134,11 @@
+     const factQuery = createFactQuery(participant, userMessage, dueIntents, supersededIntents)
+     const memoryEnabled = this.memoryConfig.enabled
+     // One turn-level query vector serves every semantic consumer (sticker
+     // filter, fact ranking, history recall); undefined when none needs it.
+     const resolvedTurnEmbedding = turnQueryEmbedding ?? (participant && userMessage?.trim() && this.semanticTurnEmbeddingEnabled()
+-      ? await this.embedText(userMessage.trim().slice(0, this.config.model.embedding?.maxInputCharacters ?? 4_000))
++      ? await this.embedText(userMessage.trim().slice(0, this.config.model.embedding?.maxInputCharacters ?? 4_000), { foreground: phase === 'user-message' })
+       : undefined)
+     const liveFactEmbedding = this.config.model.embedding?.liveQuery ? resolvedTurnEmbedding : undefined
+     const [recentEntries, memories, scene, arc, previousScenes, facts, allParticipants, webContext, activeConsequences, overlaySnapshots, followUpCommitments, upcomingIntents] = await Promise.all([
+       // Use the runtime limits on the live path.  They are the options shown
+       // to testers as “上下文条目/长期事实”，and should be authoritative.
+@@ -5207,11 +5277,13 @@
        worldEventsEnabled: this.worldSeederRuntime.enabled || this.weatherConfig.enabled,
        windowHasWorldEventEntries,
        windowHasAdminNotes,
@@ -666,7 +1154,7 @@
          messageSeparator: this.config.runtime.messageSeparator?.trim() || '<sep/>',
          splitReplyMessages: this.config.runtime.splitReplyMessages !== false,
          browserMode: turnBrowserMode,
-@@ -5517,11 +5584,11 @@
+@@ -5517,11 +5589,11 @@
      this.reportOperation('standard', 'info', story, phase,
        '模型调用开始 任务=主叙事 模型=%s 参与者=%s 时间段=%s→%s 到期计划=%d',
        this.mainModelLabel(), participant?.id || '全局', formatLogTime(from, story.setting.timezone), formatLogTime(now, story.setting.timezone), dueIntents.length)
@@ -679,7 +1167,7 @@
          if (committed) earlyReplyCommitted = true
          return committed
        } : undefined
-@@ -5545,13 +5612,14 @@
+@@ -5545,13 +5617,14 @@
        const endorsedClocks = phase === 'user-message' && userMessage?.trim()
          ? new Set(extractUserReportedTimes(userMessage, effectiveNow, story.setting.timezone)
              .map(fact => Number(fact.localTime.slice(-5, -3)) * 60 + Number(fact.localTime.slice(-2)))
@@ -695,7 +1183,7 @@
          if (initialVisibleRecovery) {
            this.reportOperation('diagnostic', 'warn', story, phase, '被抛弃草稿的结构化回复字段 interaction=%s groupReply=%s',
              safeJsonPreview(decision.interaction), safeJsonPreview(decision.groupReply))
-@@ -5581,10 +5649,21 @@
+@@ -5581,10 +5654,21 @@
              this.reportOperation('standard', 'warn', story, phase, '结构化回复两稿均缺失，降级为无可见回复提交（剧本推进不受影响）')
              decision = { ...decision, interaction: undefined, groupReply: undefined }
            } else {
@@ -717,7 +1205,7 @@
        // The fixed narrative contract requires prose for every real model turn.
        // A syntactically valid object with an omitted/blank script used to be
        // treated as success, advancing the cursor while leaving a gap in the
-@@ -5766,37 +5845,52 @@
+@@ -5766,37 +5850,52 @@
            'M5 剧本行动绑定未确认 即时消息=%d；保留兼容投递，不重写已生成剧本', unbound.length)
        }
      }
@@ -774,7 +1262,7 @@
          payload: phase === 'user-message' && participant
            ? { ...payload, userInitiated: payload.userInitiated !== false }
            : payload,
-@@ -5880,10 +5974,36 @@
+@@ -5880,10 +5979,36 @@
            permittedParticipantIds,
            validSourceEntryIds,
            scriptEntry?.id,
@@ -811,7 +1299,7 @@
            // 联系温度：natural/balanced 只放宽意愿阈值与安全间隔；Urge 爆发间隔
            // 仍优先；容量门（设备/隐私/负荷）三模式全保——想聊天也需要手机和隐私。
            const modeRelaxed = this.agencyConfig.contactMode !== 'strict'
-@@ -5900,11 +6020,11 @@
+@@ -5900,11 +6025,11 @@
              capacityConfig,
              target?.state.lastCharacterMessageAt,
            )
@@ -824,7 +1312,7 @@
            const capPasses = dailyCap <= 0 || countProactiveContactsInWindow(state.proactiveContactLog, agencyCandidate.participantId, now) < dailyCap
            // M3/M4 endpoint policy belongs to the Agency decision boundary as
            // well as the final delivery boundary.  The action is the only
-@@ -6031,20 +6151,25 @@
+@@ -6031,20 +6156,25 @@
          notBefore: interaction.reply.sendAt,
          payload: {
            content: interaction.reply.content,
@@ -850,7 +1338,7 @@
  
      // A cross-account message is itself proactive from the target's point of
      // view. Allow it during a live user event, or during background work only
-@@ -6073,10 +6198,11 @@
+@@ -6073,10 +6203,11 @@
        if (withdrawn.length) {
          const reason = !this.agencyConfig.enabled
            ? 'proactive-messages-not-allowed'
@@ -862,7 +1350,7 @@
        // 归一化之后），无账本可撤——只补"从未发送"历史条目。不传 commit，
        // 避免按内容反查时误撤同参与者存活行动的账本分段。
        const dropped = decision.droppedProactiveActions ?? []
-@@ -6115,10 +6241,11 @@
+@@ -6115,10 +6246,11 @@
            ? 'proactive-messages-not-allowed'
            : !agencyAllowsSend
              ? agencyBlockReason ?? (agencyCandidate ? 'not-selected-by-agency' : 'no-agency-candidate')
@@ -874,7 +1362,7 @@
      const approvedAutomaticOutgoingActions = phase === 'advance'
        ? crossActions
          .filter(action => action.mode === 'immediate')
-@@ -6210,10 +6337,14 @@
+@@ -6210,10 +6342,14 @@
      }
      // 长线指导：剧本提交成功后异步扫描（不阻塞主回合）。DB 抖动沿浮动
      // promise 逃逸会变成 unhandledRejection，必须就地吸收。
@@ -889,7 +1377,20 @@
  
    /** Keep the active-scene anchor in sync with the host ledger immediately,
     * rather than waiting for prose compaction to reconcile an already-completed
-@@ -6756,16 +6887,16 @@
+@@ -6497,11 +6633,11 @@
+       ? turnQueryEmbedding
+       : query.trim() && this.config.model.embedding?.liveQuery
+         ? await this.embedText(query)
+         : []
+     const ranked = rows
+-      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query) }))
++      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query, this.embedder?.identity?.()) }))
+       .sort((a, b) => b.score - a.score
+         || b.fact.updatedAt.getTime() - a.fact.updatedAt.getTime()
+         || b.fact.id - a.fact.id)
+       .map(item => item.fact)
+     const selected: NarrativeFact[] = []
+@@ -6756,16 +6892,16 @@
        }
      })
    }
@@ -909,7 +1410,7 @@
        kind: 'web-observation', actor: 'system',
        content: webObservationEntryContent(observation), occurredAt: now.toISOString(),
        metadata: { observationId: observation.id, status, mode, url: observation.url },
-@@ -6888,10 +7019,11 @@
+@@ -6888,10 +7024,11 @@
        await this.deliverDueSplitSegments(storyId)
        if (due.every(intent => intent.type === 'split-message')) return
      }
@@ -921,7 +1422,7 @@
    private async reconcileTerminalSplitIntent(storyId: string, intent: NarrativeIntent, now: Date) {
      const ref = restoreMessageEvent(intent.payload, String(intent.payload?.content ?? ''))
      if (!ref || !Number.isSafeInteger(ref.scriptEntryId)) return false
-@@ -6951,15 +7083,16 @@
+@@ -6951,15 +7088,16 @@
      await this.scheduleNextSplitWake(story.id)
      return ready
    }
@@ -942,7 +1443,7 @@
    /** Deliver already-decided <sep/> segments without invoking the narrator. */
    private async deliverDueSplitSegments(storyId: string) {
      const generation = this.taskGeneration(storyId)
-@@ -7093,10 +7226,11 @@
+@@ -7093,10 +7231,11 @@
      const key = normalizeFollowUpSummary(draft.summary)
      const duplicate = pending.find(intent => normalizeFollowUpSummary(intent.summary) === key)
      if (duplicate || pending.length >= 2) {
@@ -954,7 +1455,7 @@
      const sourceEntryIds = [
        ...(draft.sourceEntryIds ?? []).filter(id => Number.isSafeInteger(id) && id > 0),
        ...(fallbackSourceEntryId ? [fallbackSourceEntryId] : []),
-@@ -7107,10 +7241,14 @@
+@@ -7107,10 +7246,14 @@
        payload: {
          kind: draft.kind, sourceEntryIds, expiresAt: expiresAt.toISOString(),
          requiresVisibleOutcome: true, userInitiated: true, originDeliveryEventId,
@@ -969,7 +1470,7 @@
        '已登记承诺回访 参与者=%s 类型=%s 到期=%s', participantId, draft.kind, formatLogTime(new Date(draft.notBefore), story.setting.timezone))
    }
  
-@@ -7244,11 +7382,11 @@
+@@ -7244,11 +7387,11 @@
    private async cancelPendingOutgoingMessages(storyId: string, participantId: string, now: Date, cancelPlanned = true) {
      try {
        const intents = await this.dbGet('interlude_intent', { storyId, participantId, status: 'pending' })
@@ -982,7 +1483,7 @@
  
        await this.dbSet('interlude_intent', { id: { $in: matching.map(intent => intent.id) } }, {
          status: 'cancelled',
-@@ -7617,11 +7755,13 @@
+@@ -7617,11 +7760,13 @@
            : message.content
          if (this.config.logging?.logMessageContent) {
            this.report('info', story, 'intent-due', '主角消息内容：%s', message.content.slice(0, this.config.logging.previewLength))
@@ -997,7 +1498,7 @@
            this.noteEndpointOutbound({ kind: 'participant-user', id: target.id }, true, 'session-delivered', address)
            delivered.push(message)
            continue
-@@ -7677,11 +7817,13 @@
+@@ -7677,11 +7822,13 @@
          if (!bot) {
            this.report('warn', story, 'intent-due', '没有可用机器人账号投递消息 参与者=%s', target.id)
            if (recordFailures) await this.recordOutgoingDeliveryFailure(story, target.id, message, 'bot-not-found', failureStatus)
@@ -1012,7 +1513,7 @@
          delivered.push(message)
        } catch (error) {
          // Keep the address selected for this attempt.  Re-resolving here can
-@@ -7802,10 +7944,43 @@
+@@ -7802,10 +7949,43 @@
          },
        }, now, participantId)
      })
@@ -1056,7 +1557,7 @@
     * withdrawn，后续轮次的模型才能区分"想发"与"已发出"。 */
    private async recordWithdrawnOutgoingEvents(
      story: InterludeStory,
-@@ -7889,12 +8064,21 @@
+@@ -7889,12 +8069,21 @@
        const delivered = Array.isArray(metadata.deliveryActions)
          ? metadata.deliveryActions.find(action => isRecord(action) && action.commitId === reference.commitId && action.eventId === reference.eventId && action.status === 'delivered') : undefined
        const events = Array.isArray(metadata.scriptEvents) ? metadata.scriptEvents : []
@@ -1079,7 +1580,7 @@
              { seen: false, reply: { mode: 'immediate', content: event.content } }, at, event.eventId)
            if (commitment) await this.appendFollowUpCommitment(await this.getStory(storyId), event.participantId, commitment, entry.id, at, event.eventId)
            await this.dbSet('interlude_script_entry', { id: entry.id }, {
-@@ -9079,10 +9263,14 @@
+@@ -9079,10 +9268,14 @@
      // active+paused 都登记：暂停故事的账号/别名同样要能被 resume/status
      // 与入站重定向找到；archived 由 migrateLegacyStory 迁移时单独登记。
      const stories = (await this.dbGet('interlude_story', { status: { $in: ['active', 'paused'] } })) as any[]
@@ -1094,7 +1595,7 @@
        }
      }
      for (const participant of (await this.dbGet('interlude_participant', { status: 'active' })) as any[]) {
-@@ -9257,18 +9445,24 @@
+@@ -9257,18 +9450,24 @@
    // ── 角色端点管理（的显式迁移路径）：账号变更只能经此，入站永不改绑 ──
  
    /** 注册一个角色端点到既有故事（幂等；accountKey 被其他故事占用时拒绝）。
@@ -1120,7 +1621,7 @@
          return { ok: false, error: `账号 ${account} 已被故事 ${conflict.ownerId} 注册（唯一键 role:${accountKey}）。` }
        }
        const row: EndpointRow = {
-@@ -9559,10 +9753,21 @@
+@@ -9559,10 +9758,21 @@
    }
  
    // ── 世界事件播种器：生成回路 + 到期排水 ─────────────────────────────────
@@ -1142,7 +1643,161 @@
      this.disposed = true
      this.weatherTimer?.()
      this.weatherTimer = undefined
-@@ -12457,18 +12662,19 @@
+@@ -10635,30 +10845,31 @@
+       await this.dbSet('interlude_participant', { id: participant.id }, { state, updatedAt: now })
+     }
+   }
+ 
+   private async prepareCompactionEmbeddings(storyId: string, decision: CompactionDecision, entries: ScriptEntry[]) {
+-    const vectors = new Map<string, number[]>()
++    const vectors = new Map<string, PreparedFactEmbedding>()
+     if (!decision.facts?.length) return vectors
+     const generation = this.taskGeneration(storyId)
+     const existing = await this.dbGet('interlude_fact', { storyId, status: 'active' })
+     for (const draft of decision.facts) {
+       const content = clip(draft.content, this.memoryConfig.factContentCharacters)
+       if (!content || !hasCompactionEvidence(draft.sourceEntryIds, entries)
+         || factContentLooksAmbiguous(draft.scope, content)) continue
+       const key = normalizeFact(content)
+       if (vectors.has(key)) continue
+       if (!this.taskGenerationCurrent(storyId, generation)) return vectors
+-      const same = existing.find(fact => normalizeFact(fact.content) === key && fact.embedding?.length)
+-      const vector = same?.embedding ?? await this.embedText(content)
++      const same = existing.find(fact => normalizeFact(fact.content) === key && fact.embedding?.length
++        && (!this.embedder.identity || !!this.embedder.identity() && fact.embeddingIdentity === this.embedder.identity()))
++      const vector = same ? { vector: same.embedding!, identity: same.embeddingIdentity ?? undefined } : await this.embedIndexedText(content)
+       if (!this.taskGenerationCurrent(storyId, generation)) return vectors
+       vectors.set(key, vector)
+     }
+     return vectors
+   }
+ 
+-  private async persistCompaction(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings?: Map<string, number[]>) {
++  private async persistCompaction(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings?: Map<string, PreparedFactEmbedding>) {
+     const generation = this.taskGeneration(story.id)
+     const prepared = factEmbeddings ?? await this.prepareCompactionEmbeddings(story.id, decision, entries)
+     const commit = async () => {
+       if (this.databaseResetting || this.taskGeneration(story.id) !== generation) throw new Error('Compaction generation is obsolete')
+       const fresh = (await this.dbGet('interlude_scene', { storyId: story.id, id: scene.id }))[0] as InterludeScene | undefined
+@@ -10674,11 +10885,11 @@
+       } finally { this.transactionRunning = false }
+     })
+     this.scheduleFactEmbeddingBackfill(story.id)
+   }
+ 
+-  private async persistCompactionOutputs(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings = new Map<string, number[]>()) {
++  private async persistCompactionOutputs(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings = new Map<string, PreparedFactEmbedding>()) {
+     assertContinuityReview(decision)
+     if (!entries.length) return
+     for (const draft of decision.episodeTags ?? []) {
+       const source = entries.find(entry => entry.id === draft.sourceEntryId)
+       if (!source) continue
+@@ -10796,11 +11007,11 @@
+       }
+       const knowledge = normalizeKnowledgeEvidence(fact.knowledge, entries, fact.sourceEntryIds ?? [])
+       const resolved = supportsRecordedOutcome(knowledge)
+         ? await this.resolveCompactionFacts(story.id, fact.resolvesFactIds, visibleFactIds, now) : false
+       resolvedFacts ||= resolved
+-      const mergedResolution = await this.persistFact(story.id, fact, entries, now, factEmbeddings.get(normalizeFact(clip(fact.content, this.memoryConfig.factContentCharacters))) ?? [])
++      const mergedResolution = await this.persistFact(story.id, fact, entries, now, factEmbeddings.get(normalizeFact(clip(fact.content, this.memoryConfig.factContentCharacters))) ?? { vector: [] })
+       resolvedFacts ||= mergedResolution
+     }
+     for (const patch of decision.statePatches ?? []) {
+       if (!hasCompactionEvidence(patch.sourceEntryIds, entries)) {
+         this.reportOperation('diagnostic', 'debug', story, 'advance', '发展提案未保留：缺少本轮新条目来源')
+@@ -10855,11 +11066,14 @@
+       const nextScene = await this.activeScene(story.id)
+       if (nextScene) await this.dbSet('interlude_scene', { id: nextScene.id }, { lastEntryId: entries.at(-1)!.id })
+     }
+   }
+ 
+-  private async persistFact(storyId: string, draft: import('./types').FactDraft, entries: ScriptEntry[], now: Date, preparedEmbedding: number[] = []) {
++  private async persistFact(storyId: string, draft: import('./types').FactDraft, entries: ScriptEntry[], now: Date, prepared: PreparedFactEmbedding | number[] = []) {
++    const indexed = Array.isArray(prepared) ? { vector: prepared, identity: undefined } : prepared
++    const currentIdentity = this.embedder?.identity?.()
++    const preparedEmbedding = !this.embedder?.identity || currentIdentity && indexed.identity === currentIdentity ? indexed.vector : []
+     const content = clip(draft.content, this.memoryConfig.factContentCharacters)
+     if (!content) return false
+     // Durable facts are global narrative evidence. Ignore the legacy model
+     // participantId field and persist new facts with an empty compatibility value.
+     const participantId = ''
+@@ -10877,19 +11091,21 @@
+     const same = matching.find(fact => (fact.knowledge?.mode ?? 'unclassified') === knowledge.mode)
+       ?? matching.find(fact => !fact.knowledge && canClose)
+     const unresolved = draft.unresolved === true || (draft.scope === 'promise' && (draft.unresolved !== false || !canClose))
+     if (same && ((same.knowledge?.mode ?? 'unclassified') === knowledge.mode || !same.knowledge && canClose)) {
+       const resolved = same.unresolved && draft.unresolved === false && canClose
+-      const embedding = same.embedding?.length ? same.embedding : preparedEmbedding
++      const reuse = same.embedding?.length && (!this.embedder?.identity || !!currentIdentity && same.embeddingIdentity === currentIdentity)
++      const embedding = reuse ? same.embedding! : preparedEmbedding
++      const embeddingIdentity = reuse ? same.embeddingIdentity : indexed.identity
+       await this.dbSet('interlude_fact', { id: same.id }, {
+         importance: Math.max(same.importance, clampNumber(draft.importance, same.importance, 0, 1)),
+         confidence: knowledge.clauses.some(clause => !same.sourceEntryIds.includes(clause.sourceEntryId)
+           && ['observation', 'confirmation'].includes(clause.role)
+           && entries.some(entry => entry.id === clause.sourceEntryId && ['user-message', 'character-message'].includes(entry.kind)))
+           ? Math.max(same.confidence, clampNumber(draft.confidence, same.confidence, 0, 1)) : same.confidence,
+         unresolved: resolved ? false : same.unresolved || unresolved,
+-        ...(embedding.length ? { embedding } : {}),
++        ...(embedding.length ? { embedding, embeddingIdentity } : {}),
+         sourceEntryIds: Array.from(new Set([...same.sourceEntryIds, ...sourceEntryIds])), lastSeenAt: now, updatedAt: now,
+         knowledge: { ...knowledge, clauses: [...new Map([...(same.knowledge?.clauses ?? []), ...knowledge.clauses].map(clause => [JSON.stringify(clause), clause])).values()].slice(-12),
+           relatedFactIds: [...new Set([...(same.knowledge?.relatedFactIds ?? []), ...knowledge.relatedFactIds])].slice(-12) },
+       })
+       return resolved
+@@ -10899,19 +11115,26 @@
+       if (oldest) await this.dbSet('interlude_fact', { id: oldest.id }, { status: 'superseded', updatedAt: now })
+     }
+     await this.dbCreate('interlude_fact', {
+       storyId, participantId, scope: draft.scope, content, knowledge, importance: clampNumber(draft.importance, 0.5, 0, 1),
+       confidence: clampNumber(draft.confidence, 0.5, 0, 1), unresolved,
+-      embedding: preparedEmbedding, status: 'active', sourceEntryIds,
++      embedding: preparedEmbedding, embeddingIdentity: preparedEmbedding.length ? indexed.identity : null, status: 'active', sourceEntryIds,
+       lastSeenAt: now, createdAt: now, updatedAt: now,
+     })
+     return false
+   }
+ 
+-  private async embedText(value: string) {
++  private async embedIndexedText(value: string): Promise<PreparedFactEmbedding> {
++    const identity = this.embedder.identity?.()
++    const vector = await this.embedText(value)
++    if (this.embedder.identity && (!identity || identity !== this.embedder.identity() || !this.config.model.embedding?.enabled)) return { vector: [] }
++    return { vector, identity }
++  }
++
++  private async embedText(value: string, context: { foreground?: boolean; deadline?: number; signal?: AbortSignal } = {}) {
+     try {
+-      return await this.embedder.embed(value)
++      return await this.embedder.embed(value, context)
+     } catch (error) {
+       // Embeddings improve recall but must never make a private-message turn fail.
+       this.reportStandaloneOperation('diagnostic', 'debug', 'Embedding 请求跳过 错误=%s', error)
+       return []
+     }
+@@ -10933,18 +11156,18 @@
+   private async backfillFactEmbeddings(storyId: string, batchSize: number) {
+     const generation = this.taskGeneration(storyId)
+     if (!this.taskGenerationCurrent(storyId, generation)) return
+     const facts = await this.dbGet('interlude_fact', { storyId, status: 'active' })
+     const missing = facts
+-      .filter(fact => !fact.embedding?.length)
++      .filter(fact => !fact.embedding?.length || this.embedder.identity && fact.embeddingIdentity !== this.embedder.identity())
+       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+       .slice(0, Math.max(0, batchSize))
+     for (const fact of missing) {
+       if (!this.taskGenerationCurrent(storyId, generation)) break
+-      const embedding = await this.embedText(fact.content)
++      const indexed = await this.embedIndexedText(fact.content)
+       if (!this.taskGenerationCurrent(storyId, generation)) break
+-      if (embedding.length) await this.dbSet('interlude_fact', { id: fact.id, storyId, status: 'active', content: fact.content }, { embedding })
++      if (indexed.vector.length) await this.dbSet('interlude_fact', { id: fact.id, storyId, status: 'active', content: fact.content }, { embedding: indexed.vector, embeddingIdentity: indexed.identity })
+     }
+   }
+ 
+   private async persistStatePatch(story: InterludeStory, draft: StatePatchDraft, entries: ScriptEntry[], now: Date) {
+     const confidence = clampNumber(draft.confidence, 0, 0, 1)
+@@ -12457,18 +12680,19 @@
    const maximum = new Date(now.getTime() + 24 * Time.hour)
    if (!requested || requested <= now) return maximum
    return requested < maximum ? requested : maximum
@@ -1165,7 +1820,7 @@
      : []
    const expiresAt = toDate(value.expiresAt)
    return {
-@@ -12476,14 +12682,104 @@
+@@ -12476,14 +12700,104 @@
      ...(expiresAt && expiresAt > notBefore ? { expiresAt: expiresAt.toISOString() } : {}),
      ...(sourceEntryIds.length ? { sourceEntryIds } : {}),
    }
@@ -1272,7 +1927,7 @@
  
  function interactionPromisesFollowUp(content: unknown) {
    if (typeof content !== 'string') return false
-@@ -12577,10 +12873,11 @@
+@@ -12577,10 +12891,11 @@
    // 覆盖恢复路径等旁路输入(对象形态直接取散文,不再判空)。
    const script = normalizeScriptField(raw?.script).trim().slice(0, runtime.maxScriptCharacters)
    // The only channel for a private reply is interaction. Automatic life
@@ -1284,7 +1939,7 @@
    const memories = Array.isArray(raw?.memories)
      ? raw.memories.filter(validMemory).map(memory => ({ ...memory, participantId: permittedOrGlobal(memory.participantId, currentParticipantId, permittedParticipantIds) }))
      : []
-@@ -12626,11 +12923,11 @@
+@@ -12626,11 +12941,11 @@
    const continuity = refreshContinuity ? normalizeContinuitySnapshot(raw?.continuity) : undefined
    const alter = normalizeAlterValue(raw?.alter)
    const automaticDeliverySummary = isAutomaticNarrativePhase(phase)
@@ -1297,7 +1952,7 @@
      : []
    const agencyWindow = isRecord(raw?.agencyWindow) ? raw.agencyWindow : undefined
    const proactiveContact = isRecord(raw?.proactiveContact) ? raw.proactiveContact : undefined
-@@ -12754,11 +13051,11 @@
+@@ -12754,11 +13069,11 @@
    if (mode === 'none') return { seen, reply: { mode: 'none' } }
    if (!content) return { seen, reply: { mode: 'none' } }
    if (mode === 'immediate') return { seen, reply: { mode: 'immediate', content } }
@@ -1310,9 +1965,54 @@
  function validMemory(value: unknown): value is MemoryDraft {
    return isRecord(value) && typeof value.category === 'string' && typeof value.content === 'string' && !!value.content.trim()
  }
+@@ -13057,17 +13372,17 @@
+     used += entry.content.length
+   }
+   return selected
+ }
+ 
+-function factScore(fact: NarrativeFact, config: MemoryConfig, queryEmbedding: number[] = [], query = '') {
++function factScore(fact: NarrativeFact, config: MemoryConfig, queryEmbedding: number[] = [], query = '', identity?: string) {
+   // lastSeenAt 可能为 null（rc2/rc3 补充事实或旧数据未写入）——回退到 updatedAt/createdAt，
+   // 不能让检索排序因空时间崩溃。
+   const lastSeen = fact.lastSeenAt ?? fact.updatedAt ?? fact.createdAt ?? new Date()
+   const ageDays = Math.max(0, (Date.now() - lastSeen.getTime()) / (24 * Time.hour))
+   const recency = Math.exp(-ageDays / 30)
+-  const similarity = cosineSimilarity(queryEmbedding, fact.embedding ?? [])
++  const similarity = identity !== undefined && (!identity || fact.embeddingIdentity !== identity) ? undefined : cosineSimilarity(queryEmbedding, fact.embedding ?? [])
+   // Negative similarity is treated as no semantic support. This prevents an
+   // unrelated fact from receiving a half-score merely because cosine values
+   // mathematically range from -1 to 1.
+   const semantic = similarity == null ? 0 : Math.max(0, similarity)
+   const lexical = historyLexicalScore(query, fact.content)
+@@ -13102,11 +13417,11 @@
+   ))
+   return Array.from(new Set([...words, ...bigrams])).slice(0, 80)
+ }
+ 
+ function cosineSimilarity(left: number[], right: number[]) {
+-  if (!left.length || left.length !== right.length) return undefined
++  if (!left.length || left.length !== right.length || !left.every(Number.isFinite) || !right.every(Number.isFinite)) return undefined
+   let dot = 0
+   let leftMagnitude = 0
+   let rightMagnitude = 0
+   for (let index = 0; index < left.length; index++) {
+     dot += left[index] * right[index]
 --- a/types.ts
 +++ b/types.ts
-@@ -554,10 +554,12 @@
+@@ -492,10 +492,11 @@
+   content: string
+   importance: number
+   confidence: number
+   unresolved: boolean
+   embedding?: number[]
++  embeddingIdentity?: string | null
+   status: 'active' | 'superseded'
+   sourceEntryIds: number[]
+   lastSeenAt: Date
+   createdAt: Date
+   updatedAt: Date
+@@ -554,10 +555,12 @@
    id: number
    status: 'completed' | 'cancelled'
    resolution?: string
@@ -1325,7 +2025,7 @@
    /** Optional typ-0 correlation copied into persisted delayed/split intents. */
    traceId?: string
    processingId?: string
-@@ -613,33 +615,34 @@
+@@ -613,33 +616,34 @@
    reply: {
      mode: InteractionReplyMode
      content?: string
@@ -1365,7 +2065,7 @@
  }
  
  /** A complete transport field decoded before the streamed narrative script. */
-@@ -654,11 +657,12 @@
+@@ -654,11 +658,12 @@
  export type NativeFaceSemantic = 'smile' | 'laugh' | 'sweat' | 'awkward' | 'heart' | 'surprised' | 'sad' | 'angry'
  
  /** Capabilities are transient and appear in a prompt only after both Console
@@ -1379,7 +2079,19 @@
    nativeFaces?: NativeFaceSemantic[]
    expressionThreshold?: number
  }
-@@ -715,11 +719,11 @@
+@@ -699,10 +704,11 @@
+   description: string
+   aliases: string[]
+   status: 'pending' | 'active' | 'missing'
+   /** Optional semantic vector for catalog filtering; empty until the Embedding backfill reaches this asset. */
+   embedding?: number[]
++  embeddingIdentity?: string | null
+   createdAt: Date
+   updatedAt: Date
+ }
+ 
+ /** A bounded snapshot of the message explicitly quoted by the incoming turn. */
+@@ -715,11 +721,11 @@
  
  export interface IndexedQuotedMessageContext extends QuotedMessageContext {
    messageIndex: number
@@ -1392,7 +2104,7 @@
  export interface FollowUpCommitmentDraft {
    kind: FollowUpCommitmentKind
    summary: string
-@@ -781,10 +785,12 @@
+@@ -781,10 +787,12 @@
    }
    /** At most one validated reaction is executed in the current implementation. */
    messageReactions?: MessageReactionDraft[]
@@ -1405,7 +2117,7 @@
  }
  
  export type NarrativePhase = 'advance' | 'conversation-follow-up' | 'user-message' | 'intent-due'
-@@ -841,10 +847,13 @@
+@@ -841,10 +849,13 @@
    /** [管理员注记] entry semantics. */
    adminNotes: boolean
  }
@@ -1419,3 +2131,16 @@
    contractFeatures?: NarrativeContractFeatures
    contactThreads?: import('./script/knowledge-evidence').ContactEvidenceThread[]
    /** 主模型只读取经过预算控制的连续性包，不读取完整历史。 */
+@@ -1180,11 +1191,11 @@
+   planLongArcGuidance?(request: LongArcGuidanceRequest): Promise<unknown | undefined>
+ }
+ 
+ export interface NarrativeEmbedder {
+   identity?(): string
+-  embed(input: string): Promise<number[]>
++  embed(input: string, context?: { foreground?: boolean; deadline?: number; signal?: AbortSignal }): Promise<number[]>
+ }
+ 
+ // ========== Alter System Types ==========
+ 
+ export interface AlterSystemState {

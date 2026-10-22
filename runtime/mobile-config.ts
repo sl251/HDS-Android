@@ -1,5 +1,6 @@
 import { Config } from '../upstream/hds-interlude/src/index'
 import { Schema } from '@koishijs/core'
+import { validateRetrievalEndpoint } from '../upstream/hds-interlude/src/model-routing'
 
 // This is the supported surface, not a second copy of upstream defaults/types.
 export const supportedFields: Record<string, string[]> = {
@@ -11,7 +12,7 @@ export const supportedFields: Record<string, string[]> = {
   chatActions: ['enabled', 'quoteReply', 'messageReactions', 'nativeFaces', 'allowedReactions', 'allowedNativeFaces', 'expressionThreshold'],
   alterSystem: ['enabled', 'baseThreshold', 'densityFactor', 'sameDirectionBoost', 'oppositeDecay', 'minWeight', 'maxIntensity', 'temperature', 'topP', 'maxTokens', 'timeout'],
   memory: ['enabled', 'backgroundIntervalMinutes', 'sceneEntryThreshold', 'sceneCharacterThreshold', 'recentEntryLimit', 'factLimit'],
-  embedding: ['enabled', 'liveQuery', 'providerId'],
+  embedding: ['enabled', 'liveQuery', 'providerId', 'endpoint', 'model', 'dimensions', 'timeout'],
   worldSeeder: ['enabled', 'cadenceMinutes', 'maxPending', 'dailyCap', 'maxHorizonHours', 'temperature', 'maxTokens', 'timeout'],
   longHorizon: ['enabled', 'triggerScore', 'reviewIncrement', 'intensity'],
   weather: ['enabled', 'latitude', 'longitude', 'autoFromLocation', 'skipFantasyWorld', 'cadenceMinutes'],
@@ -36,7 +37,8 @@ export function mobileSchema() {
       const field = section.dict[name]
       if (!field) throw new Error(`Unsupported upstream field ${key}.${name}`)
       return { key: name, type: field.type, default: field.meta.default ?? section.meta.default?.[name], description: field.meta.description,
-        min: field.meta.min, max: field.meta.max, step: field.meta.step, options: field.list?.map((item: any) => item.value),
+        min: field.meta.min, max: field.meta.max, step: ['timeout', 'dimensions', 'topN'].includes(name) ? 1 : field.meta.step,
+        maxLength: field.type === 'string' ? name === 'endpoint' ? 2048 : name === 'model' ? 256 : 128 : undefined, options: field.list?.map((item: any) => item.value),
         itemOptions: field.inner?.list?.map((item: any) => item.value),
         itemMin: field.inner?.meta?.min, itemMax: field.inner?.meta?.max }
     }) }
@@ -54,7 +56,19 @@ export function normalizeMobileConfig(value: MobileConfig = {}): Required<Mobile
     for (const [key, item] of Object.entries(fields)) {
       if (!supportedFields[section].includes(key)) throw new Error(`不支持的配置字段：${section}.${key}`)
       if (key === 'conversationFollowUpMinutes' && (!Array.isArray(item) || item.length > 12)) throw new Error('补写时间点最多 12 个')
-      output[key] = sectionSchema(section).dict[key](item)
+      let normalized = item
+      if (['endpoint', 'model', 'providerId'].includes(key)) {
+        const max = key === 'endpoint' ? 2048 : key === 'model' ? 256 : 128
+        const label = key === 'endpoint' ? 'HTTP(S) 地址' : key === 'model' ? '模型名' : '连接编号'
+        if (typeof item !== 'string') throw new Error(`${section}.${key} 应为${label}`)
+        normalized = item.trim()
+        if ((normalized as string).length > max || /[\u0000-\u001f\u007f]/.test(normalized as string)) throw new Error(`${section}.${key} 应为不超过 ${max} 字符的${label}`)
+        if (key === 'endpoint' && normalized) {
+          try { validateRetrievalEndpoint(normalized as string) } catch { throw new Error(`${section}.${key} 应为 HTTP(S) 地址，不含凭据或片段`) }
+        }
+      }
+      if (['timeout', 'dimensions', 'topN'].includes(key) && !Number.isInteger(item)) throw new Error(`${section}.${key} 应为整数`)
+      output[key] = sectionSchema(section).dict[key](normalized)
     }
     sections[section] = output
   }
@@ -75,8 +89,9 @@ export function mapMobileConfig(value: MobileConfig | undefined, autoAdvance: bo
       conversationFollowUpMinutes: !autoAdvance || urge ? [] : sections.runtime?.conversationFollowUpMinutes ?? [10, 20] },
     urge: { ...sections.urge, enabled: autoAdvance && urge },
     agency: { ...sections.agency, enabled: autoAdvance && Boolean(sections.agency?.enabled) },
-    alterSystem: { ...sections.alterSystem, maxTokens: sections.alterSystem?.maxTokens ?? 400 },
-    model: { embedding: { ...embedding, enabled: embedding?.enabled === true, liveQuery: embedding?.liveQuery === true } },
+    alterSystem: { ...sections.alterSystem, maxTokens: sections.alterSystem?.maxTokens ?? 2000 },
+    model: { embedding: { providerId: '', endpoint: '', model: '', dimensions: 0, timeout: 10000,
+      maxInputCharacters: 4000, backfillBatchSize: 5, semanticHistory: false, semanticStickerFilter: true, ...embedding, enabled: embedding?.enabled === true, liveQuery: embedding?.liveQuery === true } },
     qzone: { enabled: false }, browser: { enabled: false }, presetSync: { enabled: false },
   }
 }

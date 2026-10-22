@@ -182,6 +182,9 @@ const Model: Schema<ModelConfig> = Schema.object({
   fixedPrompt: Schema.string().role('textarea').default('').description('通用长期规则。'),
   stylePrompt: Schema.string().role('textarea').default(DEFAULT_STYLE_PROMPT).description('全局叙事文风；故事级 style 可进一步覆盖。默认为完整的生活剧本写作指引（2026-10-15 起）。'),
   embedding: (Schema.object({
+    providerId: Schema.string().default('').description('向量连接编号；留空使用向量任务分工。'),
+    model: Schema.string().default('').description('显式向量模型名；留空使用连接模型。'),
+    modelId: Schema.string().default('').description('历史模型目录编号。').hidden(),
     enabled: Schema.boolean().default(false).description('启用长期事实的语义检索。模型由上方“用作 Embedding 模型”用途开关选择。'),
     semanticHistory: Schema.boolean().default(false).description('启用历史语义召回。'),
     liveQuery: Schema.boolean().default(false).description('是否在每次实时对话中额外请求 Embedding 做语义检索。关闭可减少一次网络请求、降低回复延迟；后台向量补齐不受影响。'),

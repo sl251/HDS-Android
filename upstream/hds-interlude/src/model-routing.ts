@@ -113,7 +113,7 @@ export function formatModelRouting(table: ModelRoutingTable) {
   return tasks.map(task => {
     const route = table[task]
     const provider = route.providers[0]
-    const model = route.assigned ? provider?.model : route.target.model || provider?.model
+    const model = task === 'embedding' ? resolveEffectiveEmbeddingTarget({ providers: table.providers, embedding: { ...route.target, enabled: route.available } } as ModelConfig, table).model : route.assigned ? provider?.model : route.target.model || provider?.model
     return `${task}=${route.available ? `${provider?.label || provider?.id}/${model || '未指定'}` : '未配置'}[${route.reason}]`
   }).join(' ')
 }
@@ -121,7 +121,11 @@ export function formatModelRouting(table: ModelRoutingTable) {
 function resolveRoute(task: Exclude<ModelTask, 'timeline' | 'stickers' | 'vision'>, providers: ProviderConfig[], target: ResolvedModelTarget, requireChatModel: boolean): ResolvedModelRoute {
   // Messages API has no embeddings endpoint. Keep vector traffic on its own compatible connection.
   if (task === 'embedding') providers = providers.filter(provider => provider.protocol !== 'anthropic-messages' && provider.protocol !== 'gemini-interactions')
-  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && provider.model && isAssignedTo(provider, task))
+  if (task === 'embedding' && target.providerId) {
+    const selected = providers.filter(provider => provider.enabled && provider.endpoint && provider.id === target.providerId)
+    return { task, target, providers: selected, assigned: false, available: !!selected.length, reason: selected.length ? 'task-config' : 'unavailable' }
+  }
+  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && (provider.model || target.model) && isAssignedTo(provider, task))
   if (assigned.length) return { task, target, providers: assigned, assigned: true, available: true, reason: 'assigned-provider' }
 
   const targeted = target.providerId
@@ -133,6 +137,8 @@ function resolveRoute(task: Exclude<ModelTask, 'timeline' | 'stickers' | 'vision
     return { task, target, providers: targetedUsable, assigned: false, available: true, reason: profileSelected ? 'model-profile' : 'task-config' }
   }
 
+  if (task === 'embedding') return { task, target, providers: [], assigned: false, available: false, reason: 'unavailable' }
+
   // Keep legacy installations operational, but never treat an embedding-only
   // connection as a chat fallback. Explicit task assignment remains preferred.
   const fallback = providers.filter(provider => provider.enabled && provider.endpoint
@@ -143,7 +149,11 @@ function resolveRoute(task: Exclude<ModelTask, 'timeline' | 'stickers' | 'vision
 }
 
 function resolveAssignedOnlyRoute(task: 'stickers' | 'vision', providers: ProviderConfig[]): ResolvedModelRoute {
-  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && provider.model && isAssignedTo(provider, task))
+  if (task === 'embedding' && target.providerId) {
+    const selected = providers.filter(provider => provider.enabled && provider.endpoint && provider.id === target.providerId)
+    return { task, target, providers: selected, assigned: false, available: !!selected.length, reason: selected.length ? 'task-config' : 'unavailable' }
+  }
+  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && (provider.model || target.model) && isAssignedTo(provider, task))
   return {
     task,
     target: { providerId: assigned[0]?.id ?? '', model: assigned[0]?.model ?? '' },
@@ -229,4 +239,42 @@ function presetEndpoint(mode: ProviderMode | undefined, dashscopeRegion?: string
     return 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
   }
   return ''
+}
+
+/** Shared by requests, index identity, probes and routing diagnostics. */
+export function validateRetrievalEndpoint(value: string): URL {
+  let url: URL
+  try { url = new URL(value.trim()) } catch { throw new Error('endpoint_required') }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || /[\u0000-\u0020\u007f]/.test(value.trim())) throw new Error('endpoint_required')
+  return url
+}
+
+export function deriveRetrievalEndpoint(value: string, task: 'embedding' | 'rerank'): string {
+  const url = validateRetrievalEndpoint(value)
+  const suffix = task === 'embedding' ? 'embeddings' : 'rerank'
+  const path = url.pathname.replace(/\/+$/, '')
+  if (!path) url.pathname = `/v1/${suffix}`
+  else if (new RegExp(`/${suffix}$`, 'i').test(path)) return url.toString()
+  else if (/\/chat\/completions$/i.test(path)) url.pathname = path.replace(/\/chat\/completions$/i, `/${suffix}`)
+  else if (/\/v\d+(?:beta\d*)?$/i.test(path)) url.pathname = `${path}/${suffix}`
+  else throw new Error('endpoint_required')
+  return url.toString()
+}
+
+export function resolveEffectiveEmbeddingTarget(config: ModelConfig, routing?: ModelRoutingTable) {
+  const embedding = config.embedding
+  const table = routing ?? resolveModelRouting(config)
+  const route = table.embedding
+  const provider = route.providers[0]
+  const model = String(embedding?.model?.trim() || route.target.model || provider?.model || '').trim()
+  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
+  let endpoint = ''
+  if (!reason) {
+    try {
+      endpoint = embedding?.endpoint?.trim() ? validateRetrievalEndpoint(embedding.endpoint).toString() : deriveRetrievalEndpoint(provider.endpoint, 'embedding')
+      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider.endpoint).origin) reason = 'endpoint_origin'
+    } catch { reason = 'endpoint_required' }
+  }
+  return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
+    endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
 }

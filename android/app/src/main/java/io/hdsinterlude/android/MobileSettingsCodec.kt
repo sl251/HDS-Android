@@ -22,7 +22,8 @@ class MobileSettingsCodec(private val schema: JSONObject) {
             for (key in fields.keys()) {
                 val field = (0 until allowed.length()).map { allowed.getJSONObject(it) }.firstOrNull { it.getString("key") == key }
                     ?: throw IllegalArgumentException("不支持的配置字段：$section.$key")
-                val value = fields.get(key)
+                val rawValue = fields.get(key)
+                val value = if (rawValue is String) rawValue.trim() else rawValue
                 when (field.getString("type")) {
                     "boolean" -> require(value is Boolean) { "$section.$key 应为开关" }
                     "number" -> {
@@ -34,7 +35,13 @@ class MobileSettingsCodec(private val schema: JSONObject) {
                         val options = field.getJSONArray("options")
                         require((0 until options.length()).any { options.get(it) == value }) { "$section.$key 选项无效" }
                     }
-                    "string" -> require(value is String && value.length <= 128) { "$section.$key 应为连接编号" }
+                    "string" -> {
+                        val maxLength = field.optInt("maxLength", 128)
+                        val label = when (key) { "endpoint" -> "HTTP(S) 地址"; "model" -> "模型名"; else -> "连接编号" }
+                        require(value is String) { "$section.$key 应为$label" }
+                        require(value.length <= maxLength && value.none { it.code < 32 || it.code == 127 }) { "$section.$key 应为不超过 $maxLength 字符的$label" }
+                        if (key == "endpoint" && value.isNotEmpty()) ModelEndpoint.validateRetrievalEndpoint(value)
+                    }
                     "array" -> {
                         require(value is JSONArray && value.length() <= 12) { "补写时间点最多 12 个" }
                         for (i in 0 until value.length()) {

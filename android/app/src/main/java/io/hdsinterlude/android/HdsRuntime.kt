@@ -134,7 +134,7 @@ class HdsRuntime private constructor(private val context: Context) {
     @Synchronized fun status(): JSONObject = JSONObject().put("state", state).put("installed", installed())
         .put("environmentState", environmentState()).put("running", process?.isAlive == true).put("cleanupPending", cleanupPending)
         .put("progress", progress).put("error", error).put("logs", JSONArray(output.toList())).put("device", device())
-        .put("version", appVersion()).put("hds", "1.0.1-rc51").put("diagnostic", lastDiagnostic)
+        .put("version", appVersion()).put("hds", "1.0.1-rc57").put("diagnostic", lastDiagnostic)
     fun diagnosticReport(probe: Boolean = false): JSONObject {
         val report = JSONObject().put("schema", 1).put("device", device()).put("appVersion", appVersion())
             .put("environmentState", environmentState()).put("bundled", manifestSummary(bundled))
