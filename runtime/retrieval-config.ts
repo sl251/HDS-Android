@@ -1,5 +1,6 @@
 import type { ModelConfig } from '../upstream/hds-interlude/src/narrator'
-import { resolveEffectiveEmbeddingTarget, resolveEffectiveRerankTarget } from '../upstream/hds-interlude/src/model-routing'
+import { resolveEffectiveEmbeddingTarget } from '../upstream/hds-interlude/src/narrator'
+import { resolveEffectiveRerankTarget } from '../upstream/hds-interlude/src/model-routing'
 
 /** Preserve desired settings; invalid optional retrieval never blocks chat startup. */
 export function effectiveRetrievalConfig(model: ModelConfig) {

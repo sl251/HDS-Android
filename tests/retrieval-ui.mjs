@@ -11,6 +11,7 @@ try {
       if (method === 'settings') return structuredClone(fixture.settings)
       if (method === 'saveSettings') { fixture.settings = structuredClone(options); return {} }
       if (method === 'rpc' && options.method === 'models.testRetrieval') {
+        if (fixture.probeFailure) throw new Error('模型测试进程清理失败，请重启应用')
         fixture.probes.push(structuredClone(options.payload)); if (fixture.probeHold) await new Promise(r => { fixture.releaseProbe = r })
         return { data: { ok: true, task: options.payload.task, category: 'succeeded', elapsedMs: 12, ...(options.payload.task === 'embedding' ? { vectorDimensions: 3 } : { resultCount: 2 }) } }
       }
@@ -31,6 +32,10 @@ try {
   await section.getByLabel('rerank 连接').selectOption('primary'); await section.getByLabel('rerank 模型名').fill('ranker-fixture'); await page.evaluate(() => { fixture.probeHold = false })
   await section.getByRole('button', { name: '测试重排序连接', exact: true }).click(); await section.getByText(/返回 2 条/).waitFor()
   assert.equal((await page.evaluate(() => fixture.probes[1])).task, 'rerank')
+  await page.evaluate(() => { fixture.probeFailure = true })
+  await section.getByRole('button', { name: '测试重排序连接', exact: true }).click()
+  await section.getByText('模型测试进程清理失败，请重启应用。', { exact: true }).waitFor()
+  assert.equal(await section.locator('[data-retrieval-task=rerank]').getByText(/测试成功/).count(), 0, 'A failed new probe must not retain an old success')
   for (const width of [320, 390, 740]) { await page.setViewportSize({ width, height: 844 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true) }
   assert.deepEqual(f.errors, [])
   console.log('PASS retrieval UI: independent switches, text fields, chat/retrieval labels, frozen probe snapshot, stale result, rerank test and responsive layouts')

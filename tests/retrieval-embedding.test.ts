@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:http'
-import { OpenAICompatibleEmbedder, classifyRetrievalError } from '../upstream/hds-interlude/src/narrator'
-import { deriveRetrievalEndpoint, resolveEffectiveEmbeddingTarget } from '../upstream/hds-interlude/src/model-routing'
+import { OpenAICompatibleEmbedder, classifyRetrievalError, resolveEffectiveEmbeddingTarget } from '../upstream/hds-interlude/src/narrator'
+import { deriveRetrievalEndpoint } from '../upstream/hds-interlude/src/model-routing'
 const require = createRequire(import.meta.url)
 const { Context } = require('koishi'), { HTTP } = require('@cordisjs/plugin-http')
 export const embeddingConfig = (endpoint = 'https://example.invalid/v1') => ({ providers: [{ id: 'embed', enabled: true, label: 'fixture', endpoint, model: 'chat', apiKey: 'mock-secret', useForEmbedding: true }], embedding: { enabled: true, providerId: '', endpoint: '', model: 'vector', dimensions: 0, timeout: 3000, maxInputCharacters: 4000 } }) as any

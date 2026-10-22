@@ -21,7 +21,7 @@ import { factEvidenceForPrompt, KNOWLEDGE_WRITING_FRAME } from './script/knowled
 import { interactionEvidence } from './script/development'
 import {
   effectiveMainModelId, ModelRoutingTable, ModelTask,
-  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint, resolveEffectiveRerankTarget,
+  providerKey, resolveModelRouting, validateRetrievalEndpoint, deriveRetrievalEndpoint, resolveEffectiveRerankTarget,
 } from './model-routing'
 
 export {
@@ -2902,3 +2902,22 @@ export class RerankClient {
   }
 }
 export function createReranker(ctx: Context, config: ModelConfig) { return new RerankClient(ctx, config) }
+
+/** Shared effective target for requests, identity, probes and routing diagnostics. */
+export function resolveEffectiveEmbeddingTarget(config: ModelConfig, routing?: ModelRoutingTable) {
+  const embedding = config.embedding
+  const table = routing ?? resolveModelRouting(config)
+  const route = table.embedding
+  const provider = route.providers[0]
+  const model = String(embedding?.model?.trim() || route.target.model || provider?.model || '').trim()
+  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
+  let endpoint = ''
+  if (!reason) {
+    try {
+      endpoint = embedding?.endpoint?.trim() ? validateRetrievalEndpoint(embedding.endpoint).toString() : deriveRetrievalEndpoint(provider.endpoint, 'embedding')
+      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider.endpoint).origin) reason = 'endpoint_origin'
+    } catch { reason = 'endpoint_required' }
+  }
+  return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
+    endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
+}

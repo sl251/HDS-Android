@@ -16,7 +16,7 @@ export function RetrievalSettings({ settings, setSettings, bridge, native, healt
   const update = (task: string, key: string, value: unknown) => setSettings(previous => ({ ...previous, mobileConfig: { ...previous.mobileConfig, sections: { ...previous.mobileConfig?.sections, [task]: { ...previous.mobileConfig?.sections?.[task], [key]: value } } } }))
   const probe = async (task: string) => {
     const snapshot = structuredClone({ providers: settings.providers, mobileConfig }), startedWith = fingerprint
-    setTesting(task); setError('')
+    setTesting(task); setError(''); setResults(previous => { const next = { ...previous }; delete next[task]; return next })
     try { const response = await bridge.rpc({ method: 'models.testRetrieval', payload: { task, ...snapshot } }); setResults(previous => ({ ...previous, [task]: { fingerprint: startedWith, result: response.data as Probe } })) }
     catch (failure) { const message = failure instanceof Error ? failure.message : ''; setError(message.includes('模型测试进程清理失败') ? '模型测试进程清理失败，请重启应用。' : message.includes('请先安装') ? '请先安装包含模型测试的运行环境。' : '测试未完成，请确认已安装最新运行环境，并检查连接配置或进程清理状态。') }
     finally { setTesting('') }

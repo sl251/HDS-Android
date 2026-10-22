@@ -1,3 +1,4 @@
+import { resolveEffectiveEmbeddingTarget } from './narrator'
 import type {
   ModelConfig, ModelProfile, ProviderConfig, ProviderMode, ProviderResponseFormat,
 } from './narrator'
@@ -257,23 +258,6 @@ export function deriveRetrievalEndpoint(value: string, task: 'embedding' | 'rera
   return url.toString()
 }
 
-export function resolveEffectiveEmbeddingTarget(config: ModelConfig, routing?: ModelRoutingTable) {
-  const embedding = config.embedding
-  const table = routing ?? resolveModelRouting(config)
-  const route = table.embedding
-  const provider = route.providers[0]
-  const model = String(embedding?.model?.trim() || route.target.model || provider?.model || '').trim()
-  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
-  let endpoint = ''
-  if (!reason) {
-    try {
-      endpoint = embedding?.endpoint?.trim() ? validateRetrievalEndpoint(embedding.endpoint).toString() : deriveRetrievalEndpoint(provider.endpoint, 'embedding')
-      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider.endpoint).origin) reason = 'endpoint_origin'
-    } catch { reason = 'endpoint_required' }
-  }
-  return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
-    endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
-}
 
 /** Android extension: direct provider selection, never a chat task or failover. */
 export function resolveEffectiveRerankTarget(config: ModelConfig) {

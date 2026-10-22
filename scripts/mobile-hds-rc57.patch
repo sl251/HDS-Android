@@ -248,7 +248,14 @@
      .description('主模型可以选择的语义表情；平台连接器负责转换为实际表情编号。'),
 --- a/model-routing.ts
 +++ b/model-routing.ts
-@@ -111,29 +111,35 @@
+@@ -1,5 +1,6 @@
++import { resolveEffectiveEmbeddingTarget } from './narrator'
+ import type {
+   ModelConfig, ModelProfile, ProviderConfig, ProviderMode, ProviderResponseFormat,
+ } from './narrator'
+ import type { AlterSystemConfig } from './types'
+ 
+@@ -111,29 +112,35 @@
  export function formatModelRouting(table: ModelRoutingTable) {
    const tasks: ModelTask[] = ['main', 'compaction', 'timeline', 'alter', 'embedding', 'stickers', 'vision']
    return tasks.map(task => {
@@ -286,7 +293,7 @@
    // connection as a chat fallback. Explicit task assignment remains preferred.
    const fallback = providers.filter(provider => provider.enabled && provider.endpoint
      && (!requireChatModel || !!provider.model)
-@@ -228,5 +234,59 @@
+@@ -228,5 +235,42 @@
      if (dashscopeRegion === 'us') return 'https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions'
      return 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
    }
@@ -313,23 +320,6 @@
 +  return url.toString()
 +}
 +
-+export function resolveEffectiveEmbeddingTarget(config: ModelConfig, routing?: ModelRoutingTable) {
-+  const embedding = config.embedding
-+  const table = routing ?? resolveModelRouting(config)
-+  const route = table.embedding
-+  const provider = route.providers[0]
-+  const model = String(embedding?.model?.trim() || route.target.model || provider?.model || '').trim()
-+  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
-+  let endpoint = ''
-+  if (!reason) {
-+    try {
-+      endpoint = embedding?.endpoint?.trim() ? validateRetrievalEndpoint(embedding.endpoint).toString() : deriveRetrievalEndpoint(provider.endpoint, 'embedding')
-+      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider.endpoint).origin) reason = 'endpoint_origin'
-+    } catch { reason = 'endpoint_required' }
-+  }
-+  return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
-+    endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
-+}
 +
 +/** Android extension: direct provider selection, never a chat task or failover. */
 +export function resolveEffectiveRerankTarget(config: ModelConfig) {
@@ -355,7 +345,7 @@
  import {
    effectiveMainModelId, ModelRoutingTable, ModelTask,
 -  providerKey, resolveModelRouting,
-+  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint, resolveEffectiveRerankTarget,
++  providerKey, resolveModelRouting, validateRetrievalEndpoint, deriveRetrievalEndpoint, resolveEffectiveRerankTarget,
  } from './model-routing'
  
  export {
@@ -831,7 +821,7 @@
  /** Cache-first tail block: re-anchors the last few exchanges beside the decision
   * point after the history moved to the front of the payload. The live user
   * message is excluded because currentEvent already carries it verbatim. */
-@@ -2761,5 +2810,95 @@
+@@ -2761,5 +2810,114 @@
        ...narrativeEvidence(entry),
      })),
    }
@@ -927,6 +917,25 @@
 +  }
 +}
 +export function createReranker(ctx: Context, config: ModelConfig) { return new RerankClient(ctx, config) }
++
++/** Shared effective target for requests, identity, probes and routing diagnostics. */
++export function resolveEffectiveEmbeddingTarget(config: ModelConfig, routing?: ModelRoutingTable) {
++  const embedding = config.embedding
++  const table = routing ?? resolveModelRouting(config)
++  const route = table.embedding
++  const provider = route.providers[0]
++  const model = String(embedding?.model?.trim() || route.target.model || provider?.model || '').trim()
++  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
++  let endpoint = ''
++  if (!reason) {
++    try {
++      endpoint = embedding?.endpoint?.trim() ? validateRetrievalEndpoint(embedding.endpoint).toString() : deriveRetrievalEndpoint(provider.endpoint, 'embedding')
++      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider.endpoint).origin) reason = 'endpoint_origin'
++    } catch { reason = 'endpoint_required' }
++  }
++  return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
++    endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
++}
 --- a/service.ts
 +++ b/service.ts
 @@ -32,11 +32,11 @@
