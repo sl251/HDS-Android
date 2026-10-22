@@ -241,7 +241,7 @@ function presetEndpoint(mode: ProviderMode | undefined, dashscopeRegion?: string
 export function validateRetrievalEndpoint(value: string): URL {
   let url: URL
   try { url = new URL(value.trim()) } catch { throw new Error('endpoint_required') }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || /[\u0000-\u0020\u007f]/.test(value.trim())) throw new Error('endpoint_required')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || value.includes('#') || /^https?:\/\/[^/?#]*@/i.test(value.trim()) || /[\u0000-\u0020\u007f]/.test(value.trim())) throw new Error('endpoint_required')
   return url
 }
 

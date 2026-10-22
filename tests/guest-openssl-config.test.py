@@ -72,6 +72,7 @@ class GuestOpensslConfigTest(unittest.TestCase):
             (guest / 'etc/ssl/openssl.cnf').write_bytes(guest_openssl_config().encode())
             (guest / 'opt/node/bin/node').write_bytes(b'node')
             (guest / 'opt/hds/host.cjs').write_bytes(b'host')
+            (guest / 'opt/hds/model-probe.cjs').write_bytes(b'probe')
             audit = builder.pack_guest(guest, Path(directory) / 'guest.gz')
             with tarfile.open(Path(directory) / 'guest.gz') as source:
                 entry = source.getmember('./etc/ssl/openssl.cnf')

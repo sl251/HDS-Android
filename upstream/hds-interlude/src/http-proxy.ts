@@ -50,8 +50,9 @@ export async function postJsonViaProxy(
       if (reader) try {
         while (true) {
           const part = await reader.read(); if (part.done) break
+          const limit = response.ok ? 2 * 1024 * 1024 : 4096, available = limit - bytes
           bytes += part.value.length
-          if (bytes > (response.ok ? 2 * 1024 * 1024 : 4096)) { await reader.cancel(); if (response.ok) throw new Error('invalid_response'); break }
+          if (bytes > limit) { if (!response.ok && available > 0) chunks.push(part.value.subarray(0, available)); await reader.cancel(); if (response.ok) throw new Error('invalid_response'); break }
           chunks.push(part.value)
         }
       } finally { reader.releaseLock() }

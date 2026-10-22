@@ -558,9 +558,8 @@ class HdsRuntime private constructor(private val context: Context) {
     }
     fun testModel(input: JSONObject): JSONObject = JSONObject().put("data", ModelClient().test(store.modelRequest(input, true)))
     fun <T> maintainStory(cardId: String, operation: () -> T): T {
-        drainModelProbe()
         synchronized(this) { require(!profileMaintenance); profileMaintenance = true }
-        return try { executor.submit<T> {
+        return try { drainModelProbe(); executor.submit<T> {
             require(store.publicSettings().optString("activeCard") == cardId) { "当前角色已改变，请重新操作" }
             val child = process
             if (child != null && !child.isAlive) require(cleanStop) { "核心异常退出，尚未确认存档完整性；请重新唤醒并正常保存后操作" }

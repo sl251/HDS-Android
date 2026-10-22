@@ -10,7 +10,7 @@ export const embeddingConfig = (endpoint = 'https://example.invalid/v1') => ({ p
 
 test('safe endpoint pathname derivation retains query, prefix and version; custom and credential URLs rejected', () => {
   for (const [path, expected] of [['/', '/v1/embeddings'], ['/v2/', '/v2/embeddings'], ['/prefix/v1', '/prefix/v1/embeddings'], ['/prefix/chat/completions/', '/prefix/embeddings'], ['/v1/embeddings', '/v1/embeddings']]) assert.equal(deriveRetrievalEndpoint(`https://example.invalid${path}?test=1`, 'embedding'), `https://example.invalid${expected}?test=1`)
-  for (const value of ['https://example.invalid/custom', 'https://user@example.invalid/v1', 'https://example.invalid/v1#x', 'file:///v1']) assert.throws(() => deriveRetrievalEndpoint(value, 'embedding'), /endpoint_required/)
+  for (const value of ['https://example.invalid/custom', 'https://user@example.invalid/v1', 'https://example.invalid/v1#x', 'file:///v1', 'https://@example.invalid/v1', 'https://example.invalid/v1#']) assert.throws(() => deriveRetrievalEndpoint(value, 'embedding'), /endpoint_required/)
   const config = embeddingConfig(); config.embedding.endpoint = 'https://other.invalid/embeddings'
   assert.equal(resolveEffectiveEmbeddingTarget(config).reason, 'endpoint_origin')
   config.embedding.endpoint = ''; config.providers[0].useForEmbedding = false

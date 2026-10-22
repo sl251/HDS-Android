@@ -45,3 +45,12 @@ test('sticker catalog with incomplete identity returns complete catalog', async 
   const host: any = Object.assign(Object.create(InterludeService.prototype), { stickerCatalog: assets, embedder: { identity: () => 'current' }, config: { model: { mobileEmbeddingIdentity: true, embedding: { semanticStickerFilter: true } }, stickers: { catalogLimit: 100 } } })
   assert.equal((await host.rankStickerAssets([1, 0])).length, 15)
 })
+
+test('mobile table registration upgrades an existing parent registry once without rebuilding other fields', () => {
+  const ctx = new Context(); registerTables(ctx)
+  assert.equal('embeddingIdentity' in ctx.model.tables.interlude_fact.fields, false)
+  registerTables(ctx, true)
+  for (const name of ['interlude_fact', 'interlude_sticker']) assert.ok(ctx.model.tables[name].fields.embeddingIdentity)
+  const field = ctx.model.tables.interlude_fact.fields.embeddingIdentity
+  registerTables(ctx, true); assert.equal(ctx.model.tables.interlude_fact.fields.embeddingIdentity, field)
+})

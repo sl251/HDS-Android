@@ -281,6 +281,7 @@ export function isHistoryEntryVisibleToParticipant(entry: Pick<ScriptEntry, 'par
 type FactRetrievalContext = RetrievalRequestContext & { rerankCache?: Map<string, Promise<NarrativeFact[]>> }
 
 type PreparedFactEmbedding = { vector: number[]; identity?: string }
+type FactEmbeddingValue = PreparedFactEmbedding | number[]
 
 export function shouldRequestTurnEmbedding(embedding: ModelConfig['embedding'] | undefined, stickerLibraryEnabled: boolean, stickerCount: number) {
   if (!embedding?.enabled) return false
@@ -324,7 +325,7 @@ interface PreparedCompactionRun {
   visibleCompactionFacts: NarrativeFact[]
   compactRequest: CompactionRequest
   fingerprint: string
-  factEmbeddings?: Map<string, PreparedFactEmbedding>
+  factEmbeddings?: Map<string, FactEmbeddingValue>
 }
 
 type PreparedCompaction = PreparedCompactionSkip | PreparedCompactionRun
@@ -3800,7 +3801,7 @@ export class InterludeService extends Service {
   private async backfillStickerEmbeddings() {
     if (!this.semanticStickerEmbeddingEnabled()) return
     const pending = this.stickerCatalog
-      .filter(asset => asset.description && (!validRetrievalVector(asset.embedding) || this.config.model?.mobileEmbeddingIdentity && asset.embeddingIdentity !== this.embedder?.identity?.()))
+      .filter(asset => asset.description && (!validRetrievalVector(asset.embedding) || this.config?.model?.mobileEmbeddingIdentity && asset.embeddingIdentity !== this.embedder?.identity?.()))
       .slice(0, Math.min(5, this.config.model.embedding?.backfillBatchSize ?? 5))
     for (const asset of pending) {
       const text = `${asset.description} ${(asset.aliases ?? []).join(' ')}`.trim()
@@ -3826,7 +3827,7 @@ export class InterludeService extends Service {
     if (!this.config.model.embedding?.semanticStickerFilter) return assets
     if (!turnQueryEmbedding?.length || assets.length <= SEMANTIC_STICKER_LIMIT) return assets
     const identity = this.embedder?.identity?.()
-    if (this.config.model?.mobileEmbeddingIdentity && (!identity || assets.some(asset => asset.embeddingIdentity !== identity || !validRetrievalVector(asset.embedding) || asset.embedding.length !== turnQueryEmbedding.length))) return assets
+    if (this.config?.model?.mobileEmbeddingIdentity && (!identity || assets.some(asset => asset.embeddingIdentity !== identity || !validRetrievalVector(asset.embedding) || asset.embedding.length !== turnQueryEmbedding.length))) return assets
     return rankStickerCatalog(assets, turnQueryEmbedding, SEMANTIC_STICKER_LIMIT)
   }
 
@@ -3904,7 +3905,7 @@ export class InterludeService extends Service {
     for (const [id, item] of cache) {
       if (excludeIds.has(id)) continue
       if (!isHistoryEntryVisibleToParticipant(item, participantId, shareDetails)) continue
-      const semantic = (this.config.model?.mobileEmbeddingIdentity ? !identity || item.embeddingIdentity !== identity : item.embeddingIdentity && item.embeddingIdentity !== identity)
+      const semantic = (this.config?.model?.mobileEmbeddingIdentity ? !identity || item.embeddingIdentity !== identity : item.embeddingIdentity && item.embeddingIdentity !== identity)
         ? undefined : cosineSimilarity(turnQueryEmbedding, item.vector ?? [])
       const spans = item.spans ??= indexOriginal(item.content)
       const lexical = Math.max(scoreOriginal(primaryKeys, spans).score, scoreOriginal(keys, spans).score * 0.8)
@@ -5601,7 +5602,7 @@ export class InterludeService extends Service {
         if (committed) earlyReplyCommitted = true
         return committed
       } : undefined
-      const retrievalContext: FactRetrievalContext = { rerankCache: new Map(), deadline: startedAt + (this.config.model.mobileTurnDeadlineMs ?? 240000) }
+      const retrievalContext: FactRetrievalContext = { rerankCache: new Map(), deadline: startedAt + (this.config.model?.mobileTurnDeadlineMs ?? 240000) }
       let decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, [], false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, earlyReply, historicalGroupImages, retrievalContext)
       const immediate = phase === 'user-message' && participant && !groupContext && this.browserConfig.enabled && this.browserConfig.mode === 'allow-immediate'
         ? decision.browserIntents?.map(intent => normalizeBrowserIntentDraft(intent, this.browserConfig)).find(intent => intent?.timing === 'immediate')
@@ -6640,7 +6641,7 @@ export class InterludeService extends Service {
         ? await this.embedText(query, retrieval)
         : []
     const ranked = rows
-      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query, this.config.model?.mobileEmbeddingIdentity ? this.embedder?.identity?.() ?? '' : undefined) }))
+      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query, this.config?.model?.mobileEmbeddingIdentity ? this.embedder?.identity?.() ?? '' : undefined) }))
       .sort((a, b) => b.score - a.score
         || b.fact.updatedAt.getTime() - a.fact.updatedAt.getTime()
         || b.fact.id - a.fact.id)
@@ -10869,7 +10870,7 @@ export class InterludeService extends Service {
   }
 
   private async prepareCompactionEmbeddings(storyId: string, decision: CompactionDecision, entries: ScriptEntry[]) {
-    const vectors = new Map<string, PreparedFactEmbedding>()
+    const vectors = new Map<string, FactEmbeddingValue>()
     if (!decision.facts?.length) return vectors
     const generation = this.taskGeneration(storyId)
     const existing = await this.dbGet('interlude_fact', { storyId, status: 'active' })
@@ -10881,15 +10882,17 @@ export class InterludeService extends Service {
       if (vectors.has(key)) continue
       if (!this.taskGenerationCurrent(storyId, generation)) return vectors
       const same = existing.find(fact => normalizeFact(fact.content) === key && fact.embedding?.length
-        && (!this.config.model?.mobileEmbeddingIdentity || !!this.embedder?.identity?.() && fact.embeddingIdentity === this.embedder?.identity?.()))
-      const vector = same ? { vector: same.embedding!, identity: same.embeddingIdentity ?? undefined } : await this.embedIndexedText(content)
+        && (!this.config?.model?.mobileEmbeddingIdentity || !!this.embedder?.identity?.() && fact.embeddingIdentity === this.embedder?.identity?.()))
+      const vector = this.config?.model?.mobileEmbeddingIdentity
+        ? same ? { vector: same.embedding!, identity: same.embeddingIdentity ?? undefined } : await this.embedIndexedText(content)
+        : same?.embedding ?? await this.embedText(content)
       if (!this.taskGenerationCurrent(storyId, generation)) return vectors
       vectors.set(key, vector)
     }
     return vectors
   }
 
-  private async persistCompaction(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings?: Map<string, PreparedFactEmbedding>) {
+  private async persistCompaction(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings?: Map<string, FactEmbeddingValue>) {
     const generation = this.taskGeneration(story.id)
     const prepared = factEmbeddings ?? await this.prepareCompactionEmbeddings(story.id, decision, entries)
     const commit = async () => {
@@ -10909,7 +10912,7 @@ export class InterludeService extends Service {
     this.scheduleFactEmbeddingBackfill(story.id)
   }
 
-  private async persistCompactionOutputs(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings = new Map<string, PreparedFactEmbedding>()) {
+  private async persistCompactionOutputs(story: InterludeStory, scene: InterludeScene, decision: CompactionDecision, entries: ScriptEntry[], now: Date, visibleFactIds = new Set<number>(), precedingEntries: ScriptEntry[] = [], factEmbeddings = new Map<string, FactEmbeddingValue>()) {
     assertContinuityReview(decision)
     if (!entries.length) return
     for (const draft of decision.episodeTags ?? []) {
@@ -11093,7 +11096,7 @@ export class InterludeService extends Service {
   private async persistFact(storyId: string, draft: import('./types').FactDraft, entries: ScriptEntry[], now: Date, prepared: PreparedFactEmbedding | number[] = []) {
     const indexed = Array.isArray(prepared) ? { vector: prepared, identity: undefined } : prepared
     const currentIdentity = this.embedder?.identity?.()
-    const preparedEmbedding = !this.config.model?.mobileEmbeddingIdentity || currentIdentity && indexed.identity === currentIdentity ? indexed.vector : []
+    const preparedEmbedding = !this.config?.model?.mobileEmbeddingIdentity || currentIdentity && indexed.identity === currentIdentity ? indexed.vector : []
     const content = clip(draft.content, this.memoryConfig.factContentCharacters)
     if (!content) return false
     // Durable facts are global narrative evidence. Ignore the legacy model
@@ -11115,7 +11118,7 @@ export class InterludeService extends Service {
     const unresolved = draft.unresolved === true || (draft.scope === 'promise' && (draft.unresolved !== false || !canClose))
     if (same && ((same.knowledge?.mode ?? 'unclassified') === knowledge.mode || !same.knowledge && canClose)) {
       const resolved = same.unresolved && draft.unresolved === false && canClose
-      const reuse = same.embedding?.length && (!this.config.model?.mobileEmbeddingIdentity || !!currentIdentity && same.embeddingIdentity === currentIdentity)
+      const reuse = same.embedding?.length && (!this.config?.model?.mobileEmbeddingIdentity || !!currentIdentity && same.embeddingIdentity === currentIdentity)
       const embedding = reuse ? same.embedding! : preparedEmbedding
       const embeddingIdentity = reuse ? same.embeddingIdentity : indexed.identity
       await this.dbSet('interlude_fact', { id: same.id }, {
@@ -11146,10 +11149,11 @@ export class InterludeService extends Service {
   }
 
   private async embedIndexedText(value: string): Promise<PreparedFactEmbedding> {
+    const generation = this.runtimeGeneration
     const identity = this.embedder?.identity?.()
     const vector = await this.embedText(value)
-    if (this.config.model?.mobileEmbeddingIdentity && (!identity || identity !== this.embedder?.identity?.() || !this.config.model.embedding?.enabled)) return { vector: [] }
-    return { vector, identity: this.config.model?.mobileEmbeddingIdentity ? identity : undefined }
+    if (this.config?.model?.mobileEmbeddingIdentity && (generation !== this.runtimeGeneration || this.disposed || !identity || identity !== this.embedder?.identity?.() || !this.config.model.embedding?.enabled)) return { vector: [] }
+    return { vector, identity: this.config?.model?.mobileEmbeddingIdentity ? identity : undefined }
   }
 
   private async embedText(value: string, context: { foreground?: boolean; deadline?: number; signal?: AbortSignal } = {}) {
@@ -11180,7 +11184,7 @@ export class InterludeService extends Service {
     if (!this.taskGenerationCurrent(storyId, generation)) return
     const facts = await this.dbGet('interlude_fact', { storyId, status: 'active' })
     const missing = facts
-      .filter(fact => !fact.embedding?.length || this.config.model?.mobileEmbeddingIdentity && fact.embeddingIdentity !== this.embedder?.identity?.())
+      .filter(fact => !validRetrievalVector(fact.embedding) || this.config?.model?.mobileEmbeddingIdentity && fact.embeddingIdentity !== this.embedder?.identity?.())
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .slice(0, Math.max(0, batchSize))
     for (const fact of missing) {

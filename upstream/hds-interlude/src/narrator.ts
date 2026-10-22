@@ -2816,7 +2816,7 @@ function toSchedulePreplanPayload(request: SchedulePreplanReviewRequest) {
 export interface RetrievalRequestContext { foreground?: boolean; deadline?: number; signal?: AbortSignal; externalRerank?: boolean }
 export interface RetrievalEvent { task: 'embedding' | 'rerank'; status: 'succeeded' | 'fallback'; providerId?: string; category?: string; httpStatus?: number; elapsedMs?: number; vectorDimensions?: number; resultCount?: number }
 export class RetrievalError extends Error {
-  constructor(public category: string, public httpStatus?: number) { super(category) }
+  constructor(public category: string, public httpStatus?: number) { super(category === 'invalid_response' ? 'invalid_response: invalid vector or results' : category) }
 }
 export function emitRetrieval(config: ModelConfig, event: RetrievalEvent) {
   try { config.mobileRetrievalEvent?.(event) } catch { /* Diagnostic IO cannot fail retrieval. */ }
@@ -2855,7 +2855,7 @@ async function retrievalPost(ctx: Context, provider: ProviderConfig, endpoint: s
     : ctx.http.post(endpoint, body, { headers, timeout: remaining, redirect: 'manual', signal, validateStatus: () => true, responseType: async response => {
       const reader = response.body?.getReader()
       const chunks: Uint8Array[] = []; let size = 0
-      if (reader) { try { while (true) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > (response.ok ? 2 * 1024 * 1024 : 4096)) { await reader.cancel(); if (response.ok) throw new RetrievalError('invalid_response'); break }; chunks.push(part.value) } } finally { reader.releaseLock() } }
+      if (reader) { try { while (true) { const part = await reader.read(); if (part.done) break; const limit = response.ok ? 2 * 1024 * 1024 : 4096; const available = limit - size; size += part.value.length; if (size > limit) { if (!response.ok && available > 0) chunks.push(part.value.subarray(0, available)); await reader.cancel(); if (response.ok) throw new RetrievalError('invalid_response'); break }; chunks.push(part.value) } } finally { reader.releaseLock() } }
       const text = Buffer.concat(chunks).toString('utf8')
       if (!response.ok) { const failure = classifyRetrievalError({ response: { status: response.status, data: text } }); throw new RetrievalError(failure.category, response.status) }
       try { return JSON.parse(text) } catch { throw new RetrievalError('invalid_response') }
