@@ -6,7 +6,7 @@ import { OpenAICompatibleEmbedder, classifyRetrievalError } from '../upstream/hd
 import { deriveRetrievalEndpoint, resolveEffectiveEmbeddingTarget } from '../upstream/hds-interlude/src/model-routing'
 const require = createRequire(import.meta.url)
 const { Context } = require('koishi'), { HTTP } = require('@cordisjs/plugin-http')
-export const embeddingConfig = (endpoint = 'https://example.invalid/v1') => ({ providers: [{ id: 'embed', enabled: true, label: 'fixture', endpoint, model: 'chat', apiKey: 'mock-secret', useForEmbedding: true }], embedding: { enabled: true, providerId: '', endpoint: '', model: 'vector', dimensions: 0, timeout: 500, maxInputCharacters: 4000 } }) as any
+export const embeddingConfig = (endpoint = 'https://example.invalid/v1') => ({ providers: [{ id: 'embed', enabled: true, label: 'fixture', endpoint, model: 'chat', apiKey: 'mock-secret', useForEmbedding: true }], embedding: { enabled: true, providerId: '', endpoint: '', model: 'vector', dimensions: 0, timeout: 3000, maxInputCharacters: 4000 } }) as any
 
 test('safe endpoint pathname derivation retains query, prefix and version; custom and credential URLs rejected', () => {
   for (const [path, expected] of [['/', '/v1/embeddings'], ['/v2/', '/v2/embeddings'], ['/prefix/v1', '/prefix/v1/embeddings'], ['/prefix/chat/completions/', '/prefix/embeddings'], ['/v1/embeddings', '/v1/embeddings']]) assert.equal(deriveRetrievalEndpoint(`https://example.invalid${path}?test=1`, 'embedding'), `https://example.invalid${expected}?test=1`)
@@ -37,4 +37,14 @@ test('real Koishi HTTP embedding uses explicit model, excludes chat fields, refu
 })
 test('gateway categories require response evidence and remain secret free', () => {
   for (const [status, body, category] of [[500, 'convert_request_failed', 'gateway_convert_request'], [500, 'model ratio not found', 'gateway_model_ratio'], [500, 'other', 'provider_error'], [404, 'other', 'route_not_found'], [405, 'other', 'route_not_found'], [422, 'other', 'invalid_request']]) assert.equal(classifyRetrievalError({ response: { status, data: body } }).category, category)
+})
+
+test('foreground query bypasses a full background budget while backfill issues zero requests', async () => {
+  const { BackgroundBudget } = await import('../runtime/background-budget'), { mkdtempSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path')
+  const budget = new BackgroundBudget(join(mkdtempSync(join(tmpdir(), 'hds-query-budget-')), 'budget.json'), 1)
+  budget.beforeRequest(); let requests = 0
+  const config = embeddingConfig(); config.mobileBeforeRequest = budget.beforeRequest
+  const client = new OpenAICompatibleEmbedder({ http: { post: async () => { requests++; return { data: [{ embedding: [1, 2] }] } } } } as any, config)
+  assert.deepEqual(await client.embed('query', { foreground: true }), [1, 2]); assert.equal(budget.status().used, 1)
+  await assert.rejects(client.embed('background'), /background_budget/); assert.equal(requests, 1)
 })

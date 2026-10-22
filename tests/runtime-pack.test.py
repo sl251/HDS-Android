@@ -37,6 +37,13 @@ class RuntimePackTest(unittest.TestCase):
         (guest / 'opt/hds/model-probe.cjs').write_bytes(b'probe')
         return guest
 
+    def test_missing_model_probe_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            guest = self.guest(directory)
+            (guest / 'opt/hds/model-probe.cjs').unlink()
+            with self.assertRaisesRegex(RuntimeError, 'Missing guest file: opt/hds/model-probe.cjs'):
+                builder.pack_guest(guest, Path(directory) / 'guest.gz')
+
     def test_materializes_shared_inodes_and_counts_once_per_path(self):
         with tempfile.TemporaryDirectory() as directory:
             guest = self.guest(directory)

@@ -102,3 +102,9 @@ test('browser sanitizer stays generated from the exact upstream source', async (
   assert.ok(generated.includes(`sha256: ${createHash('sha256').update(source).digest('hex')}`), 'Run node apps/mobile-ui/build-share-sanitizer.mjs after changing upstream')
   assert.deepEqual(browserSanitize({ storyDefaults: setting, ...config.sections }).preset.agency, { enabled: true, nested: [{ safe: true }], qq: '123456789', mobile: '13800138000', qqNumber: '987654321', phoneNumber: '13900139000' })
 })
+
+
+test('all character export formats exclude embedding/rerank routing and local connection IDs', () => {
+  const config = { sections: { embedding: { enabled: true, providerId: 'private-embed-route', model: 'private-vector-model', endpoint: 'https://private-embed.invalid/v1/embeddings' }, rerank: { enabled: true, providerId: 'private-rerank-route', model: 'private-rank-model', endpoint: 'https://private-rerank.invalid/v1/rerank' } } }
+  for (const format of ['preset', 'yaml', 'tavern'] as const) assert.doesNotMatch(createCharacterExport(format, setting, config).content, /private-embed|private-vector|private-rerank|private-rank|providerId/)
+})

@@ -18,7 +18,7 @@ export function RetrievalSettings({ settings, setSettings, bridge, native, healt
     const snapshot = structuredClone({ providers: settings.providers, mobileConfig }), startedWith = fingerprint
     setTesting(task); setError('')
     try { const response = await bridge.rpc({ method: 'models.testRetrieval', payload: { task, ...snapshot } }); setResults(previous => ({ ...previous, [task]: { fingerprint: startedWith, result: response.data as Probe } })) }
-    catch { setError('测试未完成，请确认已安装最新运行环境，并检查连接配置或进程清理状态。') }
+    catch (failure) { const message = failure instanceof Error ? failure.message : ''; setError(message.includes('模型测试进程清理失败') ? '模型测试进程清理失败，请重启应用。' : message.includes('请先安装') ? '请先安装包含模型测试的运行环境。' : '测试未完成，请确认已安装最新运行环境，并检查连接配置或进程清理状态。') }
     finally { setTesting('') }
   }
   return <section className="retrieval-settings model-center" aria-label="向量与重排序"><h2>向量与重排序</h2>
@@ -31,7 +31,7 @@ export function RetrievalSettings({ settings, setSettings, bridge, native, healt
       const target = { model, reason: !provider ? 'provider_required' : !model ? 'model_required' : '' }
       const result = results[task], live = active?.retrieval?.[task]
       const liveTarget = active?.retrievalTargets?.[task]
-      const differs = definition.fields.some(field => JSON.stringify(active?.sections?.[task]?.[field.key]) !== JSON.stringify(values[field.key]))
+      const differs = definition.fields.some(field => JSON.stringify(field.key === 'enabled' ? live?.desired : active?.sections?.[task]?.[field.key]) !== JSON.stringify(values[field.key]))
       const edit = (key: string, value: unknown) => update(task, key, value)
       return <details key={task} data-retrieval-task={task} open><summary>{task === 'embedding' ? '向量检索' : '重排序 · Android 扩展'}</summary>
         <label className="toggle"><input type="checkbox" checked={values.enabled === true} onChange={event => edit('enabled', event.target.checked)} /><span>{task === 'embedding' ? '启用向量检索' : '启用重排序'}</span></label>

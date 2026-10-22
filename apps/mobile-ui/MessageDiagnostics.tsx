@@ -38,7 +38,8 @@ export function MessageDiagnostics({ bridge, healthy, messageId, messages = [], 
     const timer = setInterval(() => void read(), 3000)
     return () => { alive = false; clearInterval(timer) }
   }, [bridge, healthy, scope, revision])
-  const grouped = useMemo(() => aggregateDiagnosticMessages(events, messages), [events, messages])
+  const background = events.filter(event => !event.requestIds.length && ['embedding', 'rerank'].includes(event.stage) && (view !== 'failed' || event.outcome === 'fallback'))
+  const grouped = useMemo(() => aggregateDiagnosticMessages(events.filter(event => event.requestIds.length || !['embedding', 'rerank'].includes(event.stage)), messages), [events, messages])
   const scoped = useMemo(() => grouped.filter(message => !scope || message.aliases.includes(scope)), [grouped, scope])
   const visible = useMemo(() => visibleDiagnosticMessages(scoped, view, messageId), [scoped, view, messageId])
   useLayoutEffect(() => {
@@ -70,9 +71,9 @@ export function MessageDiagnostics({ bridge, healthy, messageId, messages = [], 
     <div className="actions"><button disabled={!healthy || busy || !events.length} onClick={() => void exportEvents()}>导出脱敏记录</button><button disabled={!healthy || busy} onClick={() => setConfirmClear(true)}>清空本故事记录</button></div>
     {confirmClear && <div role="alert"><p>清空诊断不会删除聊天。后续新回合仍会产生诊断记录。</p><button disabled={busy} onClick={() => { setBusy(true); void bridge.rpc({ method: 'diagnostics.clear' }).then(() => { setEvents([]); setRevision(value => value + 1); setConfirmClear(false) }).catch(() => setError('清空失败，请重试。')).finally(() => setBusy(false)) }}>确认清空</button><button disabled={busy} onClick={() => setConfirmClear(false)}>取消</button></div>}
     {error && <p role="alert">{error}</p>}
-    {loading ? <p role="status">读取中…</p> : healthy && !error && !visible.length && <p className="quiet-empty">{diagnosticsEmptyText(scope, view)}</p>}
+    {loading ? <p role="status">读取中…</p> : healthy && !error && !visible.length && !background.length && <p className="quiet-empty">{diagnosticsEmptyText(scope, view)}</p>}
     {messageId && !loading && !scoped.some(message => message.aliases.includes(messageId)) && !scope && <p role="status">这条消息暂无保留的诊断记录。</p>}
-    {!scope && <details><summary>后台检索增强</summary><ol>{events.filter(event => !event.requestIds.length && ['embedding', 'rerank'].includes(event.stage) && (view !== 'failed' || event.outcome === 'fallback')).map(event => <EventDetail key={event.id} event={event} />)}</ol></details>}
+    {!scope && background.length > 0 && <details open={view === 'failed' ? true : undefined}><summary>后台检索增强 · {background.length} 条</summary><ol>{background.map(event => <EventDetail key={event.id} event={event} />)}</ol></details>}
     <ol className="diagnostic-messages" aria-label="按消息聚合的诊断">{visible.map(message => <DiagnosticMessageCard key={message.id} message={message} focused={message.aliases.includes(messageId)} />)}</ol>
     {view === 'latest' && <p className="caption">最新显示最近 20 条消息；可切换“全部”查看更多。</p>}
     {filteredCount > 200 && view !== 'latest' && <p className="caption">最多显示 200 条消息。可用“查看范围”定位更早的消息。</p>}

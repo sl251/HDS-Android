@@ -54,3 +54,13 @@ test('mobile table registration upgrades an existing parent registry once withou
   const field = ctx.model.tables.interlude_fact.fields.embeddingIdentity
   registerTables(ctx, true); assert.equal(ctx.model.tables.interlude_fact.fields.embeddingIdentity, field)
 })
+
+test('same-dimension model identities never mix in fact cosine ranking, and invalid dimensions fall back locally', async () => {
+  const now = new Date(), base = { storyId: 's', status: 'active', scope: 'world', content: 'neutral', importance: 0, confidence: 0, lastSeenAt: now, updatedAt: now, createdAt: now }
+  const rows = [{ ...base, id: 1, embedding: [0.6, 0.8], embeddingIdentity: 'new' }, { ...base, id: 2, embedding: [1, 0], embeddingIdentity: 'old' }, { ...base, id: 3, embedding: [100], embeddingIdentity: 'new' }]
+  let identity = 'new'
+  const host: any = Object.assign(Object.create(InterludeService.prototype), { config: { model: { mobileEmbeddingIdentity: true, embedding: { liveQuery: false }, rerank: { enabled: false } } }, embedder: { identity: () => identity }, dbGet: async (_t: string, query: any) => query.scope ? [] : rows })
+  Object.defineProperty(host, 'memoryConfig', { value: { maxFactsPerStory: 200, factImportanceWeight: 0, factConfidenceWeight: 0, factRecencyWeight: 0, semanticWeight: 1, unresolvedWeight: 0 } })
+  assert.equal((await host.facts('s', 3, '', undefined, [1, 0]))[0].id, 1)
+  identity = 'old'; assert.equal((await host.facts('s', 3, '', undefined, [1, 0]))[0].id, 2)
+})

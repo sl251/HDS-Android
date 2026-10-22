@@ -41,3 +41,5 @@ Android 宿主启用 `mobileEmbeddingIdentity`，为事实、贴纸表增加可�
 分享码与角色导出仍排除模型连接与检索路由；外部预设不能替换本机 endpoint/providerId/model。
 
 本地验证使用 mock HTTP 与临时数据库，不接触用户故事数据。Android APK 构建交 GitHub Actions，触发由主控验收后进行。真机、真实网关、付费模型、PRoot设备取消与升级/降级均 **NOT RUN，交用户**。实际命令、退出码、基线失败比较、提交与限制记录在本次实施报告中。
+
+本地验收记录：移动端全量 195/195、检索等专项 45/45、上游 914 PASS / 4 SKIP / 0 FAIL；两项检索/诊断浏览器测试、host/probe 构建、生产前端构建、typecheck、Python 打包/证书配置检查与 Android 资源同步通过。Kotlin 只做字段、边界与输出白名单的静态一致性检查，未运行 Gradle；以上不能代替设备或实际 ARM64 guest/APK 验收。

@@ -36,9 +36,12 @@ async function persist(decision: NarrativeDecision, options: {
   participantId?: string
   lastCharacterMessageAt?: Date
   agency?: Record<string, unknown>
+  dailyContacts?: number
+  endpointBlocked?: boolean
 } = {}): Promise<PersistResult> {
   const participantId = options.participantId ?? 'alice'
   const story: any = { id: 's', setting: emptyStorySetting(), state: emptyStoryState(), cursorAt: now }
+  story.state.proactiveContactLog = Array.from({ length: options.dailyContacts ?? 0 }, () => ({ participantId, at: now.toISOString() }))
   const entries: any[] = []
   const intents: any[] = []
   const reports: string[] = []
@@ -87,7 +90,8 @@ async function persist(decision: NarrativeDecision, options: {
     scheduleDueIntentWake: () => {},
     deferUnresolvedDueFollowUps: async () => {},
     ensureEndpointRegistry: async () => {},
-    resolveMostActiveEndpointId: () => undefined,
+    resolveMostActiveEndpointId: () => options.endpointBlocked ? 'fixture-endpoint' : undefined,
+    endpointForDelivery: () => ({ reason: 'fixture-endpoint-denied' }),
     dbGet: async (table: string, query: any, opts?: any) => {
       if (table === 'interlude_intent') return queryIntents(query, opts)
       if (table === 'interlude_script_entry') return entries.filter((entry: any) => entry.id === query?.id)
@@ -103,7 +107,7 @@ async function persist(decision: NarrativeDecision, options: {
     longHorizonSweep: async () => {},
     sendOutgoingMessages: () => assert.fail('Persistence must not send directly'),
   })
-  const participant: any = participants.find(item => item.id === participantId)
+  const participant: any = options.phase === 'advance' ? null : participants.find(item => item.id === participantId)
   const phase = options.phase ?? 'intent-due'
   const contextIntents = phase === 'intent-due' ? [proactiveCheckIntent(participantId, 900)] : []
   const result = await host.persistDecision(story, participant, decision, now, now, true, phase, contextIntents)
@@ -225,4 +229,34 @@ test('withdrawal annotations select only new pending intents in the same story a
   const host: any = Object.assign(Object.create(InterludeService.prototype), { dbGet: async (_t: string, q: any) => rows.filter(row => row.storyId === q.storyId && row.status === q.status && row.id > q.id.$gt && q.participantId.$in.includes(row.participantId)), dbSet: async (_t: string, q: any, patch: any) => Object.assign(rows.find(row => row.id === q.id)!, patch), reportOperation: () => {} })
   await host.annotateWithdrawnTurnIntents({ id: 's' }, 100, new Set(['alice']), 'mock-gate', now)
   assert.equal(rows.filter(row => row.summary.includes('从未发出')).length, 1); assert.equal(rows[0].status, 'pending')
+})
+
+test('dropped-only advance remains the observed upstream scope: audit without annotating turn intents', async () => {
+  const result = await persist(replyDecision({ script: '她继续收拾房间。', interaction: undefined, crossConversationActions: [{ participantId: 'alice', mode: 'immediate', content: '在吗', willingness: 0 }] as any }), { phase: 'advance' })
+  assert.ok(result.entries.some(entry => entry.kind === 'outgoing-delivery-failed'))
+  assert.ok(result.intents.every(intent => !intent.payload?.sendWithdrawnTurn))
+})
+
+
+test('advance withdrawal annotates only the target participant new intents and preserves authored script', async () => {
+  const script = '她拿起手机，<say id="contact">在吗</say>。'
+  const result = await persist(replyDecision({ script, interaction: undefined,
+    crossConversationActions: [{ participantId: 'alice', mode: 'immediate', actionId: 'contact', content: '在吗', willingness: 1 }],
+    proactiveContact: { participantId: 'alice', origin: 'life-event', motive: 'neutral contact', disclosure: 'ordinary', outcome: 'let-go', willingness: 1 },
+  }), { phase: 'advance' })
+  assert.deepEqual(result.messages, [])
+  assert.ok(result.entries.some(entry => entry.kind === 'outgoing-delivery-failed'))
+  assert.ok(result.intents.find(intent => intent.participantId === 'alice').payload.sendWithdrawnTurn)
+  assert.equal(result.intents.find(intent => intent.participantId === 'bob').payload.sendWithdrawnTurn, undefined)
+  assert.match(result.entries.find(entry => entry.kind === 'script').content, /她拿起手机/)
+})
+
+
+test('host-synthesized proactive candidate still obeys daily cap and endpoint policy', async () => {
+  const capped = await persist(replyDecision(), { dailyContacts: 3 })
+  assert.deepEqual(capped.messages, [])
+  assert.ok(capped.entries.some(entry => entry.metadata?.reason === 'proactive-daily-cap'))
+  const blocked = await persist(replyDecision(), { endpointBlocked: true })
+  assert.deepEqual(blocked.messages, [])
+  assert.ok(blocked.entries.some(entry => entry.metadata?.reason === 'blocked-by-agency-endpoint:fixture-endpoint-denied'))
 })

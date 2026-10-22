@@ -321,7 +321,10 @@ class HdsRuntimePlugin : Plugin() {
         if (call.getString("method") == "models.cancelRetrieval") { runtime().cancelModelProbe(); resolve(call, JSONObject().put("data", JSONObject())); return }
         if (call.getString("method") == "models.testRetrieval") {
             val payload = JSONObject((call.getObject("payload") ?: JSONObject()).toString())
-            retrievalIo.execute { try { resolve(call, runtime().testRetrieval(payload)) } catch (_: Throwable) { call.reject("模型测试未完成；请检查运行环境、配置或清理状态") } }
+            retrievalIo.execute { try { resolve(call, runtime().testRetrieval(payload)) } catch (failure: Throwable) {
+                val safe = failure.message?.takeIf { it in setOf("请先安装包含模型测试的运行环境", "已有模型测试正在运行", "运行环境正在维护", "模型测试进程清理失败，请重启应用") }
+                call.reject(safe ?: "模型测试未完成；请检查运行环境、配置或清理状态")
+            } }
             return
         }
         run(call) {
