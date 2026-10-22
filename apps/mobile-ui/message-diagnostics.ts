@@ -105,7 +105,7 @@ export function aggregateDiagnosticMessages(input: DiagnosticMessageEvent[], mes
 }
 export type DiagnosticView = 'all' | 'failed' | 'latest'
 export function visibleDiagnosticMessages(messages: DiagnosticMessage[], view: DiagnosticView, focus = '') {
-  const filtered = messages.filter(message => view !== 'failed' || message.failure)
+  const filtered = messages.filter(message => view !== 'failed' || (message.failure || message.events.some(event => event.outcome === 'fallback')))
   const visible = filtered.slice(0, view === 'latest' ? 20 : 200)
   const target = focus ? filtered.find(message => message.aliases.includes(focus)) : undefined
   if (target && !visible.includes(target)) visible.splice(visible.length - 1, 1, target)

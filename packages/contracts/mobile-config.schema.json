@@ -501,7 +501,7 @@
           "type": "string",
           "default": "",
           "description": "向量模型连接编号；留空时使用模型分工中的向量连接。",
-          "maxLength": 128
+          "maxLength": 64
         },
         {
           "key": "endpoint",
@@ -533,6 +533,65 @@
           "description": "Embedding 请求超时，单位毫秒。",
           "min": 500,
           "max": 120000,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "key": "rerank",
+      "description": "向量与重排序：重排序是 Android 扩展，默认关闭。",
+      "fields": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "default": false,
+          "description": "Android 扩展：外部精排长期事实，失败回退本地排序。"
+        },
+        {
+          "key": "providerId",
+          "type": "string",
+          "default": "",
+          "description": "指定启用的 OpenAI 兼容连接；不参与聊天分工。",
+          "maxLength": 64
+        },
+        {
+          "key": "endpoint",
+          "type": "string",
+          "default": "",
+          "description": "完整重排序端点；留空按连接地址安全推导。",
+          "maxLength": 2048
+        },
+        {
+          "key": "model",
+          "type": "string",
+          "default": "",
+          "description": "必填 API 重排序模型名。",
+          "maxLength": 256
+        },
+        {
+          "key": "topN",
+          "type": "number",
+          "default": 20,
+          "description": "普通事实精排输出上限。",
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        {
+          "key": "scoreThreshold",
+          "type": "number",
+          "default": 0,
+          "description": "模型相关的分数阈值；0 关闭过滤。",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "key": "timeout",
+          "type": "number",
+          "default": 5000,
+          "description": "重排序超时，毫秒。",
+          "min": 500,
+          "max": 15000,
           "step": 1
         }
       ]

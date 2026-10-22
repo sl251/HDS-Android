@@ -181,6 +181,15 @@ const Model: Schema<ModelConfig> = Schema.object({
   formatPrompt: Schema.string().role('textarea').default('').description('结构化输出补充规则。'),
   fixedPrompt: Schema.string().role('textarea').default('').description('通用长期规则。'),
   stylePrompt: Schema.string().role('textarea').default(DEFAULT_STYLE_PROMPT).description('全局叙事文风；故事级 style 可进一步覆盖。默认为完整的生活剧本写作指引（2026-10-15 起）。'),
+  rerank: Schema.object({
+    enabled: Schema.boolean().default(false).description('Android 扩展：外部精排长期事实，失败回退本地排序。'),
+    providerId: Schema.string().default('').description('指定启用的 OpenAI 兼容连接；不参与聊天分工。'),
+    endpoint: Schema.string().default('').description('完整重排序端点；留空按连接地址安全推导。'),
+    model: Schema.string().default('').description('必填 API 重排序模型名。'),
+    topN: Schema.natural().min(1).max(20).default(20).description('普通事实精排输出上限。'),
+    scoreThreshold: Schema.number().min(0).max(1).default(0).description('模型相关的分数阈值；0 关闭过滤。'),
+    timeout: Schema.natural().min(500).max(15000).default(5000).description('重排序超时，毫秒。'),
+  }).description('向量与重排序：重排序是 Android 扩展，默认关闭。'),
   embedding: (Schema.object({
     providerId: Schema.string().default('').description('向量连接编号；留空使用向量任务分工。'),
     model: Schema.string().default('').description('显式向量模型名；留空使用连接模型。'),

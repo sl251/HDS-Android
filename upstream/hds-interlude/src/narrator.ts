@@ -21,7 +21,7 @@ import { factEvidenceForPrompt, KNOWLEDGE_WRITING_FRAME } from './script/knowled
 import { interactionEvidence } from './script/development'
 import {
   effectiveMainModelId, ModelRoutingTable, ModelTask,
-  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint,
+  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint, resolveEffectiveRerankTarget,
 } from './model-routing'
 
 export {
@@ -164,8 +164,12 @@ export interface ModelConfig {
    * per-turn fields, letting provider prefix caches hit across consecutive turns. */
   mainPayloadOrder?: 'legacy' | 'cache-first'
   compaction?: CompactionConfig
+  rerank?: RerankConfig
   embedding?: EmbeddingConfig
   mobileRetrievalEvent?: (event: RetrievalEvent) => void
+  /** Android index migration opt-in; standalone upstream schemas retain their original shape. */
+  mobileEmbeddingIdentity?: boolean
+  mobileRetrievalRecorder?: () => (event: RetrievalEvent) => void
   /** OpenAI-compatible native image inputs for the current private-message turn. */
   vision?: VisionConfig
   /** OpenAI-compatible native audio inputs for the current private-message turn. */
@@ -322,6 +326,7 @@ export class OpenAICompatibleEmbedder implements NarrativeEmbedder {
     if (!embedding?.enabled || !input.trim()) return []
     const target = resolveEffectiveEmbeddingTarget(this.config, this.routing)
     const started = Date.now()
+    const report = beginRetrieval(this.config)
     try {
       if (target.reason) throw new RetrievalError(target.reason)
       const body = { model: target.model, input: input.trim().slice(0, Math.max(1, embedding.maxInputCharacters ?? 4000)),
@@ -330,11 +335,11 @@ export class OpenAICompatibleEmbedder implements NarrativeEmbedder {
       const response = await retrievalPost(this.ctx, target.provider!, target.endpoint, body, target.timeout, context) as EmbeddingResponse
       const vector = response?.data?.[0]?.embedding
       if (!validRetrievalVector(vector) || target.dimensions > 0 && vector.length !== target.dimensions) throw new RetrievalError('invalid_response')
-      emitRetrieval(this.config, { task: 'embedding', status: 'succeeded', providerId: target.provider?.id, elapsedMs: Date.now() - started, vectorDimensions: vector.length })
+      report({ task: 'embedding', status: 'succeeded', providerId: target.provider?.id, elapsedMs: Date.now() - started, vectorDimensions: vector.length })
       return vector
     } catch (error) {
       const failure = classifyRetrievalError(error)
-      emitRetrieval(this.config, { task: 'embedding', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
+      report({ task: 'embedding', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
       throw new RetrievalError(failure.category, failure.httpStatus)
     }
   }
@@ -2822,7 +2827,9 @@ export function validRetrievalVector(value: unknown): value is number[] {
 export function classifyRetrievalError(error: any): { category: string; httpStatus?: number } {
   if (error instanceof RetrievalError) return { category: error.category, ...(error.httpStatus ? { httpStatus: error.httpStatus } : {}) }
   const httpStatus = Number(error?.response?.status || /HTTP (\d{3})/.exec(String(error?.message))?.[1]) || undefined
-  const detail = String(error?.message ?? '').slice(0, 2048) + JSON.stringify(error?.response?.data ?? '').slice(0, 2048)
+  let detail = String(error?.message ?? '').slice(0, 2048)
+  for (let cause = error?.cause, depth = 0; cause && depth < 4; cause = cause.cause, depth++) detail += ` ${String(cause.name)} ${String(cause.message).slice(0, 256)} ${String(cause.code)}`
+  try { detail += JSON.stringify(error?.response?.data ?? '').slice(0, 2048) } catch { /* untrusted shape */ }
   const category = /model ratio not found/i.test(detail) ? 'gateway_model_ratio'
     : httpStatus && httpStatus >= 500 && /convert_request_failed/i.test(detail) ? 'gateway_convert_request'
     : httpStatus === 401 ? 'authentication' : httpStatus === 403 ? 'permission'
@@ -2845,5 +2852,53 @@ async function retrievalPost(ctx: Context, provider: ProviderConfig, endpoint: s
   const signal = context.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining)
   return provider.proxyAgent
     ? postJsonViaProxy(endpoint, body, headers, remaining, provider.proxyAgent, { redirect: 'manual', signal })
-    : ctx.http.post(endpoint, body, { headers, timeout: remaining, redirect: 'manual', signal, validateStatus: status => status >= 200 && status < 300 })
+    : ctx.http.post(endpoint, body, { headers, timeout: remaining, redirect: 'manual', signal, validateStatus: () => true, responseType: async response => {
+      const reader = response.body?.getReader()
+      const chunks: Uint8Array[] = []; let size = 0
+      if (reader) { try { while (true) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > (response.ok ? 2 * 1024 * 1024 : 4096)) { await reader.cancel(); if (response.ok) throw new RetrievalError('invalid_response'); break }; chunks.push(part.value) } } finally { reader.releaseLock() } }
+      const text = Buffer.concat(chunks).toString('utf8')
+      if (!response.ok) { const failure = classifyRetrievalError({ response: { status: response.status, data: text } }); throw new RetrievalError(failure.category, response.status) }
+      try { return JSON.parse(text) } catch { throw new RetrievalError('invalid_response') }
+    } })
 }
+
+export function beginRetrieval(config: ModelConfig): (event: RetrievalEvent) => void {
+  let recorder: ((event: RetrievalEvent) => void) | undefined
+  try { recorder = config.mobileRetrievalRecorder?.() } catch { /* optional observer */ }
+  return event => { try { if (recorder) recorder(event); else emitRetrieval(config, event) } catch { /* optional observer */ } }
+}
+
+/** Android extension; deliberately excluded from ModelTask and chat failover. */
+export interface RerankConfig { enabled: boolean; providerId: string; endpoint: string; model: string; topN: number; scoreThreshold: number; timeout: number }
+export interface RerankResult { index: number; relevanceScore: number }
+export class RerankClient {
+  constructor(private ctx: Context, private config: ModelConfig) {}
+  async rerank(query: string, documents: string[], topN: number, context: RetrievalRequestContext = {}): Promise<RerankResult[]> {
+    if (!this.config.rerank?.enabled) return []
+    const target = resolveEffectiveRerankTarget(this.config), started = Date.now(), report = beginRetrieval(this.config)
+    try {
+      if (target.reason) throw new RetrievalError(target.reason)
+      if (!query.trim() || documents.length < 1 || documents.length > 30 || !Number.isInteger(topN) || topN < 1 || topN > Math.min(20, documents.length)) throw new RetrievalError('invalid_request')
+      const body = { model: target.model, query: query.trim().slice(0, 4000), documents: documents.map(text => text.slice(0, 2000)), top_n: topN, return_documents: false }
+      if (Buffer.byteLength(JSON.stringify(body)) > 256 * 1024) throw new RetrievalError('invalid_request')
+      this.config.mobileBeforeRequest?.(context.foreground === true)
+      const response: any = await retrievalPost(this.ctx, target.provider!, target.endpoint, body, target.timeout, context)
+      const results = response?.results
+      if (!Array.isArray(results) || results.length < 1 || results.length > topN) throw new RetrievalError('invalid_response')
+      const seen = new Set<number>()
+      for (const item of results) {
+        if (!item || !Number.isInteger(item.index) || item.index < 0 || item.index >= documents.length || seen.has(item.index) || typeof item.relevance_score !== 'number' || !Number.isFinite(item.relevance_score)) throw new RetrievalError('invalid_response')
+        seen.add(item.index)
+      }
+      const ranked = results.map(item => ({ index: item.index as number, relevanceScore: item.relevance_score as number }))
+        .sort((a, b) => b.relevanceScore - a.relevanceScore || a.index - b.index)
+      report({ task: 'rerank', status: 'succeeded', providerId: target.provider!.id, elapsedMs: Date.now() - started, resultCount: ranked.length })
+      return ranked
+    } catch (error) {
+      const failure = classifyRetrievalError(error)
+      report({ task: 'rerank', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
+      throw new RetrievalError(failure.category, failure.httpStatus)
+    }
+  }
+}
+export function createReranker(ctx: Context, config: ModelConfig) { return new RerankClient(ctx, config) }

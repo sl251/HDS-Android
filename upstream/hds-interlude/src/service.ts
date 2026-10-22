@@ -34,7 +34,7 @@ import { createScheduler, type Scheduler } from './scheduler'
 import { UrgeConfig, resolveUrgeConfig, normalizeUrgeState, urgeUserEvent, planUrge, commitUrge, acknowledgeUrge, urgeBurstActive, type UrgeRhythmInput } from './urge'
 import { extname, relative, resolve, sep } from 'node:path'
 import { createReadStream, realpathSync } from 'node:fs'
-import { AudioConfig, compactPromptEntries, createCompactor, createEmbedder, createNarrator, createStickerDescriber, createVisionDescriber, detectMessageRepetition, formatTokenUsageLine, isContextDisposedError, ModelConfig, normalizeLifeRhythmDraft, promptVisibleMessageContent, recentScriptOwnership, StickerDescriber, StickerDescription, TokenUsageRecord, VisionDescriber } from './narrator'
+import { AudioConfig, compactPromptEntries, createCompactor, createEmbedder, createReranker, RerankClient, RetrievalRequestContext, validRetrievalVector, createNarrator, createStickerDescriber, createVisionDescriber, detectMessageRepetition, formatTokenUsageLine, isContextDisposedError, ModelConfig, normalizeLifeRhythmDraft, promptVisibleMessageContent, recentScriptOwnership, StickerDescriber, StickerDescription, TokenUsageRecord, VisionDescriber } from './narrator'
 import { formatModelRouting, ModelRoutingTable, resolveModelRouting } from './model-routing'
 import {
   advanceAlterSystem, alterHistoryForScope, alterScopeCoolingDown, alterScopeValue, calculateAlterThreshold,
@@ -278,6 +278,8 @@ export function isHistoryEntryVisibleToParticipant(entry: Pick<ScriptEntry, 'par
 /** A turn needs a live query vector only for a feature that can actually use
  * it. An inactive or small sticker library must not silently turn ordinary
  * fact embedding into a per-message network request. */
+type FactRetrievalContext = RetrievalRequestContext & { rerankCache?: Map<string, Promise<NarrativeFact[]>> }
+
 type PreparedFactEmbedding = { vector: number[]; identity?: string }
 
 export function shouldRequestTurnEmbedding(embedding: ModelConfig['embedding'] | undefined, stickerLibraryEnabled: boolean, stickerCount: number) {
@@ -771,6 +773,7 @@ export class InterludeService extends Service {
   private lastWeatherText = ''
   private qzoneRuntime = resolveQzoneConfig(undefined)
   private embedder: NarrativeEmbedder
+  private reranker: RerankClient
   private stickerDescriber: StickerDescriber
   private visionDescriber: VisionDescriber
   private stickerCatalog: StickerAsset[] = []
@@ -910,7 +913,7 @@ export class InterludeService extends Service {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'interlude')
     this.serviceLogger = ctx.logger('hds-interlude')
-    registerTables(ctx)
+    registerTables(ctx, config.model.mobileEmbeddingIdentity === true)
     // One shared token-usage sink: every chat task (main/compaction/alter/
     // sticker description) reports through here and lands in the Koishi log.
     const onUsage = (record: TokenUsageRecord) => {
@@ -925,6 +928,7 @@ export class InterludeService extends Service {
     this.narrator = createNarrator(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
     this.compactor = createCompactor(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
     this.embedder = createEmbedder(ctx, config.model, this.modelRouting)
+    this.reranker = createReranker(ctx, config.model)
     this.stickerDescriber = createStickerDescriber(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
     this.visionDescriber = createVisionDescriber(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
     // 播种器模型来自模型中心的“用于世界播种”勾选（useForWorldSeeding）；
@@ -2121,7 +2125,7 @@ export class InterludeService extends Service {
     await this.dbCreate('interlude_fact', {
       // Legacy column retained for database compatibility; facts are global.
       storyId: story.id, participantId: '', scope, content: text,
-      importance: 0.8, confidence: 1, unresolved: false, embedding: indexed.vector, embeddingIdentity: indexed.identity,
+      importance: 0.8, confidence: 1, unresolved: false, embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}),
       status: 'active', sourceEntryIds: [], lastSeenAt: now, createdAt: now, updatedAt: now,
     })
     return true
@@ -3715,7 +3719,7 @@ export class InterludeService extends Service {
           // Index a freshly described asset immediately so the semantic filter
           // can consider it on the very next turn instead of the next scan.
           const indexed = await this.embedIndexedText(`${description.description} ${description.aliases.join(' ')}`.trim())
-          if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: item.asset.id, status: 'active', hash: item.asset.hash }, { embedding: indexed.vector, embeddingIdentity: indexed.identity, updatedAt: new Date() })
+          if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: item.asset.id, status: 'active', hash: item.asset.hash }, { embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}), updatedAt: new Date() })
         }
         this.reportStandaloneOperation('standard', 'info', '表情包描述完成 素材=%s 分组=%s', item.asset.assetId, item.asset.group)
       }
@@ -3796,12 +3800,12 @@ export class InterludeService extends Service {
   private async backfillStickerEmbeddings() {
     if (!this.semanticStickerEmbeddingEnabled()) return
     const pending = this.stickerCatalog
-      .filter(asset => asset.description && (!asset.embedding?.length || this.embedder.identity && asset.embeddingIdentity !== this.embedder.identity()))
+      .filter(asset => asset.description && (!validRetrievalVector(asset.embedding) || this.config.model?.mobileEmbeddingIdentity && asset.embeddingIdentity !== this.embedder?.identity?.()))
       .slice(0, Math.min(5, this.config.model.embedding?.backfillBatchSize ?? 5))
     for (const asset of pending) {
       const text = `${asset.description} ${(asset.aliases ?? []).join(' ')}`.trim()
       const indexed = await this.embedIndexedText(text)
-      if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: asset.id, status: 'active', hash: asset.hash, description: asset.description }, { embedding: indexed.vector, embeddingIdentity: indexed.identity, updatedAt: new Date() })
+      if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: asset.id, status: 'active', hash: asset.hash, description: asset.description }, { embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}), updatedAt: new Date() })
     }
   }
 
@@ -3822,7 +3826,7 @@ export class InterludeService extends Service {
     if (!this.config.model.embedding?.semanticStickerFilter) return assets
     if (!turnQueryEmbedding?.length || assets.length <= SEMANTIC_STICKER_LIMIT) return assets
     const identity = this.embedder?.identity?.()
-    if (this.embedder?.identity && (!identity || assets.some(asset => asset.embeddingIdentity !== identity))) return assets
+    if (this.config.model?.mobileEmbeddingIdentity && (!identity || assets.some(asset => asset.embeddingIdentity !== identity || !validRetrievalVector(asset.embedding) || asset.embedding.length !== turnQueryEmbedding.length))) return assets
     return rankStickerCatalog(assets, turnQueryEmbedding, SEMANTIC_STICKER_LIMIT)
   }
 
@@ -3900,7 +3904,7 @@ export class InterludeService extends Service {
     for (const [id, item] of cache) {
       if (excludeIds.has(id)) continue
       if (!isHistoryEntryVisibleToParticipant(item, participantId, shareDetails)) continue
-      const semantic = this.embedder.identity && (!identity || item.embeddingIdentity !== identity)
+      const semantic = (this.config.model?.mobileEmbeddingIdentity ? !identity || item.embeddingIdentity !== identity : item.embeddingIdentity && item.embeddingIdentity !== identity)
         ? undefined : cosineSimilarity(turnQueryEmbedding, item.vector ?? [])
       const spans = item.spans ??= indexOriginal(item.content)
       const lexical = Math.max(scoreOriginal(primaryKeys, spans).score, scoreOriginal(keys, spans).score * 0.8)
@@ -4016,7 +4020,7 @@ export class InterludeService extends Service {
     this.historyBackfills.add(storyId)
     const started = Date.now()
     try {
-      const identity = this.embedder.identity?.()
+      const identity = this.embedder?.identity?.()
       const story = await this.getStory(storyId)
       const saved = decodeStoryState(story.state).extensions?.historyBackfill as { cursor?: number; identity?: string } | undefined
       let cursor = saved?.identity === identity && Number.isSafeInteger(saved?.cursor) ? Math.max(0, saved!.cursor!) : 0
@@ -4032,7 +4036,7 @@ export class InterludeService extends Service {
         attempts++
         const embedding = await this.embedText(row.content)
         if (!embedding.length) { this.historyBackoff.set(storyId, Date.now() + 60_000); return false }
-        if (this.embedder.identity?.() !== identity) return false
+        if (this.embedder?.identity?.() !== identity) return false
         await this.serial(storyId, async () => {
           const [fresh] = await this.dbGet('interlude_script_entry', { storyId, id: row.id }) as ScriptEntry[]
           if (!fresh || fresh.content !== row.content) return
@@ -5117,7 +5121,7 @@ export class InterludeService extends Service {
     return messages
   }
 
-  private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = []) {
+  private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = [], retrievalContext: FactRetrievalContext = {}) {
     if (!chatCapabilities && !groupContext && (participant?.platform ?? story.platform) === 'mobile-local') {
       const voice = this.config.model.mobileVoiceCapabilities?.()
       if (voice?.enabled) chatCapabilities = { platform: 'local', quoteReply: false, reactions: [], voice }
@@ -5147,7 +5151,7 @@ export class InterludeService extends Service {
       this.activeScene(story.id),
       this.activeArc(story.id),
       this.previousSceneSummaries(story),
-      memoryEnabled ? this.facts(story.id, this.config.runtime.memoryLimit, factQuery, undefined, liveFactEmbedding) : Promise.resolve([]),
+      memoryEnabled ? this.facts(story.id, this.config.runtime.memoryLimit, factQuery, undefined, liveFactEmbedding, { ...retrievalContext, externalRerank: true, foreground: phase === 'user-message' }) : Promise.resolve([]),
       this.participants(story.id),
       this.webObservations(story.id, participant?.id),
       this.activeConsequencesAndExpire(
@@ -5597,7 +5601,8 @@ export class InterludeService extends Service {
         if (committed) earlyReplyCommitted = true
         return committed
       } : undefined
-      let decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, [], false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, earlyReply, historicalGroupImages)
+      const retrievalContext: FactRetrievalContext = { rerankCache: new Map(), deadline: startedAt + (this.config.model.mobileTurnDeadlineMs ?? 240000) }
+      let decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, [], false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, earlyReply, historicalGroupImages, retrievalContext)
       const immediate = phase === 'user-message' && participant && !groupContext && this.browserConfig.enabled && this.browserConfig.mode === 'allow-immediate'
         ? decision.browserIntents?.map(intent => normalizeBrowserIntentDraft(intent, this.browserConfig)).find(intent => intent?.timing === 'immediate')
         : undefined
@@ -5610,7 +5615,7 @@ export class InterludeService extends Service {
         const observation = await this.collectWebObservation(story, immediate, participant.id, null, new Date(), false)
         immediateObservations = [observation]
         effectiveNow = new Date()
-        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages)
+        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages, retrievalContext)
       }
       // 用户自报的钟点（“八点赶到”）对守卫背书：模型复述它们不是时间越界。
       // 提取是 O(消息长度) 的本地正则，只在实况用户回合发生一次。
@@ -5638,7 +5643,7 @@ export class InterludeService extends Service {
         // 缺失"）；recoverySaved 在恢复稿通过校验后才计数（不是进入恢复就计）。
         if (initialVisibleRecovery) this.health?.recordStructureMissing(story.id)
         else if (initialTimeOverflow) { /* 时间越界不在此计数 */ }
-        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, true, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages)
+        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, true, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages, retrievalContext)
         const recoveredTimeOverflow = detectLiveScriptTimeOverflow(decision.script, phase, from, effectiveNow, story.setting.timezone, endorsedClocks)
         if (recoveredTimeOverflow) throw new Error(`Narrative provider crossed the live time boundary after one recovery attempt: ${recoveredTimeOverflow}`)
         // 恢复成功 = 第二稿不再需要回复恢复。
@@ -6604,7 +6609,7 @@ export class InterludeService extends Service {
 
   /** Durable facts are global narrative evidence. The legacy participantId argument
    * is retained for call-site compatibility but intentionally ignored. */
-  async facts(storyId: string, limit = this.memoryConfig.factLimit, query = '', _participantId?: string, turnQueryEmbedding?: number[]) {
+  async facts(storyId: string, limit = this.memoryConfig.factLimit, query = '', _participantId?: string, turnQueryEmbedding?: number[], retrieval: FactRetrievalContext = {}) {
     // The previous floor of 50 caused every live turn to scan a large slice of
     // the facts table, even when the narrator only needed a handful of facts.
     // Keep enough candidates for semantic re-ranking without making the
@@ -6629,13 +6634,13 @@ export class InterludeService extends Service {
     // opt-in; stored fact vectors and background backfill still work normally.
     // A precomputed turn-level vector is preferred when the caller already
     // built one, so multiple semantic consumers share a single request.
-    const queryEmbedding = turnQueryEmbedding?.length
+    const queryEmbedding = turnQueryEmbedding !== undefined
       ? turnQueryEmbedding
-      : query.trim() && this.config.model.embedding?.liveQuery
-        ? await this.embedText(query)
+      : query.trim() && retrieval.externalRerank && this.config.model.embedding?.liveQuery
+        ? await this.embedText(query, retrieval)
         : []
     const ranked = rows
-      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query, this.embedder?.identity?.()) }))
+      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query, this.config.model?.mobileEmbeddingIdentity ? this.embedder?.identity?.() ?? '' : undefined) }))
       .sort((a, b) => b.score - a.score
         || b.fact.updatedAt.getTime() - a.fact.updatedAt.getTime()
         || b.fact.id - a.fact.id)
@@ -6652,7 +6657,24 @@ export class InterludeService extends Service {
       selected.push(fact)
       if (selected.length >= limit) break
     }
-    return selected
+    const options = this.config.model.rerank
+    if (!retrieval.externalRerank || !options?.enabled || !query.trim()) return selected
+    const protectedFacts = [...new Map([...recentResolvedEvents.slice(0, laneLimit), ...openPromises.slice(0, laneLimit)].map(fact => [fact.id, fact])).values()].slice(0, limit)
+    const protectedIds = new Set(protectedFacts.map(fact => fact.id))
+    const slots = Math.max(0, limit - protectedFacts.length)
+    const candidates = ranked.filter(fact => !protectedIds.has(fact.id)).slice(0, 30)
+    if (!slots || candidates.length < 2 || retrieval.deadline !== undefined && retrieval.deadline <= Date.now()) return selected
+    const key = createHash('sha256').update(JSON.stringify([storyId, options, query, candidates.map(fact => [fact.id, fact.content]), protectedFacts.map(fact => fact.id), limit])).digest('hex')
+    const cached = retrieval.rerankCache?.get(key)
+    if (cached) return cached
+    const request = (async () => {
+      try {
+        const results = await this.reranker.rerank(query, candidates.map(fact => fact.content), Math.min(options.topN, slots, candidates.length), retrieval)
+        return [...protectedFacts, ...results.filter(item => !options.scoreThreshold || item.relevanceScore >= options.scoreThreshold).map(item => candidates[item.index])].slice(0, limit)
+      } catch { return selected }
+    })()
+    retrieval.rerankCache?.set(key, request)
+    return request
   }
 
   /** Returns only observations that are safe for this narration branch. A
@@ -10859,7 +10881,7 @@ export class InterludeService extends Service {
       if (vectors.has(key)) continue
       if (!this.taskGenerationCurrent(storyId, generation)) return vectors
       const same = existing.find(fact => normalizeFact(fact.content) === key && fact.embedding?.length
-        && (!this.embedder.identity || !!this.embedder.identity() && fact.embeddingIdentity === this.embedder.identity()))
+        && (!this.config.model?.mobileEmbeddingIdentity || !!this.embedder?.identity?.() && fact.embeddingIdentity === this.embedder?.identity?.()))
       const vector = same ? { vector: same.embedding!, identity: same.embeddingIdentity ?? undefined } : await this.embedIndexedText(content)
       if (!this.taskGenerationCurrent(storyId, generation)) return vectors
       vectors.set(key, vector)
@@ -11071,7 +11093,7 @@ export class InterludeService extends Service {
   private async persistFact(storyId: string, draft: import('./types').FactDraft, entries: ScriptEntry[], now: Date, prepared: PreparedFactEmbedding | number[] = []) {
     const indexed = Array.isArray(prepared) ? { vector: prepared, identity: undefined } : prepared
     const currentIdentity = this.embedder?.identity?.()
-    const preparedEmbedding = !this.embedder?.identity || currentIdentity && indexed.identity === currentIdentity ? indexed.vector : []
+    const preparedEmbedding = !this.config.model?.mobileEmbeddingIdentity || currentIdentity && indexed.identity === currentIdentity ? indexed.vector : []
     const content = clip(draft.content, this.memoryConfig.factContentCharacters)
     if (!content) return false
     // Durable facts are global narrative evidence. Ignore the legacy model
@@ -11093,7 +11115,7 @@ export class InterludeService extends Service {
     const unresolved = draft.unresolved === true || (draft.scope === 'promise' && (draft.unresolved !== false || !canClose))
     if (same && ((same.knowledge?.mode ?? 'unclassified') === knowledge.mode || !same.knowledge && canClose)) {
       const resolved = same.unresolved && draft.unresolved === false && canClose
-      const reuse = same.embedding?.length && (!this.embedder?.identity || !!currentIdentity && same.embeddingIdentity === currentIdentity)
+      const reuse = same.embedding?.length && (!this.config.model?.mobileEmbeddingIdentity || !!currentIdentity && same.embeddingIdentity === currentIdentity)
       const embedding = reuse ? same.embedding! : preparedEmbedding
       const embeddingIdentity = reuse ? same.embeddingIdentity : indexed.identity
       await this.dbSet('interlude_fact', { id: same.id }, {
@@ -11103,7 +11125,7 @@ export class InterludeService extends Service {
           && entries.some(entry => entry.id === clause.sourceEntryId && ['user-message', 'character-message'].includes(entry.kind)))
           ? Math.max(same.confidence, clampNumber(draft.confidence, same.confidence, 0, 1)) : same.confidence,
         unresolved: resolved ? false : same.unresolved || unresolved,
-        ...(embedding.length ? { embedding, embeddingIdentity } : {}),
+        ...(embedding.length ? { embedding, ...(embeddingIdentity ? { embeddingIdentity } : {}) } : {}),
         sourceEntryIds: Array.from(new Set([...same.sourceEntryIds, ...sourceEntryIds])), lastSeenAt: now, updatedAt: now,
         knowledge: { ...knowledge, clauses: [...new Map([...(same.knowledge?.clauses ?? []), ...knowledge.clauses].map(clause => [JSON.stringify(clause), clause])).values()].slice(-12),
           relatedFactIds: [...new Set([...(same.knowledge?.relatedFactIds ?? []), ...knowledge.relatedFactIds])].slice(-12) },
@@ -11117,17 +11139,17 @@ export class InterludeService extends Service {
     await this.dbCreate('interlude_fact', {
       storyId, participantId, scope: draft.scope, content, knowledge, importance: clampNumber(draft.importance, 0.5, 0, 1),
       confidence: clampNumber(draft.confidence, 0.5, 0, 1), unresolved,
-      embedding: preparedEmbedding, embeddingIdentity: preparedEmbedding.length ? indexed.identity : null, status: 'active', sourceEntryIds,
+      embedding: preparedEmbedding, ...(preparedEmbedding.length && indexed.identity ? { embeddingIdentity: indexed.identity } : {}), status: 'active', sourceEntryIds,
       lastSeenAt: now, createdAt: now, updatedAt: now,
     })
     return false
   }
 
   private async embedIndexedText(value: string): Promise<PreparedFactEmbedding> {
-    const identity = this.embedder.identity?.()
+    const identity = this.embedder?.identity?.()
     const vector = await this.embedText(value)
-    if (this.embedder.identity && (!identity || identity !== this.embedder.identity() || !this.config.model.embedding?.enabled)) return { vector: [] }
-    return { vector, identity }
+    if (this.config.model?.mobileEmbeddingIdentity && (!identity || identity !== this.embedder?.identity?.() || !this.config.model.embedding?.enabled)) return { vector: [] }
+    return { vector, identity: this.config.model?.mobileEmbeddingIdentity ? identity : undefined }
   }
 
   private async embedText(value: string, context: { foreground?: boolean; deadline?: number; signal?: AbortSignal } = {}) {
@@ -11158,14 +11180,14 @@ export class InterludeService extends Service {
     if (!this.taskGenerationCurrent(storyId, generation)) return
     const facts = await this.dbGet('interlude_fact', { storyId, status: 'active' })
     const missing = facts
-      .filter(fact => !fact.embedding?.length || this.embedder.identity && fact.embeddingIdentity !== this.embedder.identity())
+      .filter(fact => !fact.embedding?.length || this.config.model?.mobileEmbeddingIdentity && fact.embeddingIdentity !== this.embedder?.identity?.())
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .slice(0, Math.max(0, batchSize))
     for (const fact of missing) {
       if (!this.taskGenerationCurrent(storyId, generation)) break
       const indexed = await this.embedIndexedText(fact.content)
       if (!this.taskGenerationCurrent(storyId, generation)) break
-      if (indexed.vector.length) await this.dbSet('interlude_fact', { id: fact.id, storyId, status: 'active', content: fact.content }, { embedding: indexed.vector, embeddingIdentity: indexed.identity })
+      if (indexed.vector.length) await this.dbSet('interlude_fact', { id: fact.id, storyId, status: 'active', content: fact.content }, { embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}) })
     }
   }
 

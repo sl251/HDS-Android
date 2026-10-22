@@ -26,3 +26,17 @@ test('preset cannot replace local model connections and retrieval routing', () =
   assert.deepEqual(result.config.sections.embedding, current.sections.embedding)
   assert.doesNotMatch(JSON.stringify(result.config), /external|evil/)
 })
+
+test('retrieval diagnostics merge background failures, recover once and reject stale epochs', async () => {
+  const { MessageDiagnostics, retrievalDiagnosticRecorder, runMessageDiagnostics } = await import('../runtime/message-diagnostics')
+  const { mkdtempSync, readFileSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path')
+  const file = join(mkdtempSync(join(tmpdir(), 'hds-retrieval-events-')), 'events.json'), store = new MessageDiagnostics(file)
+  const record = retrievalDiagnosticRecorder(store, [{ id: 'fixture' }])
+  for (let i = 0; i < 3; i++) record({ task: 'embedding', status: 'fallback', providerId: 'fixture', category: 'authentication', httpStatus: 401 })
+  assert.equal(store.list().events.length, 1); assert.equal(store.list().events[0].count, 3); assert.deepEqual(store.list().events[0].requestIds, [])
+  record({ task: 'embedding', status: 'succeeded', providerId: 'fixture', vectorDimensions: 3 }); assert.equal(store.list().events.length, 2)
+  await runMessageDiagnostics(store, ['retrieval-request-first'], async () => { const next = retrievalDiagnosticRecorder(store, [{ id: 'fixture' }]); next({ task: 'rerank', status: 'fallback', providerId: 'fixture', category: 'gateway_model_ratio' }) })
+  assert.deepEqual(store.list().events.at(-1)!.requestIds, ['retrieval-request-first'])
+  store.clear(); record({ task: 'embedding', status: 'fallback', category: 'network' }); assert.equal(store.list().events.length, 0)
+  assert.doesNotMatch(readFileSync(file, 'utf8'), /apiKey|https|fixture/)
+})

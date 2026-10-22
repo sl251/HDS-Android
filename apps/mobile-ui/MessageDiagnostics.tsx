@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DiagnosticMessageEvent, DiagnosticMessagesResult, Message, NativeBridge } from '../../packages/contracts'
-import { DiagnosticMessageCard } from './DiagnosticMessageCard'
+import { EventDetail, DiagnosticMessageCard } from './DiagnosticMessageCard'
 import { aggregateDiagnosticMessages, diagnosticsEmptyText, visibleDiagnosticMessages, type DiagnosticView } from './message-diagnostics'
 import './message-diagnostics.css'
 
@@ -53,7 +53,7 @@ export function MessageDiagnostics({ bridge, healthy, messageId, messages = [], 
     catch { setError('诊断导出失败，请重新尝试。') } finally { setBusy(false) }
   }
   const ids = [...new Set([scope, ...grouped.flatMap(message => message.aliases)])].filter(Boolean)
-  const filteredCount = scoped.filter(message => view !== 'failed' || message.failure).length
+  const filteredCount = scoped.filter(message => view !== 'failed' || message.failure || message.events.some(event => event.outcome === 'fallback')).length
   return <div className="modal-backdrop"><section ref={dialog} className="modal message-diagnostics" role="dialog" aria-modal="true" aria-label="消息诊断" onKeyDown={event => {
     if (event.key !== 'Tab') return
     const elements = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled)')]
@@ -72,6 +72,7 @@ export function MessageDiagnostics({ bridge, healthy, messageId, messages = [], 
     {error && <p role="alert">{error}</p>}
     {loading ? <p role="status">读取中…</p> : healthy && !error && !visible.length && <p className="quiet-empty">{diagnosticsEmptyText(scope, view)}</p>}
     {messageId && !loading && !scoped.some(message => message.aliases.includes(messageId)) && !scope && <p role="status">这条消息暂无保留的诊断记录。</p>}
+    {!scope && <details><summary>后台检索增强</summary><ol>{events.filter(event => !event.requestIds.length && ['embedding', 'rerank'].includes(event.stage) && (view !== 'failed' || event.outcome === 'fallback')).map(event => <EventDetail key={event.id} event={event} />)}</ol></details>}
     <ol className="diagnostic-messages" aria-label="按消息聚合的诊断">{visible.map(message => <DiagnosticMessageCard key={message.id} message={message} focused={message.aliases.includes(messageId)} />)}</ol>
     {view === 'latest' && <p className="caption">最新显示最近 20 条消息；可切换“全部”查看更多。</p>}
     {filteredCount > 200 && view !== 'latest' && <p className="caption">最多显示 200 条消息。可用“查看范围”定位更早的消息。</p>}

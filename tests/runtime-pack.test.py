@@ -24,7 +24,7 @@ class RuntimePackTest(unittest.TestCase):
             self.assertEqual((dri / 'iris_dri.so').read_bytes(), b'one-shared-driver')
             archive = Path(directory) / 'guest.gz'
             audit = builder.pack_guest(guest, archive)
-            self.assertEqual(audit['expandedBytes'], 8 + len(b'one-shared-driver'))
+            self.assertEqual(audit['expandedBytes'], 13 + len(b'one-shared-driver'))
             self.assertEqual(audit['symlinks'], 2)
             self.assertEqual(audit['hardlinks'], 0)
 
@@ -34,6 +34,7 @@ class RuntimePackTest(unittest.TestCase):
         (guest / 'opt/hds').mkdir(parents=True)
         (guest / 'opt/node/bin/node').write_bytes(b'node')
         (guest / 'opt/hds/host.cjs').write_bytes(b'host')
+        (guest / 'opt/hds/model-probe.cjs').write_bytes(b'probe')
         return guest
 
     def test_materializes_shared_inodes_and_counts_once_per_path(self):
@@ -45,7 +46,7 @@ class RuntimePackTest(unittest.TestCase):
             archive = Path(directory) / 'guest.gz'
             audit = builder.pack_guest(guest, archive)
             self.assertEqual(audit['hardlinks'], 0)
-            self.assertEqual(audit['expandedBytes'], 12)
+            self.assertEqual(audit['expandedBytes'], 17)
             with tarfile.open(archive) as source:
                 alias = source.getmember('./opt/node/bin/alias')
                 self.assertTrue(alias.isfile())
@@ -60,7 +61,7 @@ class RuntimePackTest(unittest.TestCase):
             archive = Path(directory) / 'guest.gz'
             audit = builder.pack_guest(guest, archive)
             self.assertEqual(audit['symlinks'], 1)
-            self.assertEqual(audit['expandedBytes'], 8)
+            self.assertEqual(audit['expandedBytes'], 13)
             with tarfile.open(archive) as source:
                 entry = source.getmember('./opt/node/bin/ref')
                 self.assertTrue(entry.issym())

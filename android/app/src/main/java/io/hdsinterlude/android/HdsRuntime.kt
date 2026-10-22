@@ -179,6 +179,7 @@ class HdsRuntime private constructor(private val context: Context) {
     private fun checkCancellation() { if (cancelRequested) throw java.util.concurrent.CancellationException("安装已取消") }
     @Synchronized fun cancelInstall() { require(state == "installing") { "没有正在进行的安装" }; cancelRequested = true }
     @Synchronized fun installAsync(startAfterInstall: Boolean = false) {
+        drainModelProbe()
         require(state !in listOf("installing", "starting", "healthy", "stopping") && process?.isAlive != true) { "运行任务忙，请等待或停止后再安装" }
         cancelRequested = false; attemptId = java.util.UUID.randomUUID().toString(); bytesWritten = 0
         state = "installing"; error = ""; progress = "验证 APK 内置环境"
@@ -245,7 +246,7 @@ class HdsRuntime private constructor(private val context: Context) {
             { bytes, count -> bytesWritten = bytes; progress = "已解包 ${bytes / 1024 / 1024} MiB · $count 个条目" }
         ).extract(transaction.staging, expanded)
         checkpoint("validate")
-        require(File(transaction.staging, "opt/node/bin/node").isFile && File(transaction.staging, "opt/hds/host.cjs").isFile) { "解包缺少 Node 或 HDS" }
+        require(File(transaction.staging, "opt/node/bin/node").isFile && File(transaction.staging, "opt/hds/host.cjs").isFile && File(transaction.staging, "opt/hds/model-probe.cjs").isFile) { "解包缺少 Node 或 HDS" }
         writeAtomic(File(transaction.staging, ".hds-installed.json"), manifest)
         checkCancellation()
         checkpoint("activate")
@@ -420,8 +421,8 @@ class HdsRuntime private constructor(private val context: Context) {
         val output = (synchronized(tail) { tail.toString() } + warnings.joinToString("\n")).replace(store.base.absolutePath, "[app-data]").replace(nativeDir, "[native]")
         return ProotLaunch.ProbeResult(if (stopped) child.exitValue() else null, timedOut, output, degraded = !stopped)
     }
-    fun stopAsync() { cancelRequested = true; executor.execute { stopNow() } }
-    fun stopBlocking() { cancelRequested = true; executor.submit { stopNow(true) }.get(345, TimeUnit.SECONDS) }
+    fun stopAsync() { cancelModelProbe(); cancelRequested = true; executor.execute { stopNow() } }
+    fun stopBlocking() { drainModelProbe(); cancelRequested = true; executor.submit { stopNow(true) }.get(345, TimeUnit.SECONDS) }
     private fun stopNow(preserveStory: Boolean = false) {
         val child = process
         if (child == null) { voiceBridge?.close(); voiceBridge = null; if (state !in listOf("installing", "failed")) state = "stopped"; return }
@@ -454,8 +455,110 @@ class HdsRuntime private constructor(private val context: Context) {
             return result
         } finally { connection.disconnect() }
     }
+    private val modelProbeBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var modelProbeCancelled = false
+    @Volatile private var modelProbeProcess: Process? = null
+    @Volatile private var modelProbeDone = java.util.concurrent.CountDownLatch(0)
+    private val modelProbeGroup = java.util.concurrent.atomic.AtomicInteger(0)
+    fun cancelModelProbe() {
+        modelProbeCancelled = true
+        try { ProotLaunch.killProbeGroup(modelProbeGroup.get()) { pid -> Os.kill(pid, OsConstants.SIGKILL) } } catch (_: Exception) { }
+        modelProbeProcess?.destroy()
+    }
+    private fun drainModelProbe() {
+        cancelModelProbe()
+        require(modelProbeDone.await(5, TimeUnit.SECONDS)) { "模型测试尚未清理完成，请稍后重试" }
+    }
+    fun testRetrieval(input: JSONObject): JSONObject {
+        synchronized(this) {
+            require(!profileMaintenance && state !in listOf("installing", "starting", "stopping")) { "运行环境正在维护" }
+            require(installed() && File(rootfs, "opt/hds/model-probe.cjs").isFile) { "请先安装包含模型测试的运行环境" }
+            require(modelProbeBusy.compareAndSet(false, true)) { "已有模型测试正在运行" }
+            modelProbeCancelled = false
+            modelProbeDone = java.util.concurrent.CountDownLatch(1)
+        }
+        val task = input.optString("task")
+        val started = System.nanoTime()
+        var child: Process? = null
+        var reader: Thread? = null
+        val output = StringBuilder()
+        val overflow = java.util.concurrent.atomic.AtomicBoolean(false)
+        var cleanupFailed = false
+        try {
+            require(task in listOf("embedding", "rerank")) { "不支持的检索任务" }
+            val drafts = input.optJSONArray("providers") ?: throw IllegalArgumentException("缺少连接快照")
+            require(drafts.length() in 1..12) { "模型连接数量无效" }
+            val providers = JSONArray()
+            for (index in 0 until drafts.length()) providers.put(store.modelRequest(drafts.getJSONObject(index), true))
+            val schema = context.assets.open("mobile-config.schema.json").bufferedReader().use { JSONObject(it.readText()) }
+            val mobile = MobileSettingsCodec(schema).normalize(input.optJSONObject("mobileConfig") ?: JSONObject())
+            val timeout = mobile.getJSONObject("sections").optJSONObject(task)?.optLong("timeout", if (task == "embedding") 10000 else 5000) ?: if (task == "embedding") 10000L else 5000L
+            val request = JSONObject().put("task", task).put("providers", providers).put("mobileConfig", mobile).toString().toByteArray(Charsets.UTF_8)
+            require(request.size <= 256 * 1024) { "模型测试配置过大" }
+            require(File("/system/bin/setsid").canExecute()) { "本机无法隔离模型测试进程" }
+            refreshResolver()
+            val nativeDir = context.applicationInfo.nativeLibraryDir
+            val temporary = File(context.cacheDir, "hds-proot").apply { mkdirs() }
+            val args = listOf("$nativeDir/libhds_proot.so", "--kill-on-exit", "-0", "-r", rootfs.absolutePath,
+                "-b", "/dev", "-b", "/dev/pts", "-b", "/proc", "-b", "/sys", "-b", "$nativeDir:$nativeDir",
+                "-w", "/opt/hds", "/opt/node/bin/node", "/opt/hds/model-probe.cjs")
+            val builder = ProcessBuilder(ProotLaunch.isolatedProbeArgs(args)).directory(context.filesDir).redirectErrorStream(false)
+            ProotLaunch.configure(builder.environment(), nativeDir, temporary.absolutePath, launchDiagnostic.optBoolean("selectedDisableSeccomp", true))
+            builder.environment()["HDS_MOBILE_MAIN"] = "0"
+            builder.environment()["HDS_MODEL_PROBE_MAIN"] = "1"
+            require(!modelProbeCancelled) { "模型测试已取消" }
+            val running = builder.start(); child = running; modelProbeProcess = running
+            // stderr is drained without logging: transport errors may contain URLs or credentials.
+            Thread({ try { running.errorStream.use { stream -> val buffer = ByteArray(1024); while (stream.read(buffer) >= 0) { } } } catch (_: Exception) { } }, "hds-model-probe-stderr").apply { isDaemon = true; start() }
+            reader = Thread({
+                try { running.inputStream.reader().use { stream ->
+                    val buffer = CharArray(512)
+                    while (true) {
+                        val count = stream.read(buffer); if (count < 0) break
+                        synchronized(output) {
+                            if (output.length + count > 8192) { overflow.set(true); running.destroy() }
+                            else {
+                                output.append(buffer, 0, count)
+                                if (modelProbeGroup.get() == 0 && output.contains("\n")) ProotLaunch.probeGroupId(output.toString().substringBefore('\n'))?.let { modelProbeGroup.set(it) }
+                            }
+                        }
+                    }
+                } } catch (_: Exception) { }
+            }, "hds-model-probe-output").apply { isDaemon = true; start() }
+            require(!modelProbeCancelled) { "模型测试已取消" }
+            running.outputStream.use { it.write(request); it.write(10); it.flush() }
+            val deadline = started + TimeUnit.MILLISECONDS.toNanos(15000 + timeout + 5000)
+            while (!running.waitFor(100, TimeUnit.MILLISECONDS)) {
+                if (modelProbeCancelled || System.nanoTime() >= deadline || overflow.get()) break
+            }
+            if (modelProbeCancelled) return JSONObject().put("data", JSONObject().put("ok", false).put("task", task).put("category", "cancelled"))
+            if (running.isAlive) return JSONObject().put("data", JSONObject().put("ok", false).put("task", task).put("category", if (overflow.get()) "invalid_response" else "timeout"))
+            reader.join(1000)
+            require(!overflow.get() && running.exitValue() == 0) { "模型测试进程异常" }
+            val lines = synchronized(output) { output.toString().lineSequence().filter { it.startsWith("HDS_MODEL_PROBE ") }.toList() }
+            require(lines.size == 1 && lines[0].length <= 4096) { "模型测试响应无效" }
+            val raw = JSONObject(lines[0].removePrefix("HDS_MODEL_PROBE "))
+            val result = ModelProbeResult.sanitize(raw, task)
+            val total = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+            result.put("startupMs", (total - result.optLong("elapsedMs")).coerceAtLeast(0))
+            return JSONObject().put("data", result)
+        } finally {
+            try { ProotLaunch.killProbeGroup(modelProbeGroup.get()) { pid -> Os.kill(pid, OsConstants.SIGKILL) } }
+            catch (failure: android.system.ErrnoException) { if (failure.errno != OsConstants.ESRCH) cleanupFailed = true }
+            val running = child
+            if (running != null) {
+                if (running.isAlive) running.destroy()
+                if (!running.waitFor(1, TimeUnit.SECONDS)) running.destroyForcibly()
+                if (!running.waitFor(2, TimeUnit.SECONDS)) cleanupFailed = true
+            }
+            reader?.join(1000)
+            modelProbeProcess = null; modelProbeGroup.set(0); modelProbeBusy.set(false); modelProbeDone.countDown()
+            require(!cleanupFailed) { "模型测试进程清理失败，请重启应用" }
+        }
+    }
     fun testModel(input: JSONObject): JSONObject = JSONObject().put("data", ModelClient().test(store.modelRequest(input, true)))
     fun <T> maintainStory(cardId: String, operation: () -> T): T {
+        drainModelProbe()
         synchronized(this) { require(!profileMaintenance); profileMaintenance = true }
         return try { executor.submit<T> {
             require(store.publicSettings().optString("activeCard") == cardId) { "当前角色已改变，请重新操作" }

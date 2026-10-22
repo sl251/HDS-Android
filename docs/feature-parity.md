@@ -1,3 +1,5 @@
+> Preview 9.5.2 当前执行基线：rc57 @ `ab512ec6b9dc00b9f738c062fe576e711a739151`，#10/#14 从 `9bdd5ac776dd682911edb9b48d1e7eaedd720dbe` 最小移植。向量配置、同栈 probe、索引身份与降级诊断已接入；**外部 rerank 是 Android 扩展，不属于上游 parity**，默认关闭，仅用于主叙事 durable facts。旧 CSV 的 rc56 AST 盘点是历史记录，不能当作嵌套字段支持清单。配置与验收边界见 [PREVIEW9.5.2.md](PREVIEW9.5.2.md)。
+
 > preview.8 更新：配置分区行已按实际代码更新为 PARTIAL / UPSTREAM_DEFAULT / DISABLED 等状态，证据指向具体实现与测试。命令行清单仍是初始盘点，不能把 NOT_IMPLEMENTED 一概理解为相应产品能力不存在。详情见 [PREVIEW8.md](PREVIEW8.md)。
 
 # feature-parity.csv 说明

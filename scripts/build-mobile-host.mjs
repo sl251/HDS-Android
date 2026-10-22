@@ -5,6 +5,7 @@ import { oneBotVoiceOverlay } from './mobile-onebot-voice.mjs'
 // The rc57 upstream tsconfig extends a Koishi monorepo file absent from this host.
 await build({ entryPoints: ['runtime/host.ts'], outfile: 'runtime/generated/host.cjs', platform: 'node', format: 'cjs', target: 'node24', bundle: true, packages: 'external', tsconfig: 'tsconfig.json', plugins: [oneBotVoiceOverlay] })
 await build({ entryPoints: ['runtime/qq.ts'], outfile: 'runtime/generated/qq.cjs', platform: 'node', format: 'cjs', target: 'node24', bundle: true, packages: 'external' })
+await build({ entryPoints: ['runtime/model-probe.ts'], outfile: 'runtime/generated/model-probe.cjs', platform: 'node', format: 'cjs', target: 'node24', bundle: true, packages: 'external', tsconfig: 'tsconfig.json' })
 const { mobileSchema } = createRequire(import.meta.url)('../runtime/generated/host.cjs')
 const schema = JSON.stringify(mobileSchema(), null, 2) + '\n'
 writeFileSync('packages/contracts/mobile-config.schema.json', schema)

@@ -149,11 +149,7 @@ function resolveRoute(task: Exclude<ModelTask, 'timeline' | 'stickers' | 'vision
 }
 
 function resolveAssignedOnlyRoute(task: 'stickers' | 'vision', providers: ProviderConfig[]): ResolvedModelRoute {
-  if (task === 'embedding' && target.providerId) {
-    const selected = providers.filter(provider => provider.enabled && provider.endpoint && provider.id === target.providerId)
-    return { task, target, providers: selected, assigned: false, available: !!selected.length, reason: selected.length ? 'task-config' : 'unavailable' }
-  }
-  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && (provider.model || target.model) && isAssignedTo(provider, task))
+  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && provider.model && isAssignedTo(provider, task))
   return {
     task,
     target: { providerId: assigned[0]?.id ?? '', model: assigned[0]?.model ?? '' },
@@ -277,4 +273,20 @@ export function resolveEffectiveEmbeddingTarget(config: ModelConfig, routing?: M
   }
   return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
     endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
+}
+
+/** Android extension: direct provider selection, never a chat task or failover. */
+export function resolveEffectiveRerankTarget(config: ModelConfig) {
+  const options = config.rerank
+  const provider = configuredProviders(config).find(row => row.enabled && row.id === options?.providerId && row.protocol === 'chat-completions')
+  const model = options?.model?.trim() || ''
+  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
+  let endpoint = ''
+  if (!reason) {
+    try {
+      endpoint = options?.endpoint?.trim() ? validateRetrievalEndpoint(options.endpoint).toString() : deriveRetrievalEndpoint(provider!.endpoint, 'rerank')
+      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider!.endpoint).origin) reason = 'endpoint_origin'
+    } catch { reason = 'endpoint_required' }
+  }
+  return { provider, model, endpoint, reason, timeout: Math.min(15000, options?.timeout ?? 5000) }
 }

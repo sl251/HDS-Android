@@ -71,7 +71,7 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
     finally { setWorking(false) }
   }
   const areas: Record<string, string[]> = { daily: ['agency', 'alterSystem'], advanced: ['runtime', 'urge', 'chatActions', 'schedulePreplan', 'timelineDirector', 'memory', 'worldSeeder', 'longHorizon', 'weather'], world: ['schedulePreplan', 'timelineDirector', 'memory', 'worldSeeder', 'longHorizon', 'weather'], system: [] }
-  const selectedSections = schema.sections.filter(section => section.key !== 'embedding' && (!area || areas[area].includes(section.key)))
+  const selectedSections = schema.sections.filter(section => !['embedding', 'rerank'].includes(section.key) && (!area || areas[area].includes(section.key)))
   return <section className="life-settings accordion">
     {!area && <h2>生活节奏与表达</h2>}
     {(!area || area === 'advanced') && <details data-config-section="budget"><summary>后台预算<span className="tag">{value.backgroundLimit ?? 120} 次 / 日</span></summary>
@@ -101,8 +101,8 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
         </label>
       })}</div>
 
-        {section.key === 'memory' && <><p className="caption">原始条目与事实默认 20 条，上限 20 条。向量检索与模型分工联动：请在「模型连接 → 任务分工」指定向量模型；实时检索默认关闭，后台向量补齐不受影响。</p>
-          {schema.sections.find(row => row.key === 'embedding')!.fields.filter(field => field.key !== 'providerId').map(field => <label className="toggle" key={field.key}><input type="checkbox" checked={(value.sections?.embedding?.[field.key] ?? field.default) === true} onChange={event => update('embedding', field.key, event.target.checked)} /><span>{field.key === 'enabled' ? '长期记忆向量检索' : '对话中实时检索'}</span></label>)}
+        {section.key === 'memory' && <><p className="caption">原始条目与事实默认 20 条，上限 20 条。向量检索与模型分工联动：请在「模型连接 → 向量与重排序」配置连接与模型；实时检索默认关闭，后台向量补齐不受影响。</p>
+          {schema.sections.find(row => row.key === 'embedding')!.fields.filter(field => ['enabled', 'liveQuery'].includes(field.key)).map(field => <label className="toggle" key={field.key}><input type="checkbox" checked={(value.sections?.embedding?.[field.key] ?? field.default) === true} onChange={event => update('embedding', field.key, event.target.checked)} /><span>{field.key === 'enabled' ? '长期记忆向量检索' : '对话中实时检索'}</span></label>)}
         </>}
         {section.key === 'worldSeeder' && <p className="caption">事件源为外部事件与配角；需在「模型连接 → 任务分工」指定世界播种模型。</p>}
         {section.key === 'longHorizon' && <p className="caption">审查周期由新增叙事证据分数决定；指导强度控制长期方向的表达程度。</p>}

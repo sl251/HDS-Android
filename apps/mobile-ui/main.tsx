@@ -6,6 +6,7 @@ import type { DiagnosticsMessageFocus, QQConversation, SchedulingStatus, Message
 import { messageImages, imageEntryReason, visionProjection, visionRouteReason, refreshCoordinator, mergeMessages, localRequestFailure } from '../../packages/contracts'
 import './style.css'
 import { Onboarding, onboardingStorageKey, type OnboardingTarget } from './Onboarding'
+import { RetrievalSettings } from './RetrievalSettings'
 import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
 import { CardEditor } from './CardEditor'
 import { StorySettingEditor } from './StorySettingEditor'
@@ -665,6 +666,7 @@ function App() {
             <button className="settings-entry" onClick={() => { setDetail('memory'); setPage('story') }}><span>记忆与故事<small>维护事实与故事中的经历</small></span><Icon name="arrow" /></button>
             <StoryManagement scope="story" bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />
           </>}
+          {spacePage === 'models' && <RetrievalSettings settings={settings} setSettings={setSettings} bridge={bridge} native={native} healthy={healthy} saveState={saveState} saveError={saveError} />}
           {(spacePage === 'life' || spacePage === 'advanced') && <LifeSettings area={spacePage === 'life' ? 'daily' : 'advanced'} value={settings.mobileConfig} change={mobileConfig => setSettings(previous => ({ ...previous, mobileConfig }))} bridge={bridge} healthy={healthy} native={native} notify={setNotice} />}
           {spacePage === 'system' && <>
             <StoryManagement scope="backup" bridge={bridge} cardId={selected} name={active?.card.name || ""} native={native} healthy={healthy} busy={busy || sending || transitioning} act={act} changed={storyChanged} notify={setNotice} />

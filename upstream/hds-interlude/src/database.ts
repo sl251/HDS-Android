@@ -34,7 +34,7 @@ declare module 'koishi' {
   }
 }
 
-export function registerTables(ctx: Context) {
+export function registerTables(ctx: Context, mobileEmbeddingIdentity = false) {
   // Koishi keeps the model registry on the parent context during plugin
   // reloads. Re-registering the same schemas forces minato to rebuild
   // indexes and is a noticeable source of reload latency.
@@ -44,7 +44,7 @@ export function registerTables(ctx: Context) {
   // genuinely new tables introduced by later releases.
   if (existingTables.interlude_story) {
     registerScriptEntryEmbedding(ctx, existingTables)
-    for (const table of ['interlude_fact', 'interlude_sticker'] as const) {
+    if (mobileEmbeddingIdentity) for (const table of ['interlude_fact', 'interlude_sticker'] as const) {
       if (existingTables[table] && !existingTables[table].fields?.embeddingIdentity) ctx.model.extend(table, { embeddingIdentity: { type: 'string', length: 64, nullable: true } })
     }
     if (existingTables.interlude_fact && !existingTables.interlude_fact.fields?.knowledge) {
@@ -59,7 +59,7 @@ export function registerTables(ctx: Context) {
     }
     if (!existingTables.interlude_web_observation) registerWebObservationTable(ctx)
     if (!existingTables.interlude_overlay_snapshot) registerOverlaySnapshotTable(ctx)
-    if (!existingTables.interlude_sticker) registerStickerTable(ctx)
+    if (!existingTables.interlude_sticker) registerStickerTable(ctx, mobileEmbeddingIdentity)
     if (!existingTables.interlude_schedule_preplan) registerSchedulePreplanTable(ctx)
     if (!existingTables.interlude_seeded_event) registerSeededEventTable(ctx)
     if (!existingTables.interlude_qzone_post) registerQzonePostTable(ctx)
@@ -125,7 +125,7 @@ export function registerTables(ctx: Context) {
   ctx.model.extend('interlude_fact', {
     knowledge: 'json',
     id: 'unsigned', storyId: 'string(255)', participantId: 'string(255)', scope: 'string(32)', content: 'text',
-    importance: 'double', confidence: 'double', unresolved: 'boolean', embedding: 'json', embeddingIdentity: { type: 'string', length: 64, nullable: true }, status: 'string(16)', sourceEntryIds: 'json',
+    importance: 'double', confidence: 'double', unresolved: 'boolean', embedding: 'json', ...(mobileEmbeddingIdentity ? { embeddingIdentity: { type: 'string' as const, length: 64, nullable: true } } : {}), status: 'string(16)', sourceEntryIds: 'json',
     lastSeenAt: 'timestamp', createdAt: 'timestamp', updatedAt: 'timestamp',
   }, { primary: 'id', autoInc: true, indexes: ['storyId', 'status', 'importance'] })
 
@@ -138,7 +138,7 @@ export function registerTables(ctx: Context) {
 
   registerWebObservationTable(ctx)
   registerOverlaySnapshotTable(ctx)
-  registerStickerTable(ctx)
+  registerStickerTable(ctx, mobileEmbeddingIdentity)
   registerSchedulePreplanTable(ctx)
   registerSeededEventTable(ctx)
   registerQzonePostTable(ctx)
@@ -177,12 +177,12 @@ function registerOverlaySnapshotTable(ctx: Context) {
   }, { primary: 'id', autoInc: true, indexes: ['storyId', 'status', 'target', 'periodEnd'] })
 }
 
-function registerStickerTable(ctx: Context) {
+function registerStickerTable(ctx: Context, mobileEmbeddingIdentity = false) {
   if ((ctx.model as any).tables?.interlude_sticker) return
   ctx.model.extend('interlude_sticker', {
     id: 'unsigned', assetId: 'string(255)', filePath: 'string(1024)', group: 'string(128)', mimeType: 'string(127)',
     animated: 'boolean', size: 'unsigned', hash: 'string(64)', description: 'text', aliases: 'json', status: 'string(16)',
-    embedding: 'json', embeddingIdentity: { type: 'string', length: 64, nullable: true },
+    embedding: 'json', ...(mobileEmbeddingIdentity ? { embeddingIdentity: { type: 'string' as const, length: 64, nullable: true } } : {}),
     createdAt: 'timestamp', updatedAt: 'timestamp',
   }, { primary: 'id', autoInc: true, unique: ['assetId'], indexes: ['status', 'group', 'updatedAt'] })
 }

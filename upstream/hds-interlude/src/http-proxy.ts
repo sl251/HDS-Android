@@ -44,7 +44,19 @@ export async function postJsonViaProxy(
       redirect: options?.redirect,
       dispatcher: agent,
     })
-    const text = await response.text()
+    let text: string
+    if (options) {
+      const reader = response.body?.getReader(), chunks: Uint8Array[] = []; let bytes = 0
+      if (reader) try {
+        while (true) {
+          const part = await reader.read(); if (part.done) break
+          bytes += part.value.length
+          if (bytes > (response.ok ? 2 * 1024 * 1024 : 4096)) { await reader.cancel(); if (response.ok) throw new Error('invalid_response'); break }
+          chunks.push(part.value)
+        }
+      } finally { reader.releaseLock() }
+      text = Buffer.concat(chunks).toString('utf8')
+    } else text = await response.text()
     if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}${clipResponseDetail(text)}`)
     try {
       return JSON.parse(text)

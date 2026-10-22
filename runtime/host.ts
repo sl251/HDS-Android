@@ -22,7 +22,7 @@ import { mapMobileConfig, normalizeMobileConfig, mobileSchema, embeddingProvider
 import { localVoiceCapability, localVoiceDelivery, oneBotVoiceDelivery, type VoiceBridgeConfig } from './voice'
 import { messageAudio } from '../packages/contracts/voice'
 import { BackgroundBudget } from './background-budget'
-import { MessageDiagnostics, runMessageDiagnostics, diagnosticEvent, diagnosticError, diagnosticCall, hasMessageDiagnostics, withDeliveryDiagnostics } from './message-diagnostics'
+import { retrievalDiagnosticRecorder, MessageDiagnostics, runMessageDiagnostics, diagnosticEvent, diagnosticError, diagnosticCall, hasMessageDiagnostics, withDeliveryDiagnostics } from './message-diagnostics'
 import { inspectPreset } from './preset'
 import { messagePush, serializeMessagePush, messagesSinceQuery, type PushRow } from './message-push'
 export { messagePush, serializeMessagePush, messagesSinceQuery } from './message-push'
@@ -118,6 +118,7 @@ export async function startHost(input: HostConfig) {
     qzone: { enabled: false }, browser: { enabled: false },
     onebot: { enabled: true, botAccounts: [], userAccounts: [], groupChats: [], ignoreSelfMessages: true },
   })
+  config.model.mobileEmbeddingIdentity = true
   config.model.mobileVoiceCapabilities = () => localVoiceCapability(input.voiceBridge)
   ;(config.model as any).mobileStickerDelivery = oneBotStickerDelivery
   Object.assign(config.model, { mobileDiagnostics: diagnostics })
@@ -132,6 +133,10 @@ export async function startHost(input: HostConfig) {
     // Keep the upstream delivery executor occupied until the chosen transport
     // settles; its existing execution key prevents concurrent repair sends.
     try { return await task } finally { voiceTasks.delete(task) }
+  }
+  config.model.mobileRetrievalRecorder = () => retrievalDiagnosticRecorder(diagnostics, config.model.providers)
+  for (const [task, status] of Object.entries(retrieval.status)) {
+    if (status.desired && !status.effective) diagnostics.retrieval([], task, 'fallback', { reason: status.reason }, diagnostics.epoch)
   }
   config.model.mobileBeforeRequest = budget.beforeRequest
   config.model.mobileSystemPrompt = (prompt, request) => mobileVoicePrompt(request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt), request.chatCapabilities?.voice)
@@ -264,7 +269,7 @@ export async function startHost(input: HostConfig) {
       const visionRestartRequired = desiredVision !== undefined && JSON.stringify(desiredVision) !== JSON.stringify(activeVision)
       return { restartRequired: lifeRestartRequired || visionRestartRequired, visionRestartRequired, activeVision, reasons: [...(lifeRestartRequired ? ['mobile-config-changed'] : []), ...(visionRestartRequired ? ['vision-config-changed'] : [])] }
     }
-    if (method === 'config.status') return { retrieval: retrieval.status, sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (section.key === 'embedding' ? config.model.embedding : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
+    if (method === 'config.status') return { retrievalTargets: retrieval.targets, retrieval: retrieval.status, sections: Object.fromEntries(mobileSchema().sections.map(section => [section.key, Object.fromEntries(section.fields.map(field => [field.key, (['embedding', 'rerank'].includes(section.key) ? (config.model as any)[section.key] : (config as any)[section.key])?.[field.key]]))])), budget: budget.status() }
     if (method === 'health') return { budget: budget.status(), hds: HDS.version, storyId: story.id, platform: bot.platform, sqlite: true }
     if (method === 'messages.since') {
       const query = messagesSinceQuery(payload.since)

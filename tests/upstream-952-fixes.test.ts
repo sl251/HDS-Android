@@ -205,3 +205,24 @@ test('A2: persist=false 返回内存占位对象（id:0），不触库', async (
   assert.deepEqual(creations, [])
 })
 
+
+test('backport synthesis keeps explicit let-go/recheck, missing window and global disable gates', async () => {
+  for (const outcome of ['let-go', 'recheck-later']) {
+    const result = await persist(replyDecision({ proactiveContact: { participantId: 'alice', origin: 'life-event', motive: 'neutral contact', disclosure: 'ordinary', outcome, willingness: 1 } as any }))
+    assert.deepEqual(result.messages, []); assert.ok(!result.reports.some(line => line.includes('候选由 host 合成')))
+  }
+  for (const decision of [replyDecision({ agencyWindow: undefined }), replyDecision({ agencyWindow: { activityLoad: 'free', privacy: 'private', deviceAccess: 'unavailable', validUntil: future.toISOString(), basis: 'no device' } })]) assert.deepEqual((await persist(decision)).messages, [])
+  assert.deepEqual((await persist(replyDecision(), { agency: { enabled: false } })).messages, [])
+})
+test('withdrawal annotations select only new pending intents in the same story and participants', async () => {
+  const rows = [
+    { id: 101, storyId: 's', participantId: 'alice', status: 'pending', summary: 'new', payload: {} },
+    { id: 99, storyId: 's', participantId: 'alice', status: 'pending', summary: 'old', payload: {} },
+    { id: 102, storyId: 'other', participantId: 'alice', status: 'pending', summary: 'other', payload: {} },
+    { id: 103, storyId: 's', participantId: 'bob', status: 'pending', summary: 'bob', payload: {} },
+    { id: 104, storyId: 's', participantId: 'alice', status: 'completed', summary: 'done', payload: {} },
+  ]
+  const host: any = Object.assign(Object.create(InterludeService.prototype), { dbGet: async (_t: string, q: any) => rows.filter(row => row.storyId === q.storyId && row.status === q.status && row.id > q.id.$gt && q.participantId.$in.includes(row.participantId)), dbSet: async (_t: string, q: any, patch: any) => Object.assign(rows.find(row => row.id === q.id)!, patch), reportOperation: () => {} })
+  await host.annotateWithdrawnTurnIntents({ id: 's' }, 100, new Set(['alice']), 'mock-gate', now)
+  assert.equal(rows.filter(row => row.summary.includes('从未发出')).length, 1); assert.equal(rows[0].status, 'pending')
+})

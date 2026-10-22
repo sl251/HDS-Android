@@ -30,6 +30,7 @@ internal fun pickedImageUris(result: ActivityResult): List<android.net.Uri> {
 @CapacitorPlugin(name = "HdsRuntime", permissions = [Permission(alias = "microphone", strings = [android.Manifest.permission.RECORD_AUDIO]), Permission(alias = "notifications", strings = [android.Manifest.permission.POST_NOTIFICATIONS])])
 class HdsRuntimePlugin : Plugin() {
     private val io = Executors.newSingleThreadExecutor()
+    private val retrievalIo = Executors.newSingleThreadExecutor()
     private fun runtime() = HdsRuntime.get(context)
     private fun resolve(call: PluginCall, result: JSONObject = JSONObject()) { call.resolve(JSObject.fromJSONObject(result)) }
     private fun run(call: PluginCall, operation: () -> JSONObject) { io.execute { try { resolve(call, operation()) } catch (failure: Throwable) { call.reject(failure.message ?: "原生操作失败", failure.javaClass.simpleName) } } }
@@ -83,7 +84,7 @@ class HdsRuntimePlugin : Plugin() {
     }
     @PluginMethod fun stopVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.stop() } }
     @PluginMethod fun cancelVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.cancel(); JSONObject() } }
-    override fun handleOnDestroy() { voiceRecorder.cancel(); super.handleOnDestroy() }
+    override fun handleOnDestroy() { runtime().cancelModelProbe(); voiceRecorder.cancel(); super.handleOnDestroy() }
     @PluginMethod fun status(call: PluginCall) { resolve(call, runtime().status()) }
     @PluginMethod fun settings(call: PluginCall) { run(call) { runtime().store.publicSettings() } }
     @PluginMethod fun appearance(call: PluginCall) { run(call) { AppearanceStore(context).read() } }
@@ -316,7 +317,14 @@ class HdsRuntimePlugin : Plugin() {
         }
         runtime().store.deleteCard(id); JSONObject()
     } }
-    @PluginMethod fun rpc(call: PluginCall) { run(call) {
+    @PluginMethod fun rpc(call: PluginCall) {
+        if (call.getString("method") == "models.cancelRetrieval") { runtime().cancelModelProbe(); resolve(call, JSONObject().put("data", JSONObject())); return }
+        if (call.getString("method") == "models.testRetrieval") {
+            val payload = JSONObject((call.getObject("payload") ?: JSONObject()).toString())
+            retrievalIo.execute { try { resolve(call, runtime().testRetrieval(payload)) } catch (_: Throwable) { call.reject("模型测试未完成；请检查运行环境、配置或清理状态") } }
+            return
+        }
+        run(call) {
         val method = call.getString("method") ?: throw IllegalArgumentException("缺少方法")
         val payload = call.getObject("payload") ?: JSONObject()
         when (method) {

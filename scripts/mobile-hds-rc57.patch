@@ -1,12 +1,23 @@
 --- a/database.ts
 +++ b/database.ts
-@@ -42,10 +42,13 @@
+@@ -32,20 +32,23 @@
+     interlude_story_alias: StoryAliasRecord
+     interlude_work: WorkRow
+   }
+ }
+ 
+-export function registerTables(ctx: Context) {
++export function registerTables(ctx: Context, mobileEmbeddingIdentity = false) {
+   // Koishi keeps the model registry on the parent context during plugin
+   // reloads. Re-registering the same schemas forces minato to rebuild
+   // indexes and is a noticeable source of reload latency.
+   const existingTables = (ctx.model as any).tables ?? {}
    // Existing installations already have the original tables registered by a
    // parent context. Do not rebuild those schemas on reload, but keep adding
    // genuinely new tables introduced by later releases.
    if (existingTables.interlude_story) {
      registerScriptEntryEmbedding(ctx, existingTables)
-+    for (const table of ['interlude_fact', 'interlude_sticker'] as const) {
++    if (mobileEmbeddingIdentity) for (const table of ['interlude_fact', 'interlude_sticker'] as const) {
 +      if (existingTables[table] && !existingTables[table].fields?.embeddingIdentity) ctx.model.extend(table, { embeddingIdentity: { type: 'string', length: 64, nullable: true } })
 +    }
      if (existingTables.interlude_fact && !existingTables.interlude_fact.fields?.knowledge) {
@@ -14,6 +25,19 @@
      }
      if (existingTables.interlude_qzone_post && !existingTables.interlude_qzone_post.fields?.endpointId) {
        ctx.model.extend('interlude_qzone_post', { endpointId: 'string(63)' })
+@@ -54,11 +57,11 @@
+     if (existingTables.interlude_qzone_post && !existingTables.interlude_qzone_post.fields?.commentNum) {
+       ctx.model.extend('interlude_qzone_post', { commentNum: 'unsigned' })
+     }
+     if (!existingTables.interlude_web_observation) registerWebObservationTable(ctx)
+     if (!existingTables.interlude_overlay_snapshot) registerOverlaySnapshotTable(ctx)
+-    if (!existingTables.interlude_sticker) registerStickerTable(ctx)
++    if (!existingTables.interlude_sticker) registerStickerTable(ctx, mobileEmbeddingIdentity)
+     if (!existingTables.interlude_schedule_preplan) registerSchedulePreplanTable(ctx)
+     if (!existingTables.interlude_seeded_event) registerSeededEventTable(ctx)
+     if (!existingTables.interlude_qzone_post) registerQzonePostTable(ctx)
+     if (!existingTables.interlude_endpoint) registerEndpointTable(ctx)
+     if (!existingTables.interlude_endpoint_state) registerEndpointStateTable(ctx)
 @@ -120,11 +123,11 @@
    // 长期事实是全局叙事材料；participantId 仅为旧数据库兼容保留，
    // 不再表达事实主体或可见性。来源条目仍供审计或重建。
@@ -21,20 +45,39 @@
      knowledge: 'json',
      id: 'unsigned', storyId: 'string(255)', participantId: 'string(255)', scope: 'string(32)', content: 'text',
 -    importance: 'double', confidence: 'double', unresolved: 'boolean', embedding: 'json', status: 'string(16)', sourceEntryIds: 'json',
-+    importance: 'double', confidence: 'double', unresolved: 'boolean', embedding: 'json', embeddingIdentity: { type: 'string', length: 64, nullable: true }, status: 'string(16)', sourceEntryIds: 'json',
++    importance: 'double', confidence: 'double', unresolved: 'boolean', embedding: 'json', ...(mobileEmbeddingIdentity ? { embeddingIdentity: { type: 'string' as const, length: 64, nullable: true } } : {}), status: 'string(16)', sourceEntryIds: 'json',
      lastSeenAt: 'timestamp', createdAt: 'timestamp', updatedAt: 'timestamp',
    }, { primary: 'id', autoInc: true, indexes: ['storyId', 'status', 'importance'] })
  
    // 设定变化先以提案存在，经过证据与阈值检查后才写入 story.state 的 overlay。
    ctx.model.extend('interlude_state_patch', {
-@@ -177,11 +180,11 @@
- function registerStickerTable(ctx: Context) {
+@@ -133,11 +136,11 @@
+     status: 'string(16)', sourceEntryIds: 'json', createdAt: 'timestamp', appliedAt: 'timestamp',
+   }, { primary: 'id', autoInc: true, indexes: ['storyId', 'status', 'confidence'] })
+ 
+   registerWebObservationTable(ctx)
+   registerOverlaySnapshotTable(ctx)
+-  registerStickerTable(ctx)
++  registerStickerTable(ctx, mobileEmbeddingIdentity)
+   registerSchedulePreplanTable(ctx)
+   registerSeededEventTable(ctx)
+   registerQzonePostTable(ctx)
+   registerEndpointTable(ctx)
+   registerEndpointStateTable(ctx)
+@@ -172,16 +175,16 @@
+     periodStart: 'timestamp', periodEnd: 'timestamp', summary: 'text', majorEvents: 'json', sourcePatchIds: 'json',
+     status: 'string(16)', createdAt: 'timestamp', updatedAt: 'timestamp',
+   }, { primary: 'id', autoInc: true, indexes: ['storyId', 'status', 'target', 'periodEnd'] })
+ }
+ 
+-function registerStickerTable(ctx: Context) {
++function registerStickerTable(ctx: Context, mobileEmbeddingIdentity = false) {
    if ((ctx.model as any).tables?.interlude_sticker) return
    ctx.model.extend('interlude_sticker', {
      id: 'unsigned', assetId: 'string(255)', filePath: 'string(1024)', group: 'string(128)', mimeType: 'string(127)',
      animated: 'boolean', size: 'unsigned', hash: 'string(64)', description: 'text', aliases: 'json', status: 'string(16)',
 -    embedding: 'json',
-+    embedding: 'json', embeddingIdentity: { type: 'string', length: 64, nullable: true },
++    embedding: 'json', ...(mobileEmbeddingIdentity ? { embeddingIdentity: { type: 'string' as const, length: 64, nullable: true } } : {}),
      createdAt: 'timestamp', updatedAt: 'timestamp',
    }, { primary: 'id', autoInc: true, unique: ['assetId'], indexes: ['status', 'group', 'updatedAt'] })
  }
@@ -121,7 +164,7 @@
    try {
      undici = require('undici')
    } catch {
-@@ -37,11 +38,12 @@
+@@ -37,14 +38,27 @@
    try {
      const response = await undici.fetch(url, {
        method: 'POST',
@@ -132,16 +175,42 @@
 +      redirect: options?.redirect,
        dispatcher: agent,
      })
-     const text = await response.text()
+-    const text = await response.text()
++    let text: string
++    if (options) {
++      const reader = response.body?.getReader(), chunks: Uint8Array[] = []; let bytes = 0
++      if (reader) try {
++        while (true) {
++          const part = await reader.read(); if (part.done) break
++          bytes += part.value.length
++          if (bytes > (response.ok ? 2 * 1024 * 1024 : 4096)) { await reader.cancel(); if (response.ok) throw new Error('invalid_response'); break }
++          chunks.push(part.value)
++        }
++      } finally { reader.releaseLock() }
++      text = Buffer.concat(chunks).toString('utf8')
++    } else text = await response.text()
      if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}${clipResponseDetail(text)}`)
      try {
+       return JSON.parse(text)
+     } catch {
+       throw new Error(`代理响应不是有效 JSON${clipResponseDetail(text)}`)
 --- a/index.ts
 +++ b/index.ts
-@@ -180,10 +180,13 @@
+@@ -179,11 +179,23 @@
+   audio: AudioUnderstanding.default({ enabled: false, outFormat: 'mp3', maxFileSizeMB: 10, maxPerMessage: 1 }).description('语音/音频理解设置。'),
    mainPrompt: Schema.string().role('textarea').default('Continue the character-centered life script with grounded actions, motives, relationships, and ordinary time passing.').description('已迁移到配置页最底部的主提示词分区；此处保留仅为兼容旧配置的自定义值。').hidden(),
    formatPrompt: Schema.string().role('textarea').default('').description('结构化输出补充规则。'),
    fixedPrompt: Schema.string().role('textarea').default('').description('通用长期规则。'),
    stylePrompt: Schema.string().role('textarea').default(DEFAULT_STYLE_PROMPT).description('全局叙事文风；故事级 style 可进一步覆盖。默认为完整的生活剧本写作指引（2026-10-15 起）。'),
++  rerank: Schema.object({
++    enabled: Schema.boolean().default(false).description('Android 扩展：外部精排长期事实，失败回退本地排序。'),
++    providerId: Schema.string().default('').description('指定启用的 OpenAI 兼容连接；不参与聊天分工。'),
++    endpoint: Schema.string().default('').description('完整重排序端点；留空按连接地址安全推导。'),
++    model: Schema.string().default('').description('必填 API 重排序模型名。'),
++    topN: Schema.natural().min(1).max(20).default(20).description('普通事实精排输出上限。'),
++    scoreThreshold: Schema.number().min(0).max(1).default(0).description('模型相关的分数阈值；0 关闭过滤。'),
++    timeout: Schema.natural().min(500).max(15000).default(5000).description('重排序超时，毫秒。'),
++  }).description('向量与重排序：重排序是 Android 扩展，默认关闭。'),
    embedding: (Schema.object({
 +    providerId: Schema.string().default('').description('向量连接编号；留空使用向量任务分工。'),
 +    model: Schema.string().default('').description('显式向量模型名；留空使用连接模型。'),
@@ -151,7 +220,7 @@
      liveQuery: Schema.boolean().default(false).description('是否在每次实时对话中额外请求 Embedding 做语义检索。关闭可减少一次网络请求、降低回复延迟；后台向量补齐不受影响。'),
      endpoint: Schema.string().default('').description('Embedding 完整地址；留空时从所选模型连接的 Chat 地址推导。'),
      dimensions: Schema.natural().min(0).max(32_768).default(0).description('向量维度；0 表示由服务商决定。'),
-@@ -233,10 +236,11 @@
+@@ -233,10 +245,11 @@
      maxCharacters: Schema.natural().min(500).max(32_000).default(2_000).description('合并转发注入当前事件的最大字符数。'),
      maxDepth: Schema.natural().max(8).default(3).description('嵌套合并转发最多展开层数。'),
    }).default({ enabled: true, maxNodes: 30, maxCharacters: 2_000, maxDepth: 3 }).description('【消息扩展】QQ 合并转发读取预算。'),
@@ -163,7 +232,7 @@
    memoryLimit: Schema.natural().min(1).max(200).default(20).description('主叙事读取的长期事实数量；会经过相关性重排。'),
    maxScriptCharacters: Schema.natural().min(500).max(12_000).default(1_400).description('单次写作允许追加的剧本文本上限。'),
    maxMessageCharacters: Schema.natural().min(1).max(12_000).default(1_500).description('单条可见消息的最大字符数。'),
-@@ -475,11 +479,11 @@
+@@ -475,11 +488,11 @@
    ignoreSelfMessages: Schema.boolean().default(true).description('忽略机器人自身产生的消息事件。'),
  })
  
@@ -178,7 +247,7 @@
      .description('主模型可以选择的语义表情；平台连接器负责转换为实际表情编号。'),
 --- a/model-routing.ts
 +++ b/model-routing.ts
-@@ -111,19 +111,23 @@
+@@ -111,29 +111,35 @@
  export function formatModelRouting(table: ModelRoutingTable) {
    const tasks: ModelTask[] = ['main', 'compaction', 'timeline', 'alter', 'embedding', 'stickers', 'vision']
    return tasks.map(task => {
@@ -204,36 +273,19 @@
    const targeted = target.providerId
      ? providers.filter(provider => provider.enabled && provider.endpoint && (provider.id === target.providerId || providerKey(provider) === target.providerId))
      : []
-@@ -131,21 +135,27 @@
+   const targetedUsable = targeted.filter(provider => !!(target.model || provider.model))
    if (targetedUsable.length) {
      const profileSelected = !!target.providerId && !!target.model
      return { task, target, providers: targetedUsable, assigned: false, available: true, reason: profileSelected ? 'model-profile' : 'task-config' }
    }
- 
-+  if (task === 'embedding') return { task, target, providers: [], assigned: false, available: false, reason: 'unavailable' }
 +
++  if (task === 'embedding') return { task, target, providers: [], assigned: false, available: false, reason: 'unavailable' }
+ 
    // Keep legacy installations operational, but never treat an embedding-only
    // connection as a chat fallback. Explicit task assignment remains preferred.
    const fallback = providers.filter(provider => provider.enabled && provider.endpoint
      && (!requireChatModel || !!provider.model)
-     && !isExclusivelyNonChat(provider))
-   if (fallback.length) return { task, target, providers: fallback, assigned: false, available: true, reason: 'legacy-fallback' }
-   return { task, target, providers: [], assigned: false, available: false, reason: 'unavailable' }
- }
- 
- function resolveAssignedOnlyRoute(task: 'stickers' | 'vision', providers: ProviderConfig[]): ResolvedModelRoute {
--  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && provider.model && isAssignedTo(provider, task))
-+  if (task === 'embedding' && target.providerId) {
-+    const selected = providers.filter(provider => provider.enabled && provider.endpoint && provider.id === target.providerId)
-+    return { task, target, providers: selected, assigned: false, available: !!selected.length, reason: selected.length ? 'task-config' : 'unavailable' }
-+  }
-+  const assigned = providers.filter(provider => provider.enabled && provider.endpoint && (provider.model || target.model) && isAssignedTo(provider, task))
-   return {
-     task,
-     target: { providerId: assigned[0]?.id ?? '', model: assigned[0]?.model ?? '' },
-     providers: assigned,
-     assigned: assigned.length > 0,
-@@ -228,5 +238,43 @@
+@@ -228,5 +234,59 @@
      if (dashscopeRegion === 'us') return 'https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions'
      return 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
    }
@@ -277,6 +329,22 @@
 +  return { provider, model, endpoint, reason, timeout: embedding?.timeout ?? 10000, dimensions: embedding?.dimensions ?? 0,
 +    endpointSource: embedding?.endpoint?.trim() ? 'explicit' : 'derived', modelSource: embedding?.model?.trim() ? 'explicit' : 'connection' }
 +}
++
++/** Android extension: direct provider selection, never a chat task or failover. */
++export function resolveEffectiveRerankTarget(config: ModelConfig) {
++  const options = config.rerank
++  const provider = configuredProviders(config).find(row => row.enabled && row.id === options?.providerId && row.protocol === 'chat-completions')
++  const model = options?.model?.trim() || ''
++  let reason = !provider ? 'provider_required' : !model ? 'model_required' : ''
++  let endpoint = ''
++  if (!reason) {
++    try {
++      endpoint = options?.endpoint?.trim() ? validateRetrievalEndpoint(options.endpoint).toString() : deriveRetrievalEndpoint(provider!.endpoint, 'rerank')
++      if (validateRetrievalEndpoint(endpoint).origin !== validateRetrievalEndpoint(provider!.endpoint).origin) reason = 'endpoint_origin'
++    } catch { reason = 'endpoint_required' }
++  }
++  return { provider, model, endpoint, reason, timeout: Math.min(15000, options?.timeout ?? 5000) }
++}
 --- a/narrator.ts
 +++ b/narrator.ts
 @@ -19,11 +19,11 @@
@@ -286,7 +354,7 @@
  import {
    effectiveMainModelId, ModelRoutingTable, ModelTask,
 -  providerKey, resolveModelRouting,
-+  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint,
++  providerKey, resolveModelRouting, resolveEffectiveEmbeddingTarget, deriveRetrievalEndpoint, resolveEffectiveRerankTarget,
  } from './model-routing'
  
  export {
@@ -316,19 +384,24 @@
    providers: ProviderConfig[]
    failover: FailoverConfig
    mainPrompt?: string
-@@ -150,10 +163,11 @@
+@@ -149,11 +162,16 @@
+   mainStreamingMode?: 'off' | 'experimental'
    /** cache-first reorders the user payload so stable blocks (history, memory layers) precede
     * per-turn fields, letting provider prefix caches hit across consecutive turns. */
    mainPayloadOrder?: 'legacy' | 'cache-first'
    compaction?: CompactionConfig
++  rerank?: RerankConfig
    embedding?: EmbeddingConfig
 +  mobileRetrievalEvent?: (event: RetrievalEvent) => void
++  /** Android index migration opt-in; standalone upstream schemas retain their original shape. */
++  mobileEmbeddingIdentity?: boolean
++  mobileRetrievalRecorder?: () => (event: RetrievalEvent) => void
    /** OpenAI-compatible native image inputs for the current private-message turn. */
    vision?: VisionConfig
    /** OpenAI-compatible native audio inputs for the current private-message turn. */
    audio?: AudioConfig
  }
-@@ -294,50 +308,37 @@
+@@ -294,50 +312,38 @@
    constructor(private ctx: Context, private config: ModelConfig, routing?: ModelRoutingTable) {
      this.routing = routing ?? resolveModelRouting(config)
    }
@@ -381,6 +454,7 @@
 +    if (!embedding?.enabled || !input.trim()) return []
 +    const target = resolveEffectiveEmbeddingTarget(this.config, this.routing)
 +    const started = Date.now()
++    const report = beginRetrieval(this.config)
 +    try {
 +      if (target.reason) throw new RetrievalError(target.reason)
 +      const body = { model: target.model, input: input.trim().slice(0, Math.max(1, embedding.maxInputCharacters ?? 4000)),
@@ -389,11 +463,11 @@
 +      const response = await retrievalPost(this.ctx, target.provider!, target.endpoint, body, target.timeout, context) as EmbeddingResponse
 +      const vector = response?.data?.[0]?.embedding
 +      if (!validRetrievalVector(vector) || target.dimensions > 0 && vector.length !== target.dimensions) throw new RetrievalError('invalid_response')
-+      emitRetrieval(this.config, { task: 'embedding', status: 'succeeded', providerId: target.provider?.id, elapsedMs: Date.now() - started, vectorDimensions: vector.length })
++      report({ task: 'embedding', status: 'succeeded', providerId: target.provider?.id, elapsedMs: Date.now() - started, vectorDimensions: vector.length })
 +      return vector
 +    } catch (error) {
 +      const failure = classifyRetrievalError(error)
-+      emitRetrieval(this.config, { task: 'embedding', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
++      report({ task: 'embedding', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
 +      throw new RetrievalError(failure.category, failure.httpStatus)
 +    }
    }
@@ -401,7 +475,7 @@
  }
  
  export class OpenAICompatibleNarrator implements NarrativeProvider {
-@@ -391,10 +392,17 @@
+@@ -391,10 +397,17 @@
    visionAvailable() {
      return this.assignedProviders('vision').length > 0
    }
@@ -419,7 +493,7 @@
      const mainModelId = effectiveMainModelId(this.config)
      const route = this.routing.main.target
      const hasMainRoute = !!mainModelId || !!assigned.length
-@@ -418,55 +426,72 @@
+@@ -418,55 +431,72 @@
        },
      } : request
      try {
@@ -496,7 +570,7 @@
  
        throw new Error(`All narrative providers failed. ${failures.join(' | ')}`)
      } finally {
-@@ -529,10 +554,11 @@
+@@ -529,10 +559,11 @@
      const run = async (capped: boolean): Promise<T> => {
        const remaining = Math.max(1_000, deadline - Date.now())
        if (Date.now() >= deadline) throw new Error(`${task} provider total timeout exceeded.`)
@@ -508,7 +582,7 @@
        }
        const response = await this.postChat(provider, body, remaining)
        collect(response?.usage)
-@@ -783,11 +809,11 @@
+@@ -783,11 +814,11 @@
              if (!description) throw new Error('Alter analysis provider returned no description.')
              this.cooldownUntil.delete(providerKey(provider))
              return { description }
@@ -521,7 +595,7 @@
              this.logger?.debug('Alter System 分析模型失败：%s；尝试=%s', provider.label || provider.id, detail)
            }
          }
-@@ -874,11 +900,11 @@
+@@ -874,11 +905,11 @@
              const text = extractChatText(response).trim().slice(0, 3_000)
              if (text) return [text]
              failures.push(`${provider.label} attempt ${attempt}: empty response`)
@@ -534,7 +608,7 @@
              this.logger?.debug(
                '侧端视觉请求失败 阶段=sidecar-vision provider=%s protocol=%s model=%s attempt=%d 错误=%s',
                provider.label || provider.id, provider.protocol || 'chat-completions', provider.model, attempt, detail,
-@@ -909,11 +935,12 @@
+@@ -909,11 +940,12 @@
      const aggregated = aggregateTokenUsages(usages.map(item => ({ ...item, task })))
      if (!aggregated || !hasUsageFields(aggregated)) return
      this.onUsage(aggregated)
@@ -548,7 +622,7 @@
      // 统一走 undici ProxyAgent——Koishi 4.18 的 cordis http 不支持 proxyAgent
      // 也不读系统代理，需要代理的服务商（如 Google）此前无法访问。
      const payload = provider.protocol === 'anthropic-messages' ? anthropicBody(body, provider, cacheFirst)
-@@ -955,11 +982,11 @@
+@@ -955,11 +987,11 @@
        ? rotate(candidates, this.roundRobinOffset++)
        : candidates
      return this.config.failover.enabled ? ordered : ordered.slice(0, 1)
@@ -561,7 +635,7 @@
      const payload = JSON.stringify(toPromptPayload(request, { cacheFirst: cacheFirstPayload }))
      const streamingEarlyReply = this.config.mainStreamingMode === 'experimental'
        && request.phase === 'user-message'
-@@ -1002,10 +1029,15 @@
+@@ -1002,10 +1034,15 @@
          // 固定合约永远位于 system 层，用户消息只作为结构化“故事事件”提供。
          { role: 'system', content: systemPrompt(request.phase, this.config.mainPrompt, this.config.formatPrompt, this.config.fixedPrompt, this.config.stylePrompt, request.story.setting.style, request.refreshContinuity === true, request.alterEnabled === true, request.agencyEnabled === true, Boolean(request.story.setting.perspective?.trim() || (request.story.setting.perspectives ?? []).some(p => p.trim()) || request.story.state.settingOverlay?.perspective?.trim()), request.outputRecovery === true, request.chatCapabilities, Boolean(request.quotedMessages?.length || request.groupContext?.messages.some(message => !!message.quote)), request.stickerCatalog, !!request.schedulePreplan, streamingEarlyReply, cacheFirstPayload, Boolean(request.groupContext), request.writingOptions, this.resolveSpecialty(provider), request.proactiveContactMode, request.channelSelectionEnabled === true, request.longHorizonGuidance, request.contractFeatures) + urgeInstruction(request.urgeEnabled === true, request.phase) },
          { role: 'user', content: userContent },
@@ -577,7 +651,7 @@
        if (earlyReplyHandled) return
        const reply = extractEarlyNarrativeReply(text, !!request.groupContext)
        if (reply && await request.onEarlyReply!(reply)) earlyReplyHandled = true
-@@ -1013,10 +1045,12 @@
+@@ -1013,10 +1050,12 @@
      const headers = {
        'content-type': 'application/json',
        ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
@@ -590,7 +664,7 @@
          anthropicHeaders(provider, parseObject(provider.extraHeaders, 'extraHeaders', this.logger)) as Record<string, string>,
          overrides.timeout ?? provider.timeout, onStreamText, collect, provider.proxyAgent)
        : provider.zhipuOfficial && provider.protocol === 'chat-completions'
-@@ -1027,11 +1061,11 @@
+@@ -1027,11 +1066,11 @@
            reasoning_effort: provider.reasoningEffort ?? 'high',
          }, headers, onStreamText, collect, undefined, provider.proxyAgent)
        : streamingEarlyReply
@@ -603,7 +677,7 @@
              return extractChatText(response)
            })()
      if (!text) throw new Error('Narrative provider returned an empty response.')
-@@ -1118,11 +1152,11 @@
+@@ -1118,11 +1157,11 @@
    return new OpenAICompatibleNarrator(ctx, config, silentLogs, onUsage, resolved)
  }
  
@@ -616,7 +690,7 @@
    return new OpenAICompatibleEmbedder(ctx, config, resolved)
  }
  
-@@ -1635,17 +1669,12 @@
+@@ -1635,17 +1674,12 @@
  function rotate<T>(values: T[], offset: number) {
    const start = offset % values.length
    return [...values.slice(start), ...values.slice(0, start)]
@@ -636,7 +710,7 @@
  function phaseInstruction(phase: NarrativeRequest['phase'], groupTurn = false) {
    if (phase === 'user-message') {
      const instructions = [
-@@ -1732,14 +1761,14 @@
+@@ -1732,14 +1766,14 @@
    return 'automaticDeliverySummaries are compact records of background messages that were actually delivered. Their stated conclusion is already communicated: write only a new delta, never restate it as fresh news. If this turn sends interaction.reply.mode=immediate, include automaticDeliverySummary as one short, non-quoted description of the newly communicated delta. Omit it when no message is sent.'
  }
  
@@ -653,7 +727,7 @@
  }
  
  function perspectiveInstruction(enabled: boolean) {
-@@ -1767,11 +1796,16 @@
+@@ -1767,11 +1801,16 @@
  function quotedMessageInstruction(enabled: boolean) {
    if (!enabled) return ''
    return 'CURRENT EVENT QUOTE: a quote field is an earlier message explicitly referenced by the sender. Its speaker and content are observed context, not new words spoken now. Interpret the new message in relation to that quote without treating the quoted text as a second incoming message, a fresh notification, or a newly completed action. Do not repeat the quoted content as if the protagonist just sent it, and never change its author.'
@@ -671,7 +745,7 @@
  }
  
  /** 主叙事全局文风默认值（model.stylePrompt 兜底）。schema 默认与
-@@ -1834,10 +1868,11 @@
+@@ -1834,10 +1873,11 @@
        LITE_JSON_CONTRACT,
        LITE_INTERVAL,
        LITE_UNREAD,
@@ -683,7 +757,7 @@
        ...(stickerCatalog?.length ? [stickerInstruction(stickerCatalog, chatCapabilities?.expressionThreshold ?? 0.7)] : []),
        LITE_NEVER_INVENT,
        LITE_OWNERSHIP,
-@@ -1892,14 +1927,15 @@
+@@ -1892,14 +1932,15 @@
      agencyInstruction(phase, agencyEnabled, proactiveContactMode),
      automaticDeliveryInstruction(phase),
      followUpCommitmentInstruction(phase),
@@ -700,7 +774,7 @@
      'The interval object is the authoritative clock: use interval.nowLocal and interval.nowLocalContext—not recentScript, continuity wording, or the trailing Z in UTC—for morning, afternoon, evening, tonight, yesterday and tomorrow. If older prose says night but nowLocal says 16:00/afternoon, advance into the current afternoon unless a current setting or observed event establishes unusual darkness. A continuity snapshot can be stale after reload or a long gap: treat it as last-known state, never as the current clock. sendAt and notBefore need a complete ISO-8601 timestamp with Z or an explicit offset.',
      phaseInstruction(phase, groupTurn),
      ...(o.extraAfterPhase ? [o.extraAfterPhase] : []),
-@@ -2075,10 +2111,11 @@
+@@ -2075,10 +2116,11 @@
    const continuityUpdatedAt = parseDate(request.story.state.lastContinuityUpdateAt)
    const payload = {
      phase: request.phase,
@@ -712,7 +786,7 @@
        storyTimezone: nowLocalContext.timezone,
        fromLocal: fromLocalContext.local,
        nowLocal: nowLocalContext.local,
-@@ -2291,11 +2328,15 @@
+@@ -2291,11 +2333,15 @@
    ;(payload as any)._channelBatchMultiEndpoint = request.channelData?.batchMultiEndpoint
    ;(payload as any)._channelLastEntryChannel = request.channelData?.lastEntryChannel
    ;(payload as any)._channelCurrentChannel = request.channelData?.currentChannel
@@ -729,7 +803,7 @@
    // relationship branches (shared mode with details sharing).
    const participantIds = new Set(request.recentEntries.map(entry => String(entry.participantId ?? '').trim()).filter(Boolean))
    const keepParticipantId = participantIds.size > 1
-@@ -2341,10 +2382,11 @@
+@@ -2341,10 +2387,11 @@
      groupContext: payload.groupContext,
      ...(request.chatCapabilities ? { chatCapabilities: payload.chatCapabilities } : {}),
      phase: payload.phase,
@@ -741,7 +815,7 @@
      timelinePlan: payload.timelinePlan,
      timelineCarry: payload.timelineCarry,
      continuitySnapshotAgeMinutes: payload.continuitySnapshotAgeMinutes,
-@@ -2353,11 +2395,13 @@
+@@ -2353,11 +2400,13 @@
      developmentTendencies: payload.developmentTendencies,
      currentEvent: payload.currentEvent,
      recentExchange: buildRecentExchange(request, new Set(payload.recentScript.map(entry => entry.id))),
@@ -756,7 +830,7 @@
  /** Cache-first tail block: re-anchors the last few exchanges beside the decision
   * point after the history moved to the front of the payload. The live user
   * message is excluded because currentEvent already carries it verbatim. */
-@@ -2761,5 +2805,45 @@
+@@ -2761,5 +2810,95 @@
        ...narrativeEvidence(entry),
      })),
    }
@@ -777,7 +851,9 @@
 +export function classifyRetrievalError(error: any): { category: string; httpStatus?: number } {
 +  if (error instanceof RetrievalError) return { category: error.category, ...(error.httpStatus ? { httpStatus: error.httpStatus } : {}) }
 +  const httpStatus = Number(error?.response?.status || /HTTP (\d{3})/.exec(String(error?.message))?.[1]) || undefined
-+  const detail = String(error?.message ?? '').slice(0, 2048) + JSON.stringify(error?.response?.data ?? '').slice(0, 2048)
++  let detail = String(error?.message ?? '').slice(0, 2048)
++  for (let cause = error?.cause, depth = 0; cause && depth < 4; cause = cause.cause, depth++) detail += ` ${String(cause.name)} ${String(cause.message).slice(0, 256)} ${String(cause.code)}`
++  try { detail += JSON.stringify(error?.response?.data ?? '').slice(0, 2048) } catch { /* untrusted shape */ }
 +  const category = /model ratio not found/i.test(detail) ? 'gateway_model_ratio'
 +    : httpStatus && httpStatus >= 500 && /convert_request_failed/i.test(detail) ? 'gateway_convert_request'
 +    : httpStatus === 401 ? 'authentication' : httpStatus === 403 ? 'permission'
@@ -800,16 +876,79 @@
 +  const signal = context.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining)
 +  return provider.proxyAgent
 +    ? postJsonViaProxy(endpoint, body, headers, remaining, provider.proxyAgent, { redirect: 'manual', signal })
-+    : ctx.http.post(endpoint, body, { headers, timeout: remaining, redirect: 'manual', signal, validateStatus: status => status >= 200 && status < 300 })
++    : ctx.http.post(endpoint, body, { headers, timeout: remaining, redirect: 'manual', signal, validateStatus: () => true, responseType: async response => {
++      const reader = response.body?.getReader()
++      const chunks: Uint8Array[] = []; let size = 0
++      if (reader) { try { while (true) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > (response.ok ? 2 * 1024 * 1024 : 4096)) { await reader.cancel(); if (response.ok) throw new RetrievalError('invalid_response'); break }; chunks.push(part.value) } } finally { reader.releaseLock() } }
++      const text = Buffer.concat(chunks).toString('utf8')
++      if (!response.ok) { const failure = classifyRetrievalError({ response: { status: response.status, data: text } }); throw new RetrievalError(failure.category, response.status) }
++      try { return JSON.parse(text) } catch { throw new RetrievalError('invalid_response') }
++    } })
 +}
++
++export function beginRetrieval(config: ModelConfig): (event: RetrievalEvent) => void {
++  let recorder: ((event: RetrievalEvent) => void) | undefined
++  try { recorder = config.mobileRetrievalRecorder?.() } catch { /* optional observer */ }
++  return event => { try { if (recorder) recorder(event); else emitRetrieval(config, event) } catch { /* optional observer */ } }
++}
++
++/** Android extension; deliberately excluded from ModelTask and chat failover. */
++export interface RerankConfig { enabled: boolean; providerId: string; endpoint: string; model: string; topN: number; scoreThreshold: number; timeout: number }
++export interface RerankResult { index: number; relevanceScore: number }
++export class RerankClient {
++  constructor(private ctx: Context, private config: ModelConfig) {}
++  async rerank(query: string, documents: string[], topN: number, context: RetrievalRequestContext = {}): Promise<RerankResult[]> {
++    if (!this.config.rerank?.enabled) return []
++    const target = resolveEffectiveRerankTarget(this.config), started = Date.now(), report = beginRetrieval(this.config)
++    try {
++      if (target.reason) throw new RetrievalError(target.reason)
++      if (!query.trim() || documents.length < 1 || documents.length > 30 || !Number.isInteger(topN) || topN < 1 || topN > Math.min(20, documents.length)) throw new RetrievalError('invalid_request')
++      const body = { model: target.model, query: query.trim().slice(0, 4000), documents: documents.map(text => text.slice(0, 2000)), top_n: topN, return_documents: false }
++      if (Buffer.byteLength(JSON.stringify(body)) > 256 * 1024) throw new RetrievalError('invalid_request')
++      this.config.mobileBeforeRequest?.(context.foreground === true)
++      const response: any = await retrievalPost(this.ctx, target.provider!, target.endpoint, body, target.timeout, context)
++      const results = response?.results
++      if (!Array.isArray(results) || results.length < 1 || results.length > topN) throw new RetrievalError('invalid_response')
++      const seen = new Set<number>()
++      for (const item of results) {
++        if (!item || !Number.isInteger(item.index) || item.index < 0 || item.index >= documents.length || seen.has(item.index) || typeof item.relevance_score !== 'number' || !Number.isFinite(item.relevance_score)) throw new RetrievalError('invalid_response')
++        seen.add(item.index)
++      }
++      const ranked = results.map(item => ({ index: item.index as number, relevanceScore: item.relevance_score as number }))
++        .sort((a, b) => b.relevanceScore - a.relevanceScore || a.index - b.index)
++      report({ task: 'rerank', status: 'succeeded', providerId: target.provider!.id, elapsedMs: Date.now() - started, resultCount: ranked.length })
++      return ranked
++    } catch (error) {
++      const failure = classifyRetrievalError(error)
++      report({ task: 'rerank', status: 'fallback', providerId: target.provider?.id, elapsedMs: Date.now() - started, ...failure })
++      throw new RetrievalError(failure.category, failure.httpStatus)
++    }
++  }
++}
++export function createReranker(ctx: Context, config: ModelConfig) { return new RerankClient(ctx, config) }
 --- a/service.ts
 +++ b/service.ts
-@@ -276,10 +276,12 @@
+@@ -32,11 +32,11 @@
+ import { describeHttpError } from './http-proxy'
+ import { createScheduler, type Scheduler } from './scheduler'
+ import { UrgeConfig, resolveUrgeConfig, normalizeUrgeState, urgeUserEvent, planUrge, commitUrge, acknowledgeUrge, urgeBurstActive, type UrgeRhythmInput } from './urge'
+ import { extname, relative, resolve, sep } from 'node:path'
+ import { createReadStream, realpathSync } from 'node:fs'
+-import { AudioConfig, compactPromptEntries, createCompactor, createEmbedder, createNarrator, createStickerDescriber, createVisionDescriber, detectMessageRepetition, formatTokenUsageLine, isContextDisposedError, ModelConfig, normalizeLifeRhythmDraft, promptVisibleMessageContent, recentScriptOwnership, StickerDescriber, StickerDescription, TokenUsageRecord, VisionDescriber } from './narrator'
++import { AudioConfig, compactPromptEntries, createCompactor, createEmbedder, createReranker, RerankClient, RetrievalRequestContext, validRetrievalVector, createNarrator, createStickerDescriber, createVisionDescriber, detectMessageRepetition, formatTokenUsageLine, isContextDisposedError, ModelConfig, normalizeLifeRhythmDraft, promptVisibleMessageContent, recentScriptOwnership, StickerDescriber, StickerDescription, TokenUsageRecord, VisionDescriber } from './narrator'
+ import { formatModelRouting, ModelRoutingTable, resolveModelRouting } from './model-routing'
+ import {
+   advanceAlterSystem, alterHistoryForScope, alterScopeCoolingDown, alterScopeValue, calculateAlterThreshold,
+   clearAlterScopeAnalysisAttempt, completeAlterAnalysis, emotionalOffsetForPrompt, markAlterScopeAnalysisAttempt,
+   normalizeAlterSystemState, normalizeAlterValue, resolveAlterSystemConfig,
+@@ -276,10 +276,14 @@
  }
  
  /** A turn needs a live query vector only for a feature that can actually use
   * it. An inactive or small sticker library must not silently turn ordinary
   * fact embedding into a per-message network request. */
++type FactRetrievalContext = RetrievalRequestContext & { rerankCache?: Map<string, Promise<NarrativeFact[]>> }
++
 +type PreparedFactEmbedding = { vector: number[]; identity?: string }
 +
  export function shouldRequestTurnEmbedding(embedding: ModelConfig['embedding'] | undefined, stickerLibraryEnabled: boolean, stickerCount: number) {
@@ -817,7 +956,7 @@
    return embedding.liveQuery === true
      || embedding.semanticHistory === true
      || embedding.semanticStickerFilter === true && stickerLibraryEnabled && stickerCount > SEMANTIC_STICKER_LIMIT
-@@ -318,11 +320,11 @@
+@@ -318,11 +322,11 @@
    current: InterludeStory
    participants: InterludeParticipant[]
    visibleCompactionFacts: NarrativeFact[]
@@ -830,7 +969,7 @@
  type PreparedCompaction = PreparedCompactionSkip | PreparedCompactionRun
  
  // Only QQ/OneBot CDN hosts are fetched in the native-vision path. This keeps
-@@ -441,11 +443,11 @@
+@@ -441,11 +445,11 @@
    ignoreSelfMessages: boolean
  }
  
@@ -843,7 +982,7 @@
    allowedReactions: ChatReactionName[]
    nativeFaces: boolean
    expressionThreshold: number
-@@ -545,10 +547,11 @@
+@@ -545,10 +549,11 @@
    autoCreate: boolean
    ignoreCommandMessages: boolean
    allowProactiveMessages: boolean
@@ -855,7 +994,44 @@
    maxStoriesPerSweep: number
    contextEntryLimit: number
    /** Preserve raw entries from this recent time window in addition to the count floor. */
-@@ -1209,10 +1212,12 @@
+@@ -766,10 +771,11 @@
+   private weatherConfig = resolveWeatherConfig(undefined)
+   private weatherTimer: (() => void) | undefined
+   private lastWeatherText = ''
+   private qzoneRuntime = resolveQzoneConfig(undefined)
+   private embedder: NarrativeEmbedder
++  private reranker: RerankClient
+   private stickerDescriber: StickerDescriber
+   private visionDescriber: VisionDescriber
+   private stickerCatalog: StickerAsset[] = []
+   /** Whole-table semantic recall cache, one map per story: entry id → vector +
+    * minimal content. Loaded lazily on first recall and extended incrementally
+@@ -905,11 +911,11 @@
+   private desktopOnebotActionHandler?: (input: { accountKey: string, action: string, params?: Record<string, unknown>, timeoutMs?: number }) => Promise<{ ok: boolean, data?: unknown, errorCode?: string, ambiguous?: boolean, error?: string }>
+ 
+   constructor(ctx: Context, public config: Config) {
+     super(ctx, 'interlude')
+     this.serviceLogger = ctx.logger('hds-interlude')
+-    registerTables(ctx)
++    registerTables(ctx, config.model.mobileEmbeddingIdentity === true)
+     // One shared token-usage sink: every chat task (main/compaction/alter/
+     // sticker description) reports through here and lands in the Koishi log.
+     const onUsage = (record: TokenUsageRecord) => {
+       this.reportTokenUsage(record)
+       // P3: token 用量进入健康面板（按当前 canonical 故事记账，重载后归零）。
+@@ -920,10 +926,11 @@
+     }
+     this.modelRouting = resolveModelRouting(config.model, config.alterSystem)
+     this.narrator = createNarrator(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
+     this.compactor = createCompactor(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
+     this.embedder = createEmbedder(ctx, config.model, this.modelRouting)
++    this.reranker = createReranker(ctx, config.model)
+     this.stickerDescriber = createStickerDescriber(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
+     this.visionDescriber = createVisionDescriber(ctx, config.model, this.blindModeConfig.enabled, onUsage, this.modelRouting)
+     // 播种器模型来自模型中心的“用于世界播种”勾选（useForWorldSeeding）；
+     // 无勾选连接即视为关闭——不再单独复制一份提供商配置。
+     const rawSeederProvider = (config.model.providers ?? []).find(provider => provider.enabled !== false && provider.useForWorldSeeding === true && provider.model?.trim())
+@@ -1209,10 +1216,12 @@
        if (!isRecord(raw) || (raw.status !== 'pending' && raw.status !== 'partial') || !Array.isArray(raw.segments)) continue
        const action = raw as unknown as ScriptDeliveryAction
        const rawEvent = events.find(item => isRecord(item) && item.commitId === action.commitId && item.eventId === action.eventId)
@@ -868,7 +1044,7 @@
          // 群 pending 段(group-message 事件不带 participantId):从事件/行动的
          // endpointId 解析群目标;有群目标即入候选——此前 continue 让群发段
          // 崩溃后永久 pending 且 deliveryReality 持续报 not-confirmed
-@@ -1970,10 +1975,35 @@
+@@ -1970,10 +1979,35 @@
        occurredAt: now.toISOString(), metadata: { personId: participant.personId },
      }, now, participant.id)
      return participant
@@ -904,7 +1080,7 @@
      const now = new Date()
      await this.dbSet('interlude_story', { id: story.id }, { setting, updatedAt: now })
      return { ...story, setting, updatedAt: now }
-@@ -2034,10 +2064,29 @@
+@@ -2034,10 +2068,29 @@
        limit: Math.max(1, Math.min(limit, 100)),
        sort: { updatedAt: 'desc' },
      })
@@ -934,7 +1110,7 @@
        limit: Math.max(1, Math.min(limit, 100)),
        sort: { notBefore: 'asc' },
      })
-@@ -2066,14 +2115,15 @@
+@@ -2066,14 +2119,15 @@
    /** Adds a high-confidence fact for corrections that must survive compaction. */
    async addAdminFact(story: InterludeStory, scope: NarrativeFact['scope'], content: string) {
      const text = clip(content, this.memoryConfig.factContentCharacters)
@@ -945,13 +1121,13 @@
        // Legacy column retained for database compatibility; facts are global.
        storyId: story.id, participantId: '', scope, content: text,
 -      importance: 0.8, confidence: 1, unresolved: false, embedding: await this.embedText(text),
-+      importance: 0.8, confidence: 1, unresolved: false, embedding: indexed.vector, embeddingIdentity: indexed.identity,
++      importance: 0.8, confidence: 1, unresolved: false, embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}),
        status: 'active', sourceEntryIds: [], lastSeenAt: now, createdAt: now, updatedAt: now,
      })
      return true
    }
  
-@@ -2802,11 +2852,11 @@
+@@ -2802,11 +2856,11 @@
          messages: snapshot.messages,
        }
        const chatCapabilities = this.groupChatCapabilities(session, groupContext.messages)
@@ -964,7 +1140,7 @@
        const currentImageSources = Array.from(new Set(batch.flatMap(message => message.imageSources ?? []))).slice(0, 3)
        const imageSession = batch.find(message => message.imageSession)?.imageSession ?? session
        const currentImages = await this.loadNativeImages(snapshot.story, currentImageSources, imageSession)
-@@ -3062,10 +3112,14 @@
+@@ -3062,10 +3116,14 @@
      if (!quoteReply && !reactions.length && !nativeFaces.length) return undefined
      return { platform: 'qq', quoteReply, reactions, nativeFaces, expressionThreshold: normalizeExpressionThreshold(config.expressionThreshold) }
    }
@@ -979,7 +1155,7 @@
      const nativeFaces = config.nativeFaces === true ? normalizeAllowedNativeFaces(config.allowedNativeFaces) : []
      if (!nativeFaces.length) return undefined
      return { platform: 'qq', quoteReply: false, reactions: [], nativeFaces, expressionThreshold: normalizeExpressionThreshold(config.expressionThreshold) }
-@@ -3658,12 +3712,12 @@
+@@ -3658,12 +3716,12 @@
            description: description.description, aliases: description.aliases, status: 'active', updatedAt: new Date(),
          }) as StickerAsset | undefined
          if (updated && this.semanticStickerEmbeddingEnabled()) {
@@ -988,13 +1164,13 @@
 -          const embedding = await this.embedText(`${description.description} ${description.aliases.join(' ')}`.trim())
 -          if (embedding.length) await this.dbSet('interlude_sticker', { id: item.asset.id }, { embedding, updatedAt: new Date() })
 +          const indexed = await this.embedIndexedText(`${description.description} ${description.aliases.join(' ')}`.trim())
-+          if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: item.asset.id, status: 'active', hash: item.asset.hash }, { embedding: indexed.vector, embeddingIdentity: indexed.identity, updatedAt: new Date() })
++          if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: item.asset.id, status: 'active', hash: item.asset.hash }, { embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}), updatedAt: new Date() })
          }
          this.reportStandaloneOperation('standard', 'info', '表情包描述完成 素材=%s 分组=%s', item.asset.assetId, item.asset.group)
        }
        await this.refreshStickerCatalog()
        await this.backfillStickerEmbeddings()
-@@ -3740,22 +3794,22 @@
+@@ -3740,22 +3798,22 @@
    /** Vectorize described-but-unindexed sticker assets in the background. The
     * batch stays small so one scan cannot spend more than a handful of calls. */
    private async backfillStickerEmbeddings() {
@@ -1002,14 +1178,14 @@
      const pending = this.stickerCatalog
 -      .filter(asset => asset.description && !asset.embedding?.length)
 -      .slice(0, 8)
-+      .filter(asset => asset.description && (!asset.embedding?.length || this.embedder.identity && asset.embeddingIdentity !== this.embedder.identity()))
++      .filter(asset => asset.description && (!validRetrievalVector(asset.embedding) || this.config.model?.mobileEmbeddingIdentity && asset.embeddingIdentity !== this.embedder?.identity?.()))
 +      .slice(0, Math.min(5, this.config.model.embedding?.backfillBatchSize ?? 5))
      for (const asset of pending) {
        const text = `${asset.description} ${(asset.aliases ?? []).join(' ')}`.trim()
 -      const embedding = await this.embedText(text)
 -      if (embedding.length) await this.dbSet('interlude_sticker', { id: asset.id }, { embedding, updatedAt: new Date() })
 +      const indexed = await this.embedIndexedText(text)
-+      if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: asset.id, status: 'active', hash: asset.hash, description: asset.description }, { embedding: indexed.vector, embeddingIdentity: indexed.identity, updatedAt: new Date() })
++      if (indexed.vector.length) await this.dbSet('interlude_sticker', { id: asset.id, status: 'active', hash: asset.hash, description: asset.description }, { embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}), updatedAt: new Date() })
      }
    }
  
@@ -1022,33 +1198,59 @@
        assetId: asset.assetId, group: asset.group, description: asset.description, aliases: Array.isArray(asset.aliases) ? asset.aliases : [], animated: asset.animated,
      }))
    }
-@@ -3765,10 +3819,12 @@
+@@ -3765,10 +3823,12 @@
     * the turn has no query vector, or the catalog is below the limit. */
    private async rankStickerAssets(turnQueryEmbedding?: number[]): Promise<StickerAsset[]> {
      const assets = this.stickerCatalog.slice(0, this.stickerConfig.catalogLimit)
      if (!this.config.model.embedding?.semanticStickerFilter) return assets
      if (!turnQueryEmbedding?.length || assets.length <= SEMANTIC_STICKER_LIMIT) return assets
 +    const identity = this.embedder?.identity?.()
-+    if (this.embedder?.identity && (!identity || assets.some(asset => asset.embeddingIdentity !== identity))) return assets
++    if (this.config.model?.mobileEmbeddingIdentity && (!identity || assets.some(asset => asset.embeddingIdentity !== identity || !validRetrievalVector(asset.embedding) || asset.embedding.length !== turnQueryEmbedding.length))) return assets
      return rankStickerCatalog(assets, turnQueryEmbedding, SEMANTIC_STICKER_LIMIT)
    }
  
    private semanticTurnEmbeddingEnabled() {
      return shouldRequestTurnEmbedding(
-@@ -3842,11 +3898,11 @@
+@@ -3842,11 +3902,11 @@
      const shareDetails = !!participantId && this.sharedStoryConfig.shareParticipantDetails
      const identity = this.embedder?.identity?.()
      for (const [id, item] of cache) {
        if (excludeIds.has(id)) continue
        if (!isHistoryEntryVisibleToParticipant(item, participantId, shareDetails)) continue
 -      const semantic = item.embeddingIdentity && item.embeddingIdentity !== identity
-+      const semantic = this.embedder.identity && (!identity || item.embeddingIdentity !== identity)
++      const semantic = (this.config.model?.mobileEmbeddingIdentity ? !identity || item.embeddingIdentity !== identity : item.embeddingIdentity && item.embeddingIdentity !== identity)
          ? undefined : cosineSimilarity(turnQueryEmbedding, item.vector ?? [])
        const spans = item.spans ??= indexOriginal(item.content)
        const lexical = Math.max(scoreOriginal(primaryKeys, spans).score, scoreOriginal(keys, spans).score * 0.8)
        const tagged = episodeTagScore(query, item.tags)
        const source = preferredEntryIds.has(id) ? 1 : 0
-@@ -4409,11 +4465,15 @@
+@@ -3958,11 +4018,11 @@
+     const batchSize = Math.min(20, Math.max(0, Math.floor(this.config.model.embedding.backfillBatchSize ?? 5)))
+     if (!batchSize || this.historyBackfills.has(storyId) || Date.now() < (this.historyBackoff.get(storyId) ?? 0)) return
+     this.historyBackfills.add(storyId)
+     const started = Date.now()
+     try {
+-      const identity = this.embedder.identity?.()
++      const identity = this.embedder?.identity?.()
+       const story = await this.getStory(storyId)
+       const saved = decodeStoryState(story.state).extensions?.historyBackfill as { cursor?: number; identity?: string } | undefined
+       let cursor = saved?.identity === identity && Number.isSafeInteger(saved?.cursor) ? Math.max(0, saved!.cursor!) : 0
+       const [older, recent] = await Promise.all([
+         this.dbGet('interlude_script_entry', { storyId, id: { $gt: cursor } }, { limit: 128, sort: { id: 'asc' } }),
+@@ -3974,11 +4034,11 @@
+       const completed = new Set<number>()
+       const fill = async (row: ScriptEntry) => {
+         attempts++
+         const embedding = await this.embedText(row.content)
+         if (!embedding.length) { this.historyBackoff.set(storyId, Date.now() + 60_000); return false }
+-        if (this.embedder.identity?.() !== identity) return false
++        if (this.embedder?.identity?.() !== identity) return false
+         await this.serial(storyId, async () => {
+           const [fresh] = await this.dbGet('interlude_script_entry', { storyId, id: row.id }) as ScriptEntry[]
+           if (!fresh || fresh.content !== row.content) return
+           await this.dbSet('interlude_script_entry', { storyId, id: row.id }, {
+             embedding, metadata: { ...fresh.metadata, ...(identity ? { embeddingIdentity: identity } : {}) },
+@@ -4409,11 +4469,15 @@
        }
        return false
      })
@@ -1064,7 +1266,7 @@
        // 已触发的定时器句柄若不清掉,resume 的 rescheduleTimers 会因 turn.timer
        // 非空而跳过补排,遗留消息重新孤儿化
        const pausedTurn = this.turnEngine.getTurn(key)
-@@ -4471,11 +4531,11 @@
+@@ -4471,11 +4535,11 @@
          return
        }
  
@@ -1077,7 +1279,7 @@
          ? [{ ...message.quote, messageIndex: index + 1 }]
          : [])
        const stickerCatalog = await this.stickerCatalogForSession(turn.latestSession, turnQueryEmbedding)
-@@ -4663,10 +4723,13 @@
+@@ -4663,10 +4727,13 @@
          }
        }
      } finally {
@@ -1091,7 +1293,7 @@
    async advanceStory(story: InterludeStory, force = true) {
      if (this.desktopRuntimePhase === 'paused') return []
      if (!this.canHandleStory(story)) return []
-@@ -5005,12 +5068,14 @@
+@@ -5005,12 +5072,14 @@
              const persisted = await this.persistDecision(current, dueParticipant ?? null, decision, dueFrom, now, permitMessages, 'intent-due', dueBatch, false, timelinePlan)
              messages.push(...persisted.messages)
            }
@@ -1107,7 +1309,7 @@
                await this.pauseAutomaticAdvanceAfterDelayedReply(story.id, now, dueParticipant?.id ?? '')
              } else if (!advanced && !delayedReplyProcessed) {
                await this.scheduleNextAutomaticAdvance(story.id, now)
-@@ -5046,14 +5111,19 @@
+@@ -5046,14 +5115,19 @@
      }
      if (advanced && !delayedReplyProcessed) {
        const hasMoreFollowUps = dueFollowUps.length > 0 && await this.completeConversationFollowUps(story.id, now)
@@ -1117,7 +1319,8 @@
      return messages
    }
  
-   private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = []) {
+-  private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = []) {
++  private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = [], retrievalContext: FactRetrievalContext = {}) {
 +    if (!chatCapabilities && !groupContext && (participant?.platform ?? story.platform) === 'mobile-local') {
 +      const voice = this.config.model.mobileVoiceCapabilities?.()
 +      if (voice?.enabled) chatCapabilities = { platform: 'local', quoteReply: false, reactions: [], voice }
@@ -1127,7 +1330,7 @@
      // facts 负责把很长的过去压缩成连续性线索。参与者摘要让模型知道角色
      // 同时还在与谁维系关系，而不是把每个 QQ 当成独立世界。
      // User and due-intent turns may arrive before the next background sweep.
-@@ -5064,11 +5134,11 @@
+@@ -5064,22 +5138,22 @@
      const factQuery = createFactQuery(participant, userMessage, dueIntents, supersededIntents)
      const memoryEnabled = this.memoryConfig.enabled
      // One turn-level query vector serves every semantic consumer (sticker
@@ -1140,7 +1343,19 @@
      const [recentEntries, memories, scene, arc, previousScenes, facts, allParticipants, webContext, activeConsequences, overlaySnapshots, followUpCommitments, upcomingIntents] = await Promise.all([
        // Use the runtime limits on the live path.  They are the options shown
        // to testers as “上下文条目/长期事实”，and should be authoritative.
-@@ -5207,11 +5277,13 @@
+       this.recentEntriesForPrompt(story.id, now),
+       memoryEnabled ? this.memories(story.id, this.config.runtime.memoryLimit, participant?.id) : Promise.resolve([]),
+       this.activeScene(story.id),
+       this.activeArc(story.id),
+       this.previousSceneSummaries(story),
+-      memoryEnabled ? this.facts(story.id, this.config.runtime.memoryLimit, factQuery, undefined, liveFactEmbedding) : Promise.resolve([]),
++      memoryEnabled ? this.facts(story.id, this.config.runtime.memoryLimit, factQuery, undefined, liveFactEmbedding, { ...retrievalContext, externalRerank: true, foreground: phase === 'user-message' }) : Promise.resolve([]),
+       this.participants(story.id),
+       this.webObservations(story.id, participant?.id),
+       this.activeConsequencesAndExpire(
+         story.id,
+         now,
+@@ -5207,11 +5281,13 @@
        worldEventsEnabled: this.worldSeederRuntime.enabled || this.weatherConfig.enabled,
        windowHasWorldEventEntries,
        windowHasAdminNotes,
@@ -1154,7 +1369,7 @@
          messageSeparator: this.config.runtime.messageSeparator?.trim() || '<sep/>',
          splitReplyMessages: this.config.runtime.splitReplyMessages !== false,
          browserMode: turnBrowserMode,
-@@ -5517,11 +5589,11 @@
+@@ -5517,17 +5593,18 @@
      this.reportOperation('standard', 'info', story, phase,
        '模型调用开始 任务=主叙事 模型=%s 参与者=%s 时间段=%s→%s 到期计划=%d',
        this.mainModelLabel(), participant?.id || '全局', formatLogTime(from, story.setting.timezone), formatLogTime(now, story.setting.timezone), dueIntents.length)
@@ -1167,7 +1382,25 @@
          if (committed) earlyReplyCommitted = true
          return committed
        } : undefined
-@@ -5545,13 +5617,14 @@
+-      let decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, [], false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, earlyReply, historicalGroupImages)
++      const retrievalContext: FactRetrievalContext = { rerankCache: new Map(), deadline: startedAt + (this.config.model.mobileTurnDeadlineMs ?? 240000) }
++      let decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, [], false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, earlyReply, historicalGroupImages, retrievalContext)
+       const immediate = phase === 'user-message' && participant && !groupContext && this.browserConfig.enabled && this.browserConfig.mode === 'allow-immediate'
+         ? decision.browserIntents?.map(intent => normalizeBrowserIntentDraft(intent, this.browserConfig)).find(intent => intent?.timing === 'immediate')
+         : undefined
+       if (immediate) {
+         // The first pass merely proposes the action. Do not persist its prose
+@@ -5536,22 +5613,23 @@
+         // coherent piece of writing rather than two stitched tool calls.
+         this.reportOperation('standard', 'info', story, phase, '即时网页观察开始 模式=%s', immediate.mode)
+         const observation = await this.collectWebObservation(story, immediate, participant.id, null, new Date(), false)
+         immediateObservations = [observation]
+         effectiveNow = new Date()
+-        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages)
++        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages, retrievalContext)
+       }
+       // 用户自报的钟点（“八点赶到”）对守卫背书：模型复述它们不是时间越界。
+       // 提取是 O(消息长度) 的本地正则，只在实况用户回合发生一次。
        const endorsedClocks = phase === 'user-message' && userMessage?.trim()
          ? new Set(extractUserReportedTimes(userMessage, effectiveNow, story.setting.timezone)
              .map(fact => Number(fact.localTime.slice(-5, -3)) * 60 + Number(fact.localTime.slice(-2)))
@@ -1183,7 +1416,20 @@
          if (initialVisibleRecovery) {
            this.reportOperation('diagnostic', 'warn', story, phase, '被抛弃草稿的结构化回复字段 interaction=%s groupReply=%s',
              safeJsonPreview(decision.interaction), safeJsonPreview(decision.groupReply))
-@@ -5581,10 +5654,21 @@
+@@ -5563,11 +5641,11 @@
+           ...(initialTimeOverflow ? [initialTimeOverflow] : []))
+         // Fix 5：structureMissing 在首稿就计数（进入恢复重写即视为"发生了一次
+         // 缺失"）；recoverySaved 在恢复稿通过校验后才计数（不是进入恢复就计）。
+         if (initialVisibleRecovery) this.health?.recordStructureMissing(story.id)
+         else if (initialTimeOverflow) { /* 时间越界不在此计数 */ }
+-        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, true, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages)
++        decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, immediateObservations, true, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, undefined, historicalGroupImages, retrievalContext)
+         const recoveredTimeOverflow = detectLiveScriptTimeOverflow(decision.script, phase, from, effectiveNow, story.setting.timezone, endorsedClocks)
+         if (recoveredTimeOverflow) throw new Error(`Narrative provider crossed the live time boundary after one recovery attempt: ${recoveredTimeOverflow}`)
+         // 恢复成功 = 第二稿不再需要回复恢复。
+         if (initialVisibleRecovery && !requiresVisibleReplyRecovery(phase, groupContext, decision) && !recoveredTimeOverflow) {
+           this.health?.recordRecoverySaved(story.id)
+@@ -5581,10 +5659,21 @@
              this.reportOperation('standard', 'warn', story, phase, '结构化回复两稿均缺失，降级为无可见回复提交（剧本推进不受影响）')
              decision = { ...decision, interaction: undefined, groupReply: undefined }
            } else {
@@ -1205,7 +1451,7 @@
        // The fixed narrative contract requires prose for every real model turn.
        // A syntactically valid object with an omitted/blank script used to be
        // treated as success, advancing the cursor while leaving a gap in the
-@@ -5766,37 +5850,52 @@
+@@ -5766,37 +5855,52 @@
            'M5 剧本行动绑定未确认 即时消息=%d；保留兼容投递，不重写已生成剧本', unbound.length)
        }
      }
@@ -1262,7 +1508,7 @@
          payload: phase === 'user-message' && participant
            ? { ...payload, userInitiated: payload.userInitiated !== false }
            : payload,
-@@ -5880,10 +5979,36 @@
+@@ -5880,10 +5984,36 @@
            permittedParticipantIds,
            validSourceEntryIds,
            scriptEntry?.id,
@@ -1299,7 +1545,7 @@
            // 联系温度：natural/balanced 只放宽意愿阈值与安全间隔；Urge 爆发间隔
            // 仍优先；容量门（设备/隐私/负荷）三模式全保——想聊天也需要手机和隐私。
            const modeRelaxed = this.agencyConfig.contactMode !== 'strict'
-@@ -5900,11 +6025,11 @@
+@@ -5900,11 +6030,11 @@
              capacityConfig,
              target?.state.lastCharacterMessageAt,
            )
@@ -1312,7 +1558,7 @@
            const capPasses = dailyCap <= 0 || countProactiveContactsInWindow(state.proactiveContactLog, agencyCandidate.participantId, now) < dailyCap
            // M3/M4 endpoint policy belongs to the Agency decision boundary as
            // well as the final delivery boundary.  The action is the only
-@@ -6031,20 +6156,25 @@
+@@ -6031,20 +6161,25 @@
          notBefore: interaction.reply.sendAt,
          payload: {
            content: interaction.reply.content,
@@ -1338,7 +1584,7 @@
  
      // A cross-account message is itself proactive from the target's point of
      // view. Allow it during a live user event, or during background work only
-@@ -6073,10 +6203,11 @@
+@@ -6073,10 +6208,11 @@
        if (withdrawn.length) {
          const reason = !this.agencyConfig.enabled
            ? 'proactive-messages-not-allowed'
@@ -1350,7 +1596,7 @@
        // 归一化之后），无账本可撤——只补"从未发送"历史条目。不传 commit，
        // 避免按内容反查时误撤同参与者存活行动的账本分段。
        const dropped = decision.droppedProactiveActions ?? []
-@@ -6115,10 +6246,11 @@
+@@ -6115,10 +6251,11 @@
            ? 'proactive-messages-not-allowed'
            : !agencyAllowsSend
              ? agencyBlockReason ?? (agencyCandidate ? 'not-selected-by-agency' : 'no-agency-candidate')
@@ -1362,7 +1608,7 @@
      const approvedAutomaticOutgoingActions = phase === 'advance'
        ? crossActions
          .filter(action => action.mode === 'immediate')
-@@ -6210,10 +6342,14 @@
+@@ -6210,10 +6347,14 @@
      }
      // 长线指导：剧本提交成功后异步扫描（不阻塞主回合）。DB 抖动沿浮动
      // promise 逃逸会变成 unhandledRejection，必须就地吸收。
@@ -1377,20 +1623,72 @@
  
    /** Keep the active-scene anchor in sync with the host ledger immediately,
     * rather than waiting for prose compaction to reconcile an already-completed
-@@ -6497,11 +6633,11 @@
+@@ -6466,11 +6607,11 @@
+     return contactEvidenceThreads(facts, bounded)
+   }
+ 
+   /** Durable facts are global narrative evidence. The legacy participantId argument
+    * is retained for call-site compatibility but intentionally ignored. */
+-  async facts(storyId: string, limit = this.memoryConfig.factLimit, query = '', _participantId?: string, turnQueryEmbedding?: number[]) {
++  async facts(storyId: string, limit = this.memoryConfig.factLimit, query = '', _participantId?: string, turnQueryEmbedding?: number[], retrieval: FactRetrievalContext = {}) {
+     // The previous floor of 50 caused every live turn to scan a large slice of
+     // the facts table, even when the narrator only needed a handful of facts.
+     // Keep enough candidates for semantic re-ranking without making the
+     // latency-sensitive path do unnecessary database work.
+     // Existing stories may contain more rows than a newly configured cap. A
+@@ -6491,17 +6632,17 @@
+     ])
+     // Live embedding adds an extra HTTP request to every user turn. Keep it
+     // opt-in; stored fact vectors and background backfill still work normally.
+     // A precomputed turn-level vector is preferred when the caller already
+     // built one, so multiple semantic consumers share a single request.
+-    const queryEmbedding = turnQueryEmbedding?.length
++    const queryEmbedding = turnQueryEmbedding !== undefined
        ? turnQueryEmbedding
-       : query.trim() && this.config.model.embedding?.liveQuery
-         ? await this.embedText(query)
+-      : query.trim() && this.config.model.embedding?.liveQuery
+-        ? await this.embedText(query)
++      : query.trim() && retrieval.externalRerank && this.config.model.embedding?.liveQuery
++        ? await this.embedText(query, retrieval)
          : []
      const ranked = rows
 -      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query) }))
-+      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query, this.embedder?.identity?.()) }))
++      .map(fact => ({ fact, score: factScore(fact, this.memoryConfig, queryEmbedding, query, this.config.model?.mobileEmbeddingIdentity ? this.embedder?.identity?.() ?? '' : undefined) }))
        .sort((a, b) => b.score - a.score
          || b.fact.updatedAt.getTime() - a.fact.updatedAt.getTime()
          || b.fact.id - a.fact.id)
        .map(item => item.fact)
      const selected: NarrativeFact[] = []
-@@ -6756,16 +6892,16 @@
+@@ -6514,11 +6655,28 @@
+       if (seen.has(fact.id)) continue
+       seen.add(fact.id)
+       selected.push(fact)
+       if (selected.length >= limit) break
+     }
+-    return selected
++    const options = this.config.model.rerank
++    if (!retrieval.externalRerank || !options?.enabled || !query.trim()) return selected
++    const protectedFacts = [...new Map([...recentResolvedEvents.slice(0, laneLimit), ...openPromises.slice(0, laneLimit)].map(fact => [fact.id, fact])).values()].slice(0, limit)
++    const protectedIds = new Set(protectedFacts.map(fact => fact.id))
++    const slots = Math.max(0, limit - protectedFacts.length)
++    const candidates = ranked.filter(fact => !protectedIds.has(fact.id)).slice(0, 30)
++    if (!slots || candidates.length < 2 || retrieval.deadline !== undefined && retrieval.deadline <= Date.now()) return selected
++    const key = createHash('sha256').update(JSON.stringify([storyId, options, query, candidates.map(fact => [fact.id, fact.content]), protectedFacts.map(fact => fact.id), limit])).digest('hex')
++    const cached = retrieval.rerankCache?.get(key)
++    if (cached) return cached
++    const request = (async () => {
++      try {
++        const results = await this.reranker.rerank(query, candidates.map(fact => fact.content), Math.min(options.topN, slots, candidates.length), retrieval)
++        return [...protectedFacts, ...results.filter(item => !options.scoreThreshold || item.relevanceScore >= options.scoreThreshold).map(item => candidates[item.index])].slice(0, limit)
++      } catch { return selected }
++    })()
++    retrieval.rerankCache?.set(key, request)
++    return request
+   }
+ 
+   /** Returns only observations that are safe for this narration branch. A
+    * participant's browsing is not shown to another private participant unless
+    * the owner has explicitly enabled shared relationship details. */
+@@ -6756,16 +6914,16 @@
        }
      })
    }
@@ -1410,7 +1708,7 @@
        kind: 'web-observation', actor: 'system',
        content: webObservationEntryContent(observation), occurredAt: now.toISOString(),
        metadata: { observationId: observation.id, status, mode, url: observation.url },
-@@ -6888,10 +7024,11 @@
+@@ -6888,10 +7046,11 @@
        await this.deliverDueSplitSegments(storyId)
        if (due.every(intent => intent.type === 'split-message')) return
      }
@@ -1422,7 +1720,7 @@
    private async reconcileTerminalSplitIntent(storyId: string, intent: NarrativeIntent, now: Date) {
      const ref = restoreMessageEvent(intent.payload, String(intent.payload?.content ?? ''))
      if (!ref || !Number.isSafeInteger(ref.scriptEntryId)) return false
-@@ -6951,15 +7088,16 @@
+@@ -6951,15 +7110,16 @@
      await this.scheduleNextSplitWake(story.id)
      return ready
    }
@@ -1443,7 +1741,7 @@
    /** Deliver already-decided <sep/> segments without invoking the narrator. */
    private async deliverDueSplitSegments(storyId: string) {
      const generation = this.taskGeneration(storyId)
-@@ -7093,10 +7231,11 @@
+@@ -7093,10 +7253,11 @@
      const key = normalizeFollowUpSummary(draft.summary)
      const duplicate = pending.find(intent => normalizeFollowUpSummary(intent.summary) === key)
      if (duplicate || pending.length >= 2) {
@@ -1455,7 +1753,7 @@
      const sourceEntryIds = [
        ...(draft.sourceEntryIds ?? []).filter(id => Number.isSafeInteger(id) && id > 0),
        ...(fallbackSourceEntryId ? [fallbackSourceEntryId] : []),
-@@ -7107,10 +7246,14 @@
+@@ -7107,10 +7268,14 @@
        payload: {
          kind: draft.kind, sourceEntryIds, expiresAt: expiresAt.toISOString(),
          requiresVisibleOutcome: true, userInitiated: true, originDeliveryEventId,
@@ -1470,7 +1768,7 @@
        '已登记承诺回访 参与者=%s 类型=%s 到期=%s', participantId, draft.kind, formatLogTime(new Date(draft.notBefore), story.setting.timezone))
    }
  
-@@ -7244,11 +7387,11 @@
+@@ -7244,11 +7409,11 @@
    private async cancelPendingOutgoingMessages(storyId: string, participantId: string, now: Date, cancelPlanned = true) {
      try {
        const intents = await this.dbGet('interlude_intent', { storyId, participantId, status: 'pending' })
@@ -1483,7 +1781,7 @@
  
        await this.dbSet('interlude_intent', { id: { $in: matching.map(intent => intent.id) } }, {
          status: 'cancelled',
-@@ -7617,11 +7760,13 @@
+@@ -7617,11 +7782,13 @@
            : message.content
          if (this.config.logging?.logMessageContent) {
            this.report('info', story, 'intent-due', '主角消息内容：%s', message.content.slice(0, this.config.logging.previewLength))
@@ -1498,7 +1796,7 @@
            this.noteEndpointOutbound({ kind: 'participant-user', id: target.id }, true, 'session-delivered', address)
            delivered.push(message)
            continue
-@@ -7677,11 +7822,13 @@
+@@ -7677,11 +7844,13 @@
          if (!bot) {
            this.report('warn', story, 'intent-due', '没有可用机器人账号投递消息 参与者=%s', target.id)
            if (recordFailures) await this.recordOutgoingDeliveryFailure(story, target.id, message, 'bot-not-found', failureStatus)
@@ -1513,7 +1811,7 @@
          delivered.push(message)
        } catch (error) {
          // Keep the address selected for this attempt.  Re-resolving here can
-@@ -7802,10 +7949,43 @@
+@@ -7802,10 +7971,43 @@
          },
        }, now, participantId)
      })
@@ -1557,7 +1855,7 @@
     * withdrawn，后续轮次的模型才能区分"想发"与"已发出"。 */
    private async recordWithdrawnOutgoingEvents(
      story: InterludeStory,
-@@ -7889,12 +8069,21 @@
+@@ -7889,12 +8091,21 @@
        const delivered = Array.isArray(metadata.deliveryActions)
          ? metadata.deliveryActions.find(action => isRecord(action) && action.commitId === reference.commitId && action.eventId === reference.eventId && action.status === 'delivered') : undefined
        const events = Array.isArray(metadata.scriptEvents) ? metadata.scriptEvents : []
@@ -1580,7 +1878,7 @@
              { seen: false, reply: { mode: 'immediate', content: event.content } }, at, event.eventId)
            if (commitment) await this.appendFollowUpCommitment(await this.getStory(storyId), event.participantId, commitment, entry.id, at, event.eventId)
            await this.dbSet('interlude_script_entry', { id: entry.id }, {
-@@ -9079,10 +9268,14 @@
+@@ -9079,10 +9290,14 @@
      // active+paused 都登记：暂停故事的账号/别名同样要能被 resume/status
      // 与入站重定向找到；archived 由 migrateLegacyStory 迁移时单独登记。
      const stories = (await this.dbGet('interlude_story', { status: { $in: ['active', 'paused'] } })) as any[]
@@ -1595,7 +1893,7 @@
        }
      }
      for (const participant of (await this.dbGet('interlude_participant', { status: 'active' })) as any[]) {
-@@ -9257,18 +9450,24 @@
+@@ -9257,18 +9472,24 @@
    // ── 角色端点管理（的显式迁移路径）：账号变更只能经此，入站永不改绑 ──
  
    /** 注册一个角色端点到既有故事（幂等；accountKey 被其他故事占用时拒绝）。
@@ -1621,7 +1919,7 @@
          return { ok: false, error: `账号 ${account} 已被故事 ${conflict.ownerId} 注册（唯一键 role:${accountKey}）。` }
        }
        const row: EndpointRow = {
-@@ -9559,10 +9758,21 @@
+@@ -9559,10 +9780,21 @@
    }
  
    // ── 世界事件播种器：生成回路 + 到期排水 ─────────────────────────────────
@@ -1643,7 +1941,7 @@
      this.disposed = true
      this.weatherTimer?.()
      this.weatherTimer = undefined
-@@ -10635,30 +10845,31 @@
+@@ -10635,30 +10867,31 @@
        await this.dbSet('interlude_participant', { id: participant.id }, { state, updatedAt: now })
      }
    }
@@ -1664,7 +1962,7 @@
 -      const same = existing.find(fact => normalizeFact(fact.content) === key && fact.embedding?.length)
 -      const vector = same?.embedding ?? await this.embedText(content)
 +      const same = existing.find(fact => normalizeFact(fact.content) === key && fact.embedding?.length
-+        && (!this.embedder.identity || !!this.embedder.identity() && fact.embeddingIdentity === this.embedder.identity()))
++        && (!this.config.model?.mobileEmbeddingIdentity || !!this.embedder?.identity?.() && fact.embeddingIdentity === this.embedder?.identity?.()))
 +      const vector = same ? { vector: same.embedding!, identity: same.embeddingIdentity ?? undefined } : await this.embedIndexedText(content)
        if (!this.taskGenerationCurrent(storyId, generation)) return vectors
        vectors.set(key, vector)
@@ -1679,7 +1977,7 @@
      const commit = async () => {
        if (this.databaseResetting || this.taskGeneration(story.id) !== generation) throw new Error('Compaction generation is obsolete')
        const fresh = (await this.dbGet('interlude_scene', { storyId: story.id, id: scene.id }))[0] as InterludeScene | undefined
-@@ -10674,11 +10885,11 @@
+@@ -10674,11 +10907,11 @@
        } finally { this.transactionRunning = false }
      })
      this.scheduleFactEmbeddingBackfill(story.id)
@@ -1692,7 +1990,7 @@
      for (const draft of decision.episodeTags ?? []) {
        const source = entries.find(entry => entry.id === draft.sourceEntryId)
        if (!source) continue
-@@ -10796,11 +11007,11 @@
+@@ -10796,11 +11029,11 @@
        }
        const knowledge = normalizeKnowledgeEvidence(fact.knowledge, entries, fact.sourceEntryIds ?? [])
        const resolved = supportsRecordedOutcome(knowledge)
@@ -1705,7 +2003,7 @@
      for (const patch of decision.statePatches ?? []) {
        if (!hasCompactionEvidence(patch.sourceEntryIds, entries)) {
          this.reportOperation('diagnostic', 'debug', story, 'advance', '发展提案未保留：缺少本轮新条目来源')
-@@ -10855,11 +11066,14 @@
+@@ -10855,11 +11088,14 @@
        const nextScene = await this.activeScene(story.id)
        if (nextScene) await this.dbSet('interlude_scene', { id: nextScene.id }, { lastEntryId: entries.at(-1)!.id })
      }
@@ -1715,20 +2013,20 @@
 +  private async persistFact(storyId: string, draft: import('./types').FactDraft, entries: ScriptEntry[], now: Date, prepared: PreparedFactEmbedding | number[] = []) {
 +    const indexed = Array.isArray(prepared) ? { vector: prepared, identity: undefined } : prepared
 +    const currentIdentity = this.embedder?.identity?.()
-+    const preparedEmbedding = !this.embedder?.identity || currentIdentity && indexed.identity === currentIdentity ? indexed.vector : []
++    const preparedEmbedding = !this.config.model?.mobileEmbeddingIdentity || currentIdentity && indexed.identity === currentIdentity ? indexed.vector : []
      const content = clip(draft.content, this.memoryConfig.factContentCharacters)
      if (!content) return false
      // Durable facts are global narrative evidence. Ignore the legacy model
      // participantId field and persist new facts with an empty compatibility value.
      const participantId = ''
-@@ -10877,19 +11091,21 @@
+@@ -10877,19 +11113,21 @@
      const same = matching.find(fact => (fact.knowledge?.mode ?? 'unclassified') === knowledge.mode)
        ?? matching.find(fact => !fact.knowledge && canClose)
      const unresolved = draft.unresolved === true || (draft.scope === 'promise' && (draft.unresolved !== false || !canClose))
      if (same && ((same.knowledge?.mode ?? 'unclassified') === knowledge.mode || !same.knowledge && canClose)) {
        const resolved = same.unresolved && draft.unresolved === false && canClose
 -      const embedding = same.embedding?.length ? same.embedding : preparedEmbedding
-+      const reuse = same.embedding?.length && (!this.embedder?.identity || !!currentIdentity && same.embeddingIdentity === currentIdentity)
++      const reuse = same.embedding?.length && (!this.config.model?.mobileEmbeddingIdentity || !!currentIdentity && same.embeddingIdentity === currentIdentity)
 +      const embedding = reuse ? same.embedding! : preparedEmbedding
 +      const embeddingIdentity = reuse ? same.embeddingIdentity : indexed.identity
        await this.dbSet('interlude_fact', { id: same.id }, {
@@ -1739,20 +2037,20 @@
            ? Math.max(same.confidence, clampNumber(draft.confidence, same.confidence, 0, 1)) : same.confidence,
          unresolved: resolved ? false : same.unresolved || unresolved,
 -        ...(embedding.length ? { embedding } : {}),
-+        ...(embedding.length ? { embedding, embeddingIdentity } : {}),
++        ...(embedding.length ? { embedding, ...(embeddingIdentity ? { embeddingIdentity } : {}) } : {}),
          sourceEntryIds: Array.from(new Set([...same.sourceEntryIds, ...sourceEntryIds])), lastSeenAt: now, updatedAt: now,
          knowledge: { ...knowledge, clauses: [...new Map([...(same.knowledge?.clauses ?? []), ...knowledge.clauses].map(clause => [JSON.stringify(clause), clause])).values()].slice(-12),
            relatedFactIds: [...new Set([...(same.knowledge?.relatedFactIds ?? []), ...knowledge.relatedFactIds])].slice(-12) },
        })
        return resolved
-@@ -10899,19 +11115,26 @@
+@@ -10899,19 +11137,26 @@
        if (oldest) await this.dbSet('interlude_fact', { id: oldest.id }, { status: 'superseded', updatedAt: now })
      }
      await this.dbCreate('interlude_fact', {
        storyId, participantId, scope: draft.scope, content, knowledge, importance: clampNumber(draft.importance, 0.5, 0, 1),
        confidence: clampNumber(draft.confidence, 0.5, 0, 1), unresolved,
 -      embedding: preparedEmbedding, status: 'active', sourceEntryIds,
-+      embedding: preparedEmbedding, embeddingIdentity: preparedEmbedding.length ? indexed.identity : null, status: 'active', sourceEntryIds,
++      embedding: preparedEmbedding, ...(preparedEmbedding.length && indexed.identity ? { embeddingIdentity: indexed.identity } : {}), status: 'active', sourceEntryIds,
        lastSeenAt: now, createdAt: now, updatedAt: now,
      })
      return false
@@ -1760,10 +2058,10 @@
  
 -  private async embedText(value: string) {
 +  private async embedIndexedText(value: string): Promise<PreparedFactEmbedding> {
-+    const identity = this.embedder.identity?.()
++    const identity = this.embedder?.identity?.()
 +    const vector = await this.embedText(value)
-+    if (this.embedder.identity && (!identity || identity !== this.embedder.identity() || !this.config.model.embedding?.enabled)) return { vector: [] }
-+    return { vector, identity }
++    if (this.config.model?.mobileEmbeddingIdentity && (!identity || identity !== this.embedder?.identity?.() || !this.config.model.embedding?.enabled)) return { vector: [] }
++    return { vector, identity: this.config.model?.mobileEmbeddingIdentity ? identity : undefined }
 +  }
 +
 +  private async embedText(value: string, context: { foreground?: boolean; deadline?: number; signal?: AbortSignal } = {}) {
@@ -1775,14 +2073,14 @@
        this.reportStandaloneOperation('diagnostic', 'debug', 'Embedding 请求跳过 错误=%s', error)
        return []
      }
-@@ -10933,18 +11156,18 @@
+@@ -10933,18 +11178,18 @@
    private async backfillFactEmbeddings(storyId: string, batchSize: number) {
      const generation = this.taskGeneration(storyId)
      if (!this.taskGenerationCurrent(storyId, generation)) return
      const facts = await this.dbGet('interlude_fact', { storyId, status: 'active' })
      const missing = facts
 -      .filter(fact => !fact.embedding?.length)
-+      .filter(fact => !fact.embedding?.length || this.embedder.identity && fact.embeddingIdentity !== this.embedder.identity())
++      .filter(fact => !fact.embedding?.length || this.config.model?.mobileEmbeddingIdentity && fact.embeddingIdentity !== this.embedder?.identity?.())
        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
        .slice(0, Math.max(0, batchSize))
      for (const fact of missing) {
@@ -1791,13 +2089,13 @@
 +      const indexed = await this.embedIndexedText(fact.content)
        if (!this.taskGenerationCurrent(storyId, generation)) break
 -      if (embedding.length) await this.dbSet('interlude_fact', { id: fact.id, storyId, status: 'active', content: fact.content }, { embedding })
-+      if (indexed.vector.length) await this.dbSet('interlude_fact', { id: fact.id, storyId, status: 'active', content: fact.content }, { embedding: indexed.vector, embeddingIdentity: indexed.identity })
++      if (indexed.vector.length) await this.dbSet('interlude_fact', { id: fact.id, storyId, status: 'active', content: fact.content }, { embedding: indexed.vector, ...(indexed.identity ? { embeddingIdentity: indexed.identity } : {}) })
      }
    }
  
    private async persistStatePatch(story: InterludeStory, draft: StatePatchDraft, entries: ScriptEntry[], now: Date) {
      const confidence = clampNumber(draft.confidence, 0, 0, 1)
-@@ -12457,18 +12680,19 @@
+@@ -12457,18 +12702,19 @@
    const maximum = new Date(now.getTime() + 24 * Time.hour)
    if (!requested || requested <= now) return maximum
    return requested < maximum ? requested : maximum
@@ -1820,7 +2118,7 @@
      : []
    const expiresAt = toDate(value.expiresAt)
    return {
-@@ -12476,14 +12700,104 @@
+@@ -12476,14 +12722,104 @@
      ...(expiresAt && expiresAt > notBefore ? { expiresAt: expiresAt.toISOString() } : {}),
      ...(sourceEntryIds.length ? { sourceEntryIds } : {}),
    }
@@ -1927,7 +2225,7 @@
  
  function interactionPromisesFollowUp(content: unknown) {
    if (typeof content !== 'string') return false
-@@ -12577,10 +12891,11 @@
+@@ -12577,10 +12913,11 @@
    // 覆盖恢复路径等旁路输入(对象形态直接取散文,不再判空)。
    const script = normalizeScriptField(raw?.script).trim().slice(0, runtime.maxScriptCharacters)
    // The only channel for a private reply is interaction. Automatic life
@@ -1939,7 +2237,7 @@
    const memories = Array.isArray(raw?.memories)
      ? raw.memories.filter(validMemory).map(memory => ({ ...memory, participantId: permittedOrGlobal(memory.participantId, currentParticipantId, permittedParticipantIds) }))
      : []
-@@ -12626,11 +12941,11 @@
+@@ -12626,11 +12963,11 @@
    const continuity = refreshContinuity ? normalizeContinuitySnapshot(raw?.continuity) : undefined
    const alter = normalizeAlterValue(raw?.alter)
    const automaticDeliverySummary = isAutomaticNarrativePhase(phase)
@@ -1952,7 +2250,7 @@
      : []
    const agencyWindow = isRecord(raw?.agencyWindow) ? raw.agencyWindow : undefined
    const proactiveContact = isRecord(raw?.proactiveContact) ? raw.proactiveContact : undefined
-@@ -12754,11 +13069,11 @@
+@@ -12754,11 +13091,11 @@
    if (mode === 'none') return { seen, reply: { mode: 'none' } }
    if (!content) return { seen, reply: { mode: 'none' } }
    if (mode === 'immediate') return { seen, reply: { mode: 'immediate', content } }
@@ -1965,7 +2263,7 @@
  function validMemory(value: unknown): value is MemoryDraft {
    return isRecord(value) && typeof value.category === 'string' && typeof value.content === 'string' && !!value.content.trim()
  }
-@@ -13057,17 +13372,17 @@
+@@ -13057,17 +13394,17 @@
      used += entry.content.length
    }
    return selected
@@ -1985,7 +2283,7 @@
    // mathematically range from -1 to 1.
    const semantic = similarity == null ? 0 : Math.max(0, similarity)
    const lexical = historyLexicalScore(query, fact.content)
-@@ -13102,11 +13417,11 @@
+@@ -13102,11 +13439,11 @@
    ))
    return Array.from(new Set([...words, ...bigrams])).slice(0, 80)
  }

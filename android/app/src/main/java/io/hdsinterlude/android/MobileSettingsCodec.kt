@@ -40,6 +40,7 @@ class MobileSettingsCodec(private val schema: JSONObject) {
                         val label = when (key) { "endpoint" -> "HTTP(S) 地址"; "model" -> "模型名"; else -> "连接编号" }
                         require(value is String) { "$section.$key 应为$label" }
                         require(value.length <= maxLength && value.none { it.code < 32 || it.code == 127 }) { "$section.$key 应为不超过 $maxLength 字符的$label" }
+                        if (key == "providerId" && value.isNotEmpty()) require(value.matches(Regex("[a-zA-Z0-9-]{1,64}"))) { "$section.$key 连接编号无效" }
                         if (key == "endpoint" && value.isNotEmpty()) ModelEndpoint.validateRetrievalEndpoint(value)
                     }
                     "array" -> {

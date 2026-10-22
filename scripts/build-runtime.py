@@ -116,7 +116,7 @@ def audit_guest(archive):
                     if not link.linkname or link.linkname.startswith('/'): raise RuntimeError('Absolute/empty guest symlink')
                     parts.pop()
                     pending = link.linkname.split('/') + pending
-    for required in ['opt/node/bin/node', 'opt/hds/host.cjs']:
+    for required in ['opt/node/bin/node', 'opt/hds/host.cjs', 'opt/hds/model-probe.cjs']:
         if required not in entries or not entries[required].isfile(): raise RuntimeError(f'Missing guest file: {required}')
     return {'expandedBytes': expanded, 'entries': len(entries), 'hardlinks': 0, 'symlinks': symbols}
 
@@ -191,6 +191,7 @@ def main():
     for name in ['package.json', 'package-lock.json']: shutil.copyfile(ROOT / 'runtime/profile' / name, profile / name)
     subprocess.run(['npm', 'ci', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], cwd=profile, check=True)
     shutil.copyfile(WORK / 'host.cjs', profile / 'host.cjs')
+    shutil.copyfile(ROOT / 'runtime/generated/model-probe.cjs', profile / 'model-probe.cjs')
     shutil.copyfile(ROOT / 'runtime/guest-probe.cjs', profile / 'guest-probe.cjs')
     shutil.copyfile(ROOT / 'upstream/hds-interlude/LICENSE', profile / 'HDS-LICENSE')
     LEGAL.mkdir(parents=True, exist_ok=True)
@@ -238,7 +239,7 @@ def main():
     archive = ASSETS / 'rootfs.bundle'  # .gz suffix is stripped by AAPT; contents remain gzip.
     audit = pack_guest(GUEST, archive)
     expanded = audit['expandedBytes']
-    manifest = {'version': LOCK['version'], 'sourceSha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK, 'qqLibraries': qq_libs}
+    manifest = {'version': LOCK['version'], 'sourceSha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), 'abi': LOCK['abi'], 'compressedBytes': archive.stat().st_size, 'expandedBytes': expanded, 'archiveAudit': audit, 'hostSha256': digest(profile / 'host.cjs'), 'modelProbeSha256': digest(profile / 'model-probe.cjs'), 'sha256': digest(archive), 'prootSha256': reference['prootSha256'], 'loaderSha256': reference['loaderSha256'], 'sourceLock': LOCK, 'qqLibraries': qq_libs}
     (ASSETS / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     (WORK / 'runtime-manifest.json').write_text(json.dumps(manifest, indent=2))
     print(f'Built runtime: {archive.stat().st_size // 1024 // 1024} MiB compressed / {expanded // 1024 // 1024} MiB expanded', flush=True)

@@ -16,11 +16,17 @@ preview.4 的模型分工直接使用原 HDS provider flags / failover / SSE 路
 Preview7：复用原版 sidecar/native 识图路由，原生桥接新增图片压缩、外观文件与故事存档事务。见闻管理复用原版事实、待办、overlay 和 compact API；`mobileManageFact` 在修改前失效旧叙事工作并刷新连续性缓存。详见 `docs/PREVIEW7.md`。
 
 
-## 当前 rc57 基线（Preview 9.2 / 9.3）
+## 当前 rc57 基线（Preview 9.5.2）
 
 - `scripts/vendor-hds.mjs` 固定使用上游 tag `1.0.1-rc57` 和提交 `ab512ec6b9dc00b9f738c062fe576e711a739151`。
 - `scripts/patch-mobile-hds.mjs` 当前重放 `scripts/mobile-hds-rc57.patch`；历史 `mobile-hds-rc56.patch` 和仍被引用的 `mobile-hds-rc56-tests.patch` 文件名不应仅为消除旧版文案而改名。
 - 更新上游时需重新验证固定提交、补丁上下文、宿主构建和自动测试。历史 rc56 章节保持原样，便于追踪迁移决策。
+
+## Preview 9.5.2 — 检索与指定 backports
+
+继续固定 rc57 `ab512ec6b9dc00b9f738c062fe576e711a739151`，仅移植 `9bdd5ac776dd682911edb9b48d1e7eaedd720dbe` 的 #10/#14 指定逻辑。向量目标解析、端点隔离、预算上下文及移动索引身份全部进入对纯 rc57 的完整源码补丁。Android 宿主显式启用身份迁移；旧库增加可空列，未知身份走词法与质量排序，按批量预算渐进回填。外部 rerank 属 Android 扩展，默认关闭，只精排主叙事长期事实，失败完整回退基线。
+
+新增 guest `model-probe.cjs` 与 host 使用相同向量/重排序客户端；原生只管理凭据、独立进程组和有界 JSON。构建脚本将 probe 纳入必需文件审计及 manifest 哈希。诊断保存稳定类别、不保存 URL 或正文；设置 schema 继续同源生成两份。完整说明、默认值、网关检查与回退方式见 [PREVIEW9.5.2.md](PREVIEW9.5.2.md)。历史章节保留。
 
 ## preview.8 model request budget
 

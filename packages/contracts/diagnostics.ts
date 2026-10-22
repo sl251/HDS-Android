@@ -1,9 +1,10 @@
 export type DiagnosticEvent = {
   id: string; at: number; requestIds: string[]; stage: string; outcome: string;
   messageId?: string; reason?: string; elapsedMs?: number; attempt?: number;
-  count?: number; willingness?: number; mode?: string; entryId?: number; providerSlot?: number;
+  count?: number; willingness?: number; mode?: string; entryId?: number; providerSlot?: number; httpStatus?: number; vectorDimensions?: number; resultCount?: number;
 }
 export const diagnosticLabels: Record<string, string> = {
+  embedding: '向量检索', rerank: '重排序', fallback: '已回退本地排序',
   submission: '消息提交', processing: '回合处理', model: '模型调用', decision: '角色决策',
   sticker: '表情选择', voice: '语音处理', delivery: '最终投递', lifecycle: '运行状态', commit: '故事记录',
   queued: '等待处理', accepted: '核心已接收', started: '开始', succeeded: '成功',
@@ -13,6 +14,14 @@ export const diagnosticLabels: Record<string, string> = {
   generated: '语音已生成', retry: '核心安排重试',
 }
 export const diagnosticReasons: Record<string, string> = {
+  configuration: '检索配置无效，已回退本地排序。', provider_required: '检索连接缺失或停用，已回退本地排序。',
+  model_required: '请填写检索模型名。', endpoint_required: '无法推导检索地址，请填写完整 HTTP(S) 端点。',
+  endpoint_origin: '检索地址必须与所选连接同源；独立服务请新建连接。',
+  redirect_rejected: '检索端点返回重定向，请填写最终地址。',
+  gateway_convert_request: '网关协议转换失败；请检查 rerank 渠道是否支持对应协议。',
+  gateway_model_ratio: '网关缺少模型倍率，请联系网关管理员。',
+  route_not_found: '检索路由未开放或地址不匹配（HTTP 404/405）。',
+  invalid_response: '模型响应结构无效，已回退本地排序。', cancelled: '检索已取消。',
   provider_quota: '供应商报告余额或配额不足，请检查对应账户与 Key 的限额。',
   authentication: '供应商拒绝密钥，请检查密钥是否有效。',
   permission: '供应商拒绝访问，请检查模型权限。',

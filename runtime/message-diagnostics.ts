@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, renameSync, statSync } from 'node:fs'
 import type { DiagnosticEvent } from '../packages/contracts/diagnostics'
 
-type Detail = Partial<Pick<DiagnosticEvent, 'messageId' | 'reason' | 'elapsedMs' | 'attempt' | 'count' | 'willingness' | 'mode' | 'entryId' | 'providerSlot'>>
+type Detail = Partial<Pick<DiagnosticEvent, 'messageId' | 'reason' | 'elapsedMs' | 'attempt' | 'count' | 'willingness' | 'mode' | 'entryId' | 'providerSlot' | 'httpStatus' | 'vectorDimensions' | 'resultCount'>>
 const context = new AsyncLocalStorage<{ store: MessageDiagnostics; ids: string[]; epoch: number; active: boolean }>()
 const safeId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(value)
 const code = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9_:-]{1,80}$/.test(value)
@@ -31,6 +31,7 @@ export function diagnosticError(error: unknown): string {
 
 export class MessageDiagnostics {
   private events: DiagnosticEvent[] = []
+  private retrievalMerged = new Map<string, DiagnosticEvent>()
   epoch = 0
   storageAvailable = true
   constructor(private file: string) {
@@ -59,7 +60,7 @@ export class MessageDiagnostics {
     if (safeId(value.messageId)) result.messageId = value.messageId
     if (code(value.reason)) result.reason = value.reason
     if (code(value.mode)) result.mode = value.mode
-    for (const key of ['elapsedMs', 'attempt', 'count', 'willingness', 'entryId', 'providerSlot'] as const) {
+    for (const key of ['elapsedMs', 'attempt', 'count', 'willingness', 'entryId', 'providerSlot', 'httpStatus', 'vectorDimensions', 'resultCount'] as const) {
       const number = value[key]
       if (typeof number === 'number' && Number.isFinite(number) && number >= 0 && number <= 1e12) result[key] = number
     }
@@ -83,6 +84,21 @@ export class MessageDiagnostics {
     // The same sanitized event also enters Android's existing bounded runtime log.
     try { process.stdout.write(`[HDS_EVENT] ${JSON.stringify({ ...event, requestIds: event.requestIds.slice(0, 8) })}\n`) } catch { /* logging cannot fail a message */ }
   }
+  retrieval(ids: string[], task: string, outcome: string, detail: Detail, epoch: number) {
+    if (epoch !== this.epoch) return
+    const key = `${task}:${detail.providerSlot ?? 0}:${detail.reason ?? outcome}`
+    const previous = this.retrievalMerged.get(key)
+    if (previous && Date.now() - previous.at < 60000 && this.events.includes(previous)) {
+      previous.count = (previous.count ?? 1) + 1
+      previous.requestIds = [...new Set([...previous.requestIds, ...ids])].slice(0, 100)
+      this.save(); return
+    }
+    this.record(ids, task, outcome, { ...detail, count: 1 })
+    this.retrievalMerged.set(key, this.events[this.events.length - 1])
+    if (this.retrievalMerged.size > 100) this.retrievalMerged.delete(this.retrievalMerged.keys().next().value!)
+    if (outcome === 'succeeded') for (const other of this.retrievalMerged.keys()) if (other.startsWith(`${task}:${detail.providerSlot ?? 0}:`) && other !== key) this.retrievalMerged.delete(other)
+    if (outcome === 'fallback') this.retrievalMerged.delete(`${task}:${detail.providerSlot ?? 0}:succeeded`)
+  }
   list(messageId?: string) {
     const before = this.events.length
     this.trim()
@@ -95,7 +111,7 @@ export class MessageDiagnostics {
     this.trim()
     return [...new Set(this.events.filter(event => event.stage === 'commit' && event.entryId !== undefined && entries.includes(event.entryId)).flatMap(event => event.requestIds))]
   }
-  clear() { this.epoch++; this.events = []; this.save() }
+  clear() { this.epoch++; this.events = []; this.retrievalMerged.clear(); this.save() }
 }
 
 export function runMessageDiagnostics<T>(store: MessageDiagnostics | undefined, ids: string[], task: () => T): T {
@@ -128,4 +144,16 @@ export async function diagnosticCall<T>(stage: string, task: () => Promise<T>, d
   diagnosticEvent(stage, 'started', detail)
   try { const result = await task(); diagnosticEvent(stage, 'succeeded', { ...detail, elapsedMs: Date.now() - started }); return result }
   catch (error) { diagnosticEvent(stage, 'failed', { ...detail, reason: diagnosticError(error), elapsedMs: Date.now() - started }); throw error }
+}
+
+/** Capture scope and epoch before network IO, including background calls with no message IDs. */
+export function retrievalDiagnosticRecorder(store: MessageDiagnostics, providers: { id?: string }[]) {
+  const scope = context.getStore(), epoch = store.epoch
+  const ids = scope?.active && scope.store === store && scope.epoch === epoch ? [...scope.ids] : []
+  return (event: { task: string; status: string; providerId?: string; category?: string; httpStatus?: number; elapsedMs?: number; vectorDimensions?: number; resultCount?: number }) => {
+    try {
+      const index = providers.findIndex(row => row.id === event.providerId)
+      store.retrieval(ids, event.task, event.status, { reason: event.category, ...(index >= 0 ? { providerSlot: index + 1 } : {}), httpStatus: event.httpStatus, elapsedMs: event.elapsedMs, vectorDimensions: event.vectorDimensions, resultCount: event.resultCount }, epoch)
+    } catch { /* Diagnostics cannot fail retrieval. */ }
+  }
 }
