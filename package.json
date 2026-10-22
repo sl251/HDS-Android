@@ -1,6 +1,6 @@
 {
   "name": "hds-android",
-  "version": "0.1.0-preview.9.5.2",
+  "version": "0.1.0-preview.9.5.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "build:host": "node scripts/build-mobile-host.mjs",
     "test": "npm run build:host && node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "android:sync": "npm run build && cap sync android",
-    "test:ui": "npm run build:host && node tests/story-ui.mjs && node tests/preview91-m4-ui.mjs && node tests/qq-policy-ui.mjs && node tests/share-persona-ui.mjs && node tests/m5-ui.mjs && node tests/import-code-ui.mjs && node tests/retrieval-ui.mjs"
+    "test:ui": "npm run build:host && node tests/story-ui.mjs && node tests/preview91-m4-ui.mjs && node tests/qq-policy-ui.mjs && node tests/share-persona-ui.mjs && node tests/m5-ui.mjs && node tests/import-code-ui.mjs && node tests/retrieval-ui.mjs && node tests/typing-ui.mjs"
   },
   "dependencies": {
     "@capacitor/android": "7.6.9",

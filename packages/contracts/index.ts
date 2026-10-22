@@ -138,7 +138,7 @@ export function imageEntryReason(input: { native: boolean; healthy: boolean; bus
   if (!input.healthy) return '请先唤醒核心再添加图片'
   if (input.busy || input.sending) return '正在处理，请稍候再添加图片'
   if (input.count >= 3) return '最多 3 张图片，请先移除一张'
-  if (!input.enabled) return '请到模型设置开启图片理解（识图模型），再把照片发来'
+  if (!input.enabled) return '请到「空间 → 任务分工」开启图片理解，再把照片发来'
 }
 
 /** Share one read, and read again after a mutation that overlapped it. Revision keys isolate profiles. */

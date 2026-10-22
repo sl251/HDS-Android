@@ -1,7 +1,7 @@
 import { visionProjection, visionRouteReason, type ModelSettings } from '../../packages/contracts'
 
 export function stickerImportReason(settings: Pick<ModelSettings, 'providers' | 'modelOptions'>): string | undefined {
-  if (!settings.modelOptions.visionEnabled) return '请先到模型设置开启图片理解，并配置可用的识图模型，再导入表情包。'
+  if (!settings.modelOptions.visionEnabled) return '请先到「空间 → 任务分工」开启图片理解，并配置可用的识图模型，再导入表情包。'
   try {
     const route = visionProjection(settings)
     const reason = visionRouteReason(route)

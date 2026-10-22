@@ -101,11 +101,9 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
         </label>
       })}</div>
 
-        {section.key === 'memory' && <><p className="caption">原始条目与事实默认 20 条，上限 20 条。向量检索与模型分工联动：请在「模型连接 → 向量与重排序」配置连接与模型；实时检索默认关闭，后台向量补齐不受影响。</p>
-          {schema.sections.find(row => row.key === 'embedding')!.fields.filter(field => ['enabled', 'liveQuery'].includes(field.key)).map(field => <label className="toggle" key={field.key}><input type="checkbox" checked={(value.sections?.embedding?.[field.key] ?? field.default) === true} onChange={event => update('embedding', field.key, event.target.checked)} /><span>{field.key === 'enabled' ? '长期记忆向量检索' : '对话中实时检索'}</span></label>)}
-        </>}
+        {section.key === 'memory' && <p className="caption">原始条目与事实默认 20 条，上限 20 条。向量检索的开关、连接与模型统一在「任务分工 → 向量与重排序」设置。</p>}
         {section.key === 'memory' && openRetrieval && <button onClick={openRetrieval}>配置向量与重排序</button>}
-        {section.key === 'worldSeeder' && <p className="caption">事件源为外部事件与配角；需在「模型连接 → 任务分工」指定世界播种模型。</p>}
+        {section.key === 'worldSeeder' && <p className="caption">事件源为外部事件与配角；需在「任务分工」指定世界播种模型。</p>}
         {section.key === 'longHorizon' && <p className="caption">审查周期由新增叙事证据分数决定；指导强度控制长期方向的表达程度。</p>}
         {section.key === 'runtime' && <p className="caption">承诺最长 12 小时。扫描用于漏唤醒后的兜底，不会唤醒被系统强制停止的应用；显式约定仍受预算与暂停约束。</p>}
         </details>}

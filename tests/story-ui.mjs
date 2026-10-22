@@ -16,8 +16,8 @@ try {
   page.on('pageerror', error => debugMessages.push(error.stack || error.message))
   page.setDefaultTimeout(30000)
   const openCategory = async category => {
-    const labels = { personal: '界面个性化', notifications: '消息通知', intelligence: '模型连接', advanced: '高级设置', data: '备份与维护', world: '角色与故事', life: '持续生活' }
-    const target = { personal: 'appearance', notifications: 'notifications', intelligence: 'models', advanced: 'advanced', data: 'system', world: 'world', life: 'life' }[category]
+    const labels = { personal: '界面个性化', notifications: '消息通知', intelligence: '模型连接', tasks: '任务分工', advanced: '高级设置', data: '备份与维护', world: '角色与故事', life: '持续生活' }
+    const target = { personal: 'appearance', notifications: 'notifications', intelligence: 'models', tasks: 'tasks', advanced: 'advanced', data: 'system', world: 'world', life: 'life' }[category]
     if (await page.locator(`[data-settings-category="${target}"]`).count()) return
     await page.getByRole('button', { name: '空间', exact: true }).click()
     await page.getByRole('button', { name: new RegExp(`^${labels[category]}`) }).click()
@@ -295,7 +295,7 @@ try {
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '消息内容')
   assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '等你醒来')
   await page.getByRole('button', { name: '空间', exact: true }).click()
-  assert.deepEqual(await page.locator('.settings-directory .settings-entry > span > small').allTextContents(), ['连接、任务分工与图片理解', '角色库、你的身份与故事设定', '主动联系、情绪与后台运行', '角色语音、音色库与用量', '回复提醒与系统权限', '壁纸、字体与阅读样式'])
+  assert.deepEqual(await page.locator('.settings-directory .settings-entry > span > small').allTextContents(), ['服务地址、密钥与模型名称', '对话、记忆、图片识别与检索', '角色库、你的身份与故事设定', '主动联系、情绪与后台运行', '角色语音、音色库与用量', '回复提醒与系统权限', '壁纸、字体与阅读样式'])
   assert.equal(await page.locator('.space-home details').count(), 0)
   await page.getByRole('button', { name: /^备份与维护/ }).scrollIntoViewIfNeeded()
   assert.ok(await page.getByRole('button', { name: /^备份与维护/ }).isVisible(), 'Last directory entry is reachable')
@@ -360,9 +360,7 @@ try {
   await notifications.uncheck()
   await page.getByRole('button', { name: '去系统设置', exact: true }).waitFor()
   console.log('PASS P0-b: notification toggle defaults off, denied permission state and system settings link.')
-  await openCategory('intelligence')
-  await page.getByText('任务分工', { exact: true }).click()
-  await page.getByText('图片理解', { exact: true }).click()
+  await openCategory('tasks')
   await page.getByLabel('识图模型', { exact: true }).selectOption('light')
   await page.waitForFunction(() => window.__storyFixture.prefs.modelOptions.visionProviderId === 'light')
   await page.getByLabel('记忆压缩模型').selectOption('light')
@@ -370,10 +368,8 @@ try {
   await page.getByText('已自动保存', { exact: true }).waitFor()
   assert.equal(await page.evaluate(() => window.__storyFixture.prefs.providers.find(x => x.id === 'light').useForCompaction), true)
   await page.getByRole('button', { name: '立即重启生效', exact: true }).waitFor()
-  await openGroup('管理模型连接 · 2 条')
-  await page.getByRole('button', { name: /轻量模型/ }).click()
-  await openGroup('高级连接与备用分工')
-  const mainAssignment = page.getByLabel('参与主叙事', { exact: true })
+  await page.locator('.task-card').filter({ has: page.getByLabel('主叙事模型', { exact: true }) }).locator('summary').click()
+  const mainAssignment = page.getByLabel('主叙事使用轻量模型', { exact: true })
   await mainAssignment.check()
   await page.getByRole('button', { name: '撤销开启备用切换', exact: true }).waitFor()
   await page.waitForFunction(() => window.__storyFixture.prefs.modelOptions.failoverEnabled === true)

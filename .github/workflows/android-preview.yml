@@ -136,3 +136,25 @@ jobs:
             android/app/build/reports/tests/testReleaseUnitTest/
           if-no-files-found: error
           retention-days: 30
+
+  publish-preview-953:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [qq-linux-arm64, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Publish signed Preview 9.5.3 as latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(node -p "require('./package.json').version")" = "0.1.0-preview.9.5.3"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "HDS-Android-preview-$GITHUB_SHA" --dir release-artifacts
+          apk=$(find release-artifacts -name 'HDS-Android-0.1.0-preview.9.5.3-arm64.apk' -print -quit)
+          source=$(find release-artifacts -name 'HDS-Android-0.1.0-preview.9.5.3-source.tar.gz' -print -quit)
+          sums=$(find release-artifacts -name 'SHA256SUMS.txt' -print -quit)
+          test -s "$apk" && test -s "$source" && test -s "$sums"
+          (cd "$(dirname "$sums")" && sha256sum -c SHA256SUMS.txt)
+          gh release create v0.1.0-preview.9.5.3 "$apk" "$source" "$sums" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'HDS-Android 0.1.0-preview.9.5.3' --notes-file docs/PREVIEW9.5.3.md --latest
