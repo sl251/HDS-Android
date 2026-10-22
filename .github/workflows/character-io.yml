@@ -58,4 +58,5 @@ jobs:
           name: media-regression-evidence
           path: |
             artifacts/media-controls
+            artifacts/typing-tasks
             android/app/build/reports/tests

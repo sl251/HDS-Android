@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { mkdir } from 'node:fs/promises'
 import { characterFixture } from './character-io-fixture.mjs'
 const f = await characterFixture(true), { page } = f
 try {
+  await mkdir('artifacts/typing-tasks', { recursive: true })
   await page.addInitScript(() => {
     const original = window.Capacitor.nativePromise
     fixture.probes = []; fixture.probeHold = false
@@ -19,10 +21,18 @@ try {
     }
   })
   await f.load(); await page.getByRole('button', { name: '空间', exact: true }).click(); await page.getByRole('button', { name: /^模型连接/ }).click()
+  assert.equal(await page.getByRole('button', { name: '测试聊天连接', exact: true }).count(), 1)
+  assert.equal(await page.getByLabel('embedding 连接').count(), 0)
+  await page.getByRole('button', { name: '前往任务分工 →' }).click()
   const section = page.getByRole('region', { name: '向量与重排序' })
   await section.getByText('向量与重排序', { exact: true }).waitFor()
-  assert.equal(await page.getByRole('button', { name: '测试聊天连接', exact: true }).count(), 1)
+  assert.equal(await page.getByRole('button', { name: '测试聊天连接', exact: true }).count(), 0)
   assert.equal(await section.getByLabel('启用重排序', { exact: true }).isChecked(), false)
+  assert.equal(await section.getByLabel('embedding 连接').inputValue(), 'primary', 'Legacy flag is reflected by the single task selector')
+  await section.getByLabel('embedding 连接').selectOption('')
+  await page.waitForFunction(() => fixture.settings.providers[0].useForEmbedding === false)
+  await section.getByLabel('embedding 连接').selectOption('primary')
+  await page.waitForFunction(() => fixture.settings.mobileConfig.sections.embedding.providerId === 'primary' && fixture.settings.providers[0].useForEmbedding === true)
   await section.getByLabel('embedding 模型名').fill('vector-fixture'); await section.getByLabel('embedding 完整端点').fill('https://example.invalid/v1/embeddings')
   await page.evaluate(() => { fixture.probeHold = true })
   await section.getByRole('button', { name: '测试向量连接', exact: true }).click(); await page.waitForFunction(() => fixture.probes.length === 1)
@@ -36,7 +46,20 @@ try {
   await section.getByRole('button', { name: '测试重排序连接', exact: true }).click()
   await section.getByText('模型测试进程清理失败，请重启应用。', { exact: true }).waitFor()
   assert.equal(await section.locator('[data-retrieval-task=rerank]').getByText(/测试成功/).count(), 0, 'A failed new probe must not retain an old success')
-  for (const width of [320, 390, 740]) { await page.setViewportSize({ width, height: 844 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true) }
+  await page.getByRole('checkbox', { name: '开启图片理解' }).check()
+  await page.getByLabel('识图模型', { exact: true }).selectOption('primary')
+  await page.getByLabel('图片输入能力 · 测试连接').selectOption('supported')
+  await page.waitForFunction(() => fixture.settings.providers[0].imageInput === 'supported' && fixture.settings.modelOptions.visionProviderId === 'primary')
+  await page.getByRole('button', { name: '管理模型连接 →', exact: true }).click()
+  assert.equal(await page.getByLabel('识图模型', { exact: true }).count(), 0)
+  assert.equal(await page.getByLabel('图片输入能力 · 测试连接').count(), 0)
+  await page.getByLabel('模型名称', { exact: true }).fill('replacement-chat')
+  await page.getByLabel('模型名称', { exact: true }).blur()
+  await page.waitForFunction(() => fixture.settings.providers[0].imageInput === 'unknown')
+  await page.getByRole('button', { name: '前往任务分工 →' }).click()
+  assert.equal(await page.getByLabel('识图模型', { exact: true }).inputValue(), 'primary')
+  assert.equal(await page.getByLabel('图片输入能力 · 测试连接').inputValue(), 'unknown')
+  for (const width of [320, 390, 740]) { await page.setViewportSize({ width, height: 844 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true); await page.screenshot({ path: `artifacts/typing-tasks/tasks-${width}.png`, fullPage: true }) }
   assert.deepEqual(f.errors, [])
   console.log('PASS retrieval UI: independent switches, text fields, chat/retrieval labels, frozen probe snapshot, stale result, rerank test and responsive layouts')
 } finally { await f.close() }

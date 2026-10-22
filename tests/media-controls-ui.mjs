@@ -36,7 +36,7 @@ try {
   assert.equal(await page.evaluate(() => fixture.mediaCalls.includes('pickStickers')), false)
   await page.screenshot({ path: 'artifacts/media-controls/vision-required.png' })
   await dialog.getByRole('button', { name: '去设置识图模型' }).click()
-  await page.locator('[data-settings-category="models"]').waitFor()
+  await page.locator('[data-settings-category="tasks"]').waitFor()
   await page.evaluate(() => localStorage.setItem('test-vision', 'on'))
   await f.load(); await open()
   await page.evaluate(() => { fixture.cancelPicker = true; fixture.holdPicker = true }); await importImages().click()

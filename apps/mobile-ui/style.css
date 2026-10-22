@@ -205,3 +205,18 @@ nav .nav-unread { background:#c23e43; color:white; border-radius:9px; transform:
 .diagnostic-events [data-outcome=failed] { border-left-color:#bd5951; }
 .diagnostic-events [data-outcome=delivered] { border-left-color:var(--accent); }
 @media(max-width:380px) { .settings-directory, .config-fields { grid-template-columns:1fr; } .space-detail .actions { flex-wrap:wrap; } }
+
+/* Fixed width keeps the conversation still while dots count from one to three. */
+.typing-message .bubble{min-height:44px;padding:12px 16px}
+.typing-dots{width:24px;align-items:center;gap:5px}
+.typing-dots i{width:4px;height:4px}
+.typing-dots i:nth-child(2){animation:typing-second 1.5s steps(1,end) infinite}
+.typing-dots i:nth-child(3){animation:typing-third 1.5s steps(1,end) infinite}
+@keyframes typing-second{0%,100%{opacity:0}33.333%,99.999%{opacity:1}}
+@keyframes typing-third{0%,100%{opacity:0}66.666%,99.999%{opacity:1}}
+.task-card{min-width:0}.task-card select{width:100%;min-width:0}
+.task-backups{grid-column:1/-1;margin:8px 0 0;border-top:1px solid var(--line);padding-top:8px}
+.task-backups summary{font-size:12px;color:var(--muted)}
+.task-backups .toggle{min-height:44px}.task-backups .toggle span{overflow-wrap:anywhere}
+.model-center .retrieval-settings{padding:0;margin-top:24px;border:0;box-shadow:none;background:none}
+@media(prefers-reduced-motion:reduce){.typing-dots i{animation:none!important;opacity:1}}

@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import type { ModelOptions, ModelProvider, ModelSettings, NativeBridge } from '../../packages/contracts'
-import { assigned, assignTask, followsMain, removeProvider } from './model-tasks'
+import { assigned, assignTask, followsMain, removeProvider, toggleTaskProvider } from './model-tasks'
 import presets from '../../android/app/src/main/assets/model-presets.json'
 
 export const defaultOptions: ModelOptions = { mainStreamingMode: 'off', mainResponseFormat: 'json-object', mainTemperature: 0.8, mainMaxTokens: 4096, mainTimeout: 90000, maxAttemptsPerProvider: 2, mobileTurnDeadlineMs: 240000, cooldownMinutes: 5, mainPayloadOrder: 'cache-first', failoverEnabled: false, failoverStrategy: 'priority' }
 export const newProvider = (): ModelProvider => ({ id: crypto.randomUUID(), preset: 'custom', label: '自定义连接', endpoint: '', model: '', protocol: 'chat-completions', enabled: true, credentialPresent: false, useForMain: true, useForCompaction: true, useForAlter: true, useForEmbedding: false, deepseekThinking: 'inherit', imageInput: 'unknown' })
-const roles = [{ key: 'useForMain', name: '主叙事', description: '对话、生活剧本与主动联系' }, { key: 'useForCompaction', name: '记忆压缩', description: '场景整理、长期记忆与时间导演' }, { key: 'useForAlter', name: '心理分析', description: '事件带来的情绪与氛围变化' }, { key: 'useForEmbedding', name: '向量', description: '长期记忆检索 · 请选择 Embedding 专用模型' }, { key: 'useForWorldSeeding', name: '世界播种', description: '外部事件与配角事件生成 · 可不分配' }] as const
-type Props = { mode?: 'connections' | 'advanced'; settings: ModelSettings; setSettings: React.Dispatch<React.SetStateAction<ModelSettings>>; native: boolean; busy: boolean; bridge: NativeBridge; act: (task: () => Promise<unknown>, success?: string) => Promise<void>; notify: (text: string) => void }
+const roles = [{ key: 'useForMain', name: '主叙事', description: '对话、生活剧本与主动联系' }, { key: 'useForCompaction', name: '记忆压缩', description: '场景整理、长期记忆与时间导演' }, { key: 'useForAlter', name: '心理分析', description: '事件带来的情绪与氛围变化' }, { key: 'useForWorldSeeding', name: '世界播种', description: '外部事件与配角事件生成 · 可不分配' }] as const
+type Props = { mode?: 'connections' | 'tasks' | 'advanced'; children?: React.ReactNode; onNavigate?: (page: 'models' | 'tasks') => void; settings: ModelSettings; setSettings: React.Dispatch<React.SetStateAction<ModelSettings>>; native: boolean; busy: boolean; bridge: NativeBridge; act: (task: () => Promise<unknown>, success?: string) => Promise<void>; notify: (text: string) => void }
 
-export function ModelCenter({ mode = 'connections', settings, setSettings, native, busy, bridge, act, notify }: Props) {
+export function ModelCenter({ mode = 'connections', settings, setSettings, native, busy, bridge, act, notify, children, onNavigate }: Props) {
   const [selected, setSelected] = useState(settings.providers[0]?.id ?? '')
   const [catalogs, setCatalogs] = useState<Record<string, { models: string[]; partial: boolean }>>({})
   const [search, setSearch] = useState('')
@@ -19,10 +19,7 @@ export function ModelCenter({ mode = 'connections', settings, setSettings, nativ
   const update = (patch: Partial<ModelProvider>) => {
     if (!row) return
     if (['endpoint', 'protocol', 'model'].some(key => key in patch && patch[key as keyof ModelProvider] !== row[key as keyof ModelProvider])) patch.imageInput = 'unknown'
-    const enableFailover = patch.useForMain === true && !row.useForMain && row.enabled
-      && providers.filter(value => value.enabled && value.useForMain).length === 1 && !settings.modelOptions.failoverEnabled
-    setSettings(current => ({ ...current, providers: current.providers.map(value => value.id === row.id ? { ...value, ...patch } : value), modelOptions: { ...current.modelOptions, ...(enableFailover ? { failoverEnabled: true } : {}), ...(patch.enabled === false && current.modelOptions.visionProviderId === row.id ? { visionProviderId: '', visionEnabled: false } : {}) } }))
-    if (enableFailover) { setFailoverNotice(true); notify('已分配第 2 条主叙事连接，自动开启备用切换；可撤销。') }
+    setSettings(current => ({ ...current, providers: current.providers.map(value => value.id === row.id ? { ...value, ...patch } : value), modelOptions: { ...current.modelOptions, ...(patch.enabled === false && current.modelOptions.visionProviderId === row.id ? { visionProviderId: '', visionEnabled: false } : {}) } }))
     if (['endpoint', 'apiKey', 'preset', 'protocol', 'modelsEndpoint', 'clearKey'].some(key => key in patch)) setCatalogs(current => { const next = { ...current }; delete next[row.id]; return next })
   }
   const option = (patch: Partial<ModelOptions>) => setSettings(current => ({ ...current, modelOptions: { ...current.modelOptions, ...patch } }))
@@ -40,21 +37,37 @@ export function ModelCenter({ mode = 'connections', settings, setSettings, nativ
   const catalog = row && catalogs[row.id]
   const filtered = catalog?.models.filter(model => model.toLowerCase().includes(search.toLowerCase())) ?? []
   return <section className="model-center">
-    {mode === 'connections' && <><h2>模型与识图</h2>
-    <p className="caption">每条连接只填一次。把擅长写作的模型交给主叙事，把轻量模型交给记忆与情绪。</p>
+    {mode === 'tasks' && <><h2>任务分工</h2>
+    <p className="caption">按用途选择模型。对话、记忆、识图和检索都在这里安排。</p>
+    <button className="secondary wide" onClick={() => onNavigate?.('models')}>管理模型连接 →</button>
     {failoverNotice && <div role="status"><p>已开启主叙事备用切换，失败重试与切换可能产生额外 API 消耗。</p><button className="secondary" disabled={busy} onClick={() => { option({ failoverEnabled: false }); setFailoverNotice(false); notify('已撤销自动开启备用切换。') }}>撤销开启备用切换</button></div>}
-    <details><summary>任务分工</summary>
+    <h3>对话与故事</h3>
     <div className="model-roles">{roles.map((role, index) => {
       const ids = assigned(providers, role.key)
-      const inherit = role.key !== 'useForMain' && role.key !== 'useForEmbedding' && role.key !== 'useForWorldSeeding' && followsMain(providers, role.key)
-      const value = inherit ? 'inherit' : ids.length === 1 ? ids[0] : (role.key === 'useForEmbedding' || role.key === 'useForWorldSeeding') && !ids.length ? '' : 'custom'
-      return <label className="task-card" key={role.key}><span className="task-number">0{index + 1}</span><b>{role.name}</b><span>{role.description}</span><select aria-label={`${role.name}模型`} disabled={busy} value={value} onChange={event => setSettings(current => ({ ...current, providers: assignTask(current.providers, role.key, event.target.value) }))}>
-        {(role.key === 'useForEmbedding' || role.key === 'useForWorldSeeding') && <option value="">暂不分配</option>}
-        {role.key !== 'useForMain' && role.key !== 'useForEmbedding' && role.key !== 'useForWorldSeeding' && <option value="inherit">自动沿用主叙事</option>}
+      const inherit = role.key !== 'useForMain' && role.key !== 'useForWorldSeeding' && followsMain(providers, role.key)
+      const value = inherit ? 'inherit' : ids.length === 1 ? ids[0] : (role.key === 'useForWorldSeeding') && !ids.length ? '' : 'custom'
+      return <div className="task-card" key={role.key}><span className="task-number">0{index + 1}</span><b>{role.name}</b><span>{role.description}</span><select aria-label={`${role.name}模型`} disabled={busy} value={value} onChange={event => setSettings(current => ({ ...current, providers: assignTask(current.providers, role.key, event.target.value) }))}>
+        {(role.key === 'useForWorldSeeding') && <option value="">暂不分配</option>}
+        {role.key !== 'useForMain' && role.key !== 'useForWorldSeeding' && <option value="inherit">自动沿用主叙事</option>}
         <option value="custom" disabled>{ids.length > 1 ? '多模型 · 自定义分工' : '请选择模型连接'}</option>
-        {providers.filter(provider => provider.enabled && (role.key !== 'useForEmbedding' || provider.protocol === 'chat-completions')).map(provider => <option key={provider.id} value={provider.id}>{provider.model || provider.label} · {provider.label}</option>)}
-      </select></label>
-    })}</div></details>
+        {providers.filter(provider => provider.enabled).map(provider => <option key={provider.id} value={provider.id}>{provider.model || provider.label} · {provider.label}</option>)}
+      </select>
+      <details className="task-backups"><summary>多模型与备用 · {ids.length} 条</summary><p className="caption">按连接优先级排列。勾选多条连接可参与此任务。</p>{providers.filter(provider => provider.enabled).map(provider => <label className="toggle" key={provider.id}><input type="checkbox" disabled={busy} aria-label={`${role.name}使用${provider.label}`} checked={provider[role.key] === true} onChange={event => {
+        const checked = event.target.checked
+        const autoEnable = role.key === 'useForMain' && checked && ids.length === 1 && !settings.modelOptions.failoverEnabled
+        setSettings(current => toggleTaskProvider(current, role.key, provider.id, checked))
+        if (autoEnable) { setFailoverNotice(true); notify('已分配第 2 条主叙事连接，自动开启备用切换；可撤销。') }
+      }} /><span>{provider.label} · {provider.model}</span></label>)}</details>
+      </div>
+    })}</div>
+    <details className="vision-settings" open><summary>图片识别与理解</summary>
+      <label className="toggle"><input type="checkbox" disabled={busy} checked={settings.modelOptions.visionEnabled === true} onChange={event => option({ visionEnabled: event.target.checked })} /><div><b>开启图片理解</b><p>把照片发给角色，让故事从眼前的画面继续。</p></div></label>
+      {settings.modelOptions.visionEnabled && <label>识图模型<select aria-label="识图模型" disabled={busy} value={settings.modelOptions.visionProviderId || ''} onChange={event => option({ visionProviderId: event.target.value })}><option value="">沿用主叙事 · 直接看图</option>{providers.filter(provider => provider.enabled).map(provider => <option key={provider.id} value={provider.id}>{provider.model || provider.label} · {provider.label}</option>)}</select><span className="caption">沿用主叙事会直接发送图片给所有主模型候选；文本模型请选择独立识图。独立识图模型先描述画面，再交给主叙事续写。请选择支持图片的模型，图片会发送给所选服务商，可能增加费用。</span></label>}
+      {settings.modelOptions.visionEnabled && <div className="vision-capabilities">{providers.filter(provider => provider.enabled && (settings.modelOptions.visionProviderId ? provider.id === settings.modelOptions.visionProviderId : provider.useForMain)).map(provider => <label key={provider.id}>{provider.label} · 图片输入能力<select aria-label={`图片输入能力 · ${provider.label}`} disabled={busy} value={provider.imageInput || 'unknown'} onChange={event => { const imageInput = event.target.value as ModelProvider['imageInput']; setSettings(current => ({ ...current, providers: current.providers.map(row => row.id === provider.id ? { ...row, imageInput } : row) })) }}><option value="unknown">尚未确认</option><option value="supported">我确认此模型支持图片</option><option value="unsupported">不支持图片</option></select></label>)}<p className="caption">请确认所选模型支持图片。更换连接地址、协议或模型后，需要重新确认。</p></div>}
+    </details>
+    {children}
+    </>}
+    {mode === 'connections' && <><h2>模型连接</h2><p className="caption">在这里维护服务地址、密钥和模型名称；模型的用途统一在任务分工中设置。</p><button className="secondary wide" onClick={() => onNavigate?.('tasks')}>前往任务分工 →</button>
     <details open><summary>管理模型连接 · {providers.length} 条</summary>
     <div className="provider-tabs" aria-label="模型连接">{providers.map((provider, index) => <button key={provider.id} disabled={busy} className={row?.id === provider.id ? 'active' : ''} aria-pressed={row?.id === provider.id} onClick={() => { setSelected(provider.id); setSearch('') }}><small>{String(index + 1).padStart(2, '0')}</small>{provider.label || '未命名'}{!provider.enabled && <span>已停用</span>}</button>)}<button className="add-provider" disabled={busy || providers.length >= 12} onClick={() => { const provider = { ...newProvider(), ...(providers.length ? { useForMain: false, useForCompaction: false, useForAlter: false } : {}) }; setSettings({ ...settings, providers: [...providers, provider] }); setSelected(provider.id) }}>＋ 添加连接</button></div>
     {row && <div className="provider-card"><fieldset disabled={busy} className="provider-editor">
@@ -70,14 +83,11 @@ export function ModelCenter({ mode = 'connections', settings, setSettings, nativ
       <label>模型名称<input value={row.model} onChange={event => update({ model: event.target.value })} placeholder="获取列表后选择，也可以手动输入" autoCapitalize="none" spellCheck={false} maxLength={256} /></label>
       <p className="caption">列表来自当前密钥的服务商，包含的模型不一定都支持聊天。列表不可用时仍可手动填写。</p>
 
-      <details className="advanced"><summary>高级连接与备用分工</summary><div className="assignment-list">{roles.map(role => <label className="toggle" key={role.key}><input type="checkbox" checked={row[role.key] === true} onChange={event => update({ [role.key]: event.target.checked })} /><div><b>参与{role.name}</b></div></label>)}</div><label>模型列表地址（可选）<input value={row.modelsEndpoint ?? ''} onChange={event => update({ modelsEndpoint: event.target.value })} placeholder="默认由 API 地址推导 /models" autoCapitalize="none" /></label>{row.protocol === 'chat-completions' && <label>DeepSeek 兼容思考参数<select value={row.deepseekThinking ?? 'inherit'} onChange={event => update({ deepseekThinking: event.target.value as ModelProvider['deepseekThinking'] })}><option value="inherit">跟随服务商（不额外发送参数）</option><option value="disabled">关闭思考</option><option value="enabled">开启思考</option></select><span className="caption">仅适用于支持 thinking.type 的接口。</span></label>}<label className="toggle"><input type="checkbox" checked={row.enabled} onChange={event => update({ enabled: event.target.checked })} /><div><b>启用此连接</b><p>停用后保留配置，不参与模型分工。</p></div></label><div className="actions"><button className="secondary" disabled={providers[0]?.id === row.id} onClick={() => reorder(-1)}>优先级上移</button><button className="secondary" disabled={providers.at(-1)?.id === row.id} onClick={() => reorder(1)}>下移</button></div></details>
+      <details className="advanced"><summary>高级连接设置</summary><label>模型列表地址（可选）<input value={row.modelsEndpoint ?? ''} onChange={event => update({ modelsEndpoint: event.target.value })} placeholder="默认由 API 地址推导 /models" autoCapitalize="none" /></label>{row.protocol === 'chat-completions' && <label>DeepSeek 兼容思考参数<select value={row.deepseekThinking ?? 'inherit'} onChange={event => update({ deepseekThinking: event.target.value as ModelProvider['deepseekThinking'] })}><option value="inherit">跟随服务商（不额外发送参数）</option><option value="disabled">关闭思考</option><option value="enabled">开启思考</option></select><span className="caption">仅适用于支持 thinking.type 的接口。</span></label>}<label className="toggle"><input type="checkbox" checked={row.enabled} onChange={event => update({ enabled: event.target.checked })} /><div><b>启用此连接</b><p>停用后保留配置，不参与模型分工。</p></div></label><div className="actions"><button className="secondary" disabled={providers[0]?.id === row.id} onClick={() => reorder(-1)}>优先级上移</button><button className="secondary" disabled={providers.at(-1)?.id === row.id} onClick={() => reorder(1)}>下移</button></div></details>
       <button className="secondary wide" disabled={!native || busy || !row.endpoint || !row.model} onClick={() => void act(async () => { const result = await bridge.rpc({ method: 'models.test', payload: { ...row } }); notify((result.data as { message: string }).message) })}>测试聊天连接</button><p className="caption">测试会产生少量 API 费用。切换服务商后，请填写对应的密钥。</p>
-      <label>图片输入能力<select aria-label="图片输入能力" value={row.imageInput || 'unknown'} onChange={event => update({ imageInput: event.target.value as ModelProvider['imageInput'] })}><option value="unknown">尚未确认</option><option value="supported">我确认此模型支持图片</option><option value="unsupported">不支持图片</option></select></label><p className="caption">此声明用于阻止不兼容路线，不代表服务端验证成功。更换地址、协议或模型后需重新确认。</p>
+
     </fieldset></div>}</details>
-    <details className="vision-settings"><summary>图片理解</summary>
-      <label className="toggle"><input type="checkbox" disabled={busy} checked={settings.modelOptions.visionEnabled === true} onChange={event => option({ visionEnabled: event.target.checked })} /><div><b>开启图片理解</b><p>把照片发给角色，让故事从眼前的画面继续。</p></div></label>
-      {settings.modelOptions.visionEnabled && <label>识图模型<select aria-label="识图模型" disabled={busy} value={settings.modelOptions.visionProviderId || ''} onChange={event => option({ visionProviderId: event.target.value })}><option value="">沿用主叙事 · 直接看图</option>{providers.filter(provider => provider.enabled).map(provider => <option key={provider.id} value={provider.id}>{provider.model || provider.label} · {provider.label}</option>)}</select><span className="caption">沿用主叙事会直接发送图片给所有主模型候选；文本模型请选择独立识图。独立识图模型先描述画面，再交给主叙事续写。请选择支持图片的模型，图片会发送给所选服务商，可能增加费用。</span></label>}
-    </details>
+
     </>}
     {mode === 'advanced' && <details className="generation-settings" open><summary>生成与备用切换</summary>
       <button className="secondary" disabled={busy} onClick={() => { option({ mainTimeout: 90000, maxAttemptsPerProvider: 2, mobileTurnDeadlineMs: 240000, cooldownMinutes: 5, failoverEnabled: providers.filter(value => value.enabled && value.useForMain).length > 1 }); notify('已应用推荐配置：90 秒超时、失败重试 1 次、整轮 4 分钟；多条主叙事连接启用备用切换。') }}>应用推荐配置</button>

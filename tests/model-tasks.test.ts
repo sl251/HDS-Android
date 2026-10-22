@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assignTask, assigned, removeProvider } from '../apps/mobile-ui/model-tasks'
+import { assignTask, assigned, removeProvider, assignEmbedding, embeddingProviderId, toggleTaskProvider } from '../apps/mobile-ui/model-tasks'
+import { defaultOptions } from '../apps/mobile-ui/ModelCenter'
+import type { ModelSettings } from '../packages/contracts'
 import { mobileModelConfig } from '../runtime/model-config'
 import { resolveModelRouting } from '../upstream/hds-interlude/src/model-routing'
 import type { ModelConfig } from '../upstream/hds-interlude/src/narrator'
@@ -29,4 +31,27 @@ test('legacy multi-model task sets can be inherited without discarding backup pr
   rows = assignTask(rows, 'useForCompaction', 'other')
   rows = assignTask(rows, 'useForCompaction', 'inherit')
   assert.deepEqual(assigned(rows, 'useForCompaction'), ['first', 'backup'])
+})
+
+test('the embedding selector preserves legacy explicit overrides and synchronizes one ownership choice', () => {
+  const settings: ModelSettings = { providers: [{ ...row('legacy'), useForEmbedding: true }, row('explicit'), row('replacement')], modelOptions: defaultOptions, userName: '', userProfile: '', autoAdvance: false,
+    mobileConfig: { sections: { embedding: { enabled: true, providerId: 'explicit', model: 'embedding-v2', endpoint: 'https://example.com/v1/embeddings', dimensions: 1024 }, rerank: { providerId: 'legacy', model: 'ranker' } } } }
+  assert.equal(embeddingProviderId(settings), 'explicit')
+  const next = assignEmbedding(settings, 'replacement')
+  assert.equal(embeddingProviderId(next), 'replacement')
+  assert.deepEqual(assigned(next.providers, 'useForEmbedding'), ['replacement'])
+  assert.deepEqual(next.mobileConfig?.sections?.embedding, { ...settings.mobileConfig?.sections?.embedding, providerId: 'replacement' })
+  assert.deepEqual(next.mobileConfig?.sections?.rerank, settings.mobileConfig?.sections?.rerank)
+  assert.equal(embeddingProviderId(assignEmbedding(next, '')), '')
+  assert.equal(embeddingProviderId({ ...settings, mobileConfig: {} }), 'legacy')
+  assert.equal(embeddingProviderId({ ...settings, mobileConfig: {}, providers: [{ ...row('legacy'), enabled: false, useForEmbedding: true }] }), '')
+})
+
+test('task-local backups keep inherited roles together and preserve independent assignments', () => {
+  const settings: ModelSettings = { providers: [{ ...row('main', true), useForAlter: false }, row('backup'), { ...row('psychology'), useForAlter: true }], modelOptions: defaultOptions, userName: '', userProfile: '', autoAdvance: false }
+  const next = toggleTaskProvider(settings, 'useForMain', 'backup', true)
+  assert.deepEqual(assigned(next.providers, 'useForCompaction'), ['main', 'backup'])
+  assert.deepEqual(assigned(next.providers, 'useForAlter'), ['psychology'])
+  assert.equal(next.modelOptions.failoverEnabled, true)
+  assert.deepEqual(assigned(toggleTaskProvider(next, 'useForMain', 'backup', false).providers, 'useForCompaction'), ['main'])
 })
