@@ -76,12 +76,10 @@ flowchart LR
 
 ### 第一步：下载并安装应用
 
-- **最新版本**：`0.1.0-preview.9.6`（仅支持 **ARM64** 架构，需 **Android 8.0** 及以上系统）
-- **官方下载地址**：[GitHub Releases 最新发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.9.6)
-- **安装包文件名**：`HDS-Android-0.1.0-preview.9.6-arm64.apk`
-- **文件大小**：189,326,822 字节（约 180.6 MiB）
-- **SHA-256 校验码**：`3af732b36e41815aa0d347863634ed5e8e5421c3f521f78ddc9a2bc91a85bf22`
-- **完整校验清单**：发布页附件提供了 `SHA256SUMS.txt`
+- **最新版本**：`0.1.0-preview.9.6.1`（仅支持 **ARM64** 架构，需 **Android 8.0** 及以上系统）
+- **官方下载地址**：[GitHub Releases 最新发布页](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.9.6.1)
+- **安装包文件名**：`HDS-Android-0.1.0-preview.9.6.1-arm64.apk`
+- **文件大小及 SHA-256 校验**：请以 9.6.1 发布页中的 APK 附件与 `SHA256SUMS.txt` 校验清单为准。
 
 ### 第二步：配置模型大脑
 
@@ -255,8 +253,11 @@ flowchart LR
 ## 📋 版本更新历史
 
 <details>
-<summary><b>点击展开各版本更新说明（最近更新：preview 9.6）</b></summary>
+<summary><b>点击展开各版本更新说明（最近更新：preview 9.6.1）</b></summary>
 
+- **`0.1.0-preview.9.6.1`**
+  - APK 签名兼容性修复：新增 v3 签名，改善部分国产 ROM 的证书识别；功能与 9.6 完全一致，可使用同一证书覆盖安装。
+  - [修复说明](docs/PREVIEW9.6.1.md) · [下载签名 APK](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.9.6.1)。
 - **`0.1.0-preview.9.6`**
   - 流式输出、失败重试、连续消息合并；拍照、相册、录音与 STT。
   - 按故事隔离的动态、点赞和评论；角色自主决定回应、自拍与动态配图。
