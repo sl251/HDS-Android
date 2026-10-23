@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/sl251/HDSI-Android/releases/tag/v0.1.0-preview.9.6.2"><img alt="Download Preview 9.6.2" src="https://img.shields.io/badge/Download-Preview%209.6.2-2e7d96?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://github.com/sl251/HDSI-Android/releases/tag/v0.1.0-preview.9.6.1"><img alt="Download Preview 9.6.1" src="https://img.shields.io/badge/Download-Preview%209.6.1-2e7d96?style=for-the-badge&logo=android&logoColor=white"></a>
   <a href="https://github.com/sl251/HDSI-Android/blob/main/LICENSE"><img alt="License AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-7b659e?style=for-the-badge"></a>
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-627b72?style=for-the-badge">
 </p>
@@ -67,19 +67,19 @@ https://github.com/user-attachments/assets/809470b8-84a5-4e32-ac78-d59d217fac7b
 
 ## 📥 下载安装
 
-**当前版本：`0.1.0-preview.9.6.2`**
+**最新已发布版本：`0.1.0-preview.9.6.1`**
 
-**[➡ 前往 GitHub Releases 下载签名 APK](https://github.com/sl251/HDSI-Android/releases/tag/v0.1.0-preview.9.6.2)**
+**[➡ 前往 GitHub Releases 下载签名 APK](https://github.com/sl251/HDSI-Android/releases/tag/v0.1.0-preview.9.6.1)**
 
 - **支持设备：** Android 8.0 及以上，ARM64（arm64-v8a）。
-- **安装包：** `HDS-Android-0.1.0-preview.9.6.2-arm64.apk`（当前文件名沿用旧命名，不影响使用）。
+- **安装包：** `HDS-Android-0.1.0-preview.9.6.1-arm64.apk`（当前文件名沿用旧命名，不影响使用）。
 - **校验：** 请使用 Release 附件中的 `SHA256SUMS.txt` 核对文件完整性。
 - **空间：** 建议至少预留 1.5 GB；如果启用实验性本地 QQ 接入，额外预留约 1.6 GB。
 
 > [!IMPORTANT]
 > **从旧版本升级，请先备份完整故事 ZIP，然后直接覆盖安装，不要先卸载。** 卸载 Android App 可能清空应用私有数据，包括故事、记忆及本机配置。
 >
-> 9.6.2 修复 **Imagefree 成功后继续轮询**，增加 **OpenAI Images、聊天式生图与 Gemini 原生协议选择**、参考图兼容和分阶段生图诊断，并沿用 9.6.1 的 v2 + v3 签名。详情见 [Preview 9.6.2](docs/PREVIEW9.6.2.md)。
+> **9.6.2 正在修复中，暂未发布 APK。** 计划修复 Imagefree 成功后继续轮询，并完善多协议生图、参考图兼容与分阶段诊断。开发记录见 [Preview 9.6.2](docs/PREVIEW9.6.2.md)；当前请下载已发布的 9.6.1。
 
 ## 🚀 快速开始
 
