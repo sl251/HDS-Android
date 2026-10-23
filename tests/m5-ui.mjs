@@ -93,15 +93,15 @@ try {
     HTMLMediaElement.prototype.play = function() { window.__audioPlays++; return originalPlay.call(this) }
     localStorage.setItem('hds.onboarding.v1', '1')
     window.androidBridge = {}
-    window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: methods.map(name => ({ name, rtype: 'promise' })) }],
-      nativePromise: async (_, method, options) => { const response = await fetch(gatewayUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, options }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data } }
+    window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: [...methods, 'addListener', 'removeListener'].map(name => ({ name, rtype: 'promise' })) }],
+      nativePromise: async (_, method, options) => { if (method === 'addListener' || method === 'removeListener') return {};  const response = await fetch(gatewayUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, options }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data } }
   }, { gatewayUrl: `http://127.0.0.1:${gateway.address().port}/native`, methods: ['settings','cards','status','saveSettings','appearance','notificationSettings','notificationLaunch','rpc','voiceState','saveVoiceSettings','saveVoice','deleteVoice','voiceAudio','previewVoice','pickVoiceAudio','startVoiceRecording','stopVoiceRecording','cancelVoiceRecording'] })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
   await page.getByRole('textbox', { name: '消息内容' }).waitFor()
   console.log('M5 browser: loaded actual App with native bridge fixture.')
   assert.equal(await page.locator('.voice-message').count(), 0)
   await page.getByRole('button', { name: '空间', exact: true }).click()
-  await page.getByRole('button', { name: /^语音与音色/ }).click()
+  await page.getByRole('button', { name: /^角色语音与音色/ }).click()
   const toggle = page.getByRole('checkbox', { name: '允许角色发语音' }); assert.equal(await toggle.isChecked(), false)
   assert.equal(await page.getByRole('combobox', { name: '角色音色', exact: true }).count(), 0)
   await toggle.click()
@@ -166,7 +166,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('article.message.character-reply').length === 2)
   assert.equal(await page.locator('.voice-message').count(), 1)
   await page.getByRole('button', { name: '空间', exact: true }).click()
-  await page.getByRole('button', { name: /^语音与音色/ }).click()
+  await page.getByRole('button', { name: /^角色语音与音色/ }).click()
   await toggle.click()
   await page.waitForFunction(() => {
     const toggle = document.querySelector('.voice-settings input[type="checkbox"]')
@@ -181,7 +181,7 @@ try {
   assert.equal(await page.locator('.voice-message').count(), 1, 'Disabling future voice preserves existing audio history')
   await page.screenshot({ path: 'artifacts/m5/voice-disabled.png', fullPage: true })
   await page.getByRole('button', { name: '空间', exact: true }).click()
-  await page.getByRole('button', { name: /^语音与音色/ }).click()
+  await page.getByRole('button', { name: /^角色语音与音色/ }).click()
   await page.getByRole('button', { name: /音色工作台/ }).click()
   const deleteRow = desk.locator('article').filter({ has: page.getByText('晚风', { exact: true }) })
   await deleteRow.getByRole('button', { name: '删除', exact: true }).click()

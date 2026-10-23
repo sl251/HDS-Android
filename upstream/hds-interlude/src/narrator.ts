@@ -1,3 +1,4 @@
+import { partialReply } from './mobile-stream'
 import { Context, Logger } from 'koishi'
 import { anthropicBody, anthropicHeaders, anthropicResponse, requestAnthropicStreaming } from './anthropic'
 import { geminiInteractionsBody, geminiInteractionsHeaders, geminiInteractionsResponse } from './gemini-interactions'
@@ -126,6 +127,8 @@ export interface ModelConfig {
   mobileRetryFilter?: (error: unknown, detail: { task: string; attempt: number; providerId?: string }) => 'retry' | 'next' | 'abort' | undefined | Promise<'retry' | 'next' | 'abort' | undefined>
   /** Mobile-only turn budget; unset upstream configurations retain their behavior. */
   mobileTurnDeadlineMs?: number
+  mobileStream?: (event: { id: string; sourceIds: string[]; content?: string; status: 'generating' | 'streaming' | 'completed' | 'failed' | 'superseded' }) => void
+  mobileDecisionCommitted?: (value: unknown, entryId: number, local: boolean) => Promise<void>
   /** Mobile host only: reserve a model attempt before any network transport. */
   mobileBeforeRequest?: (foreground?: boolean) => void
   /** Android host: character context only; engine protocol remains first. */
@@ -424,6 +427,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
     let earlyReplyCommitted = false
     const requestWithEarlyReply = request.onEarlyReply ? {
       ...request,
+      onReplyDelta: request.onReplyDelta ? async (content: string) => { const visible = await request.onReplyDelta!(content); if (visible) earlyReplyCommitted = true; return visible } : undefined,
       onEarlyReply: async (reply: EarlyNarrativeReply) => {
         const committed = await request.onEarlyReply!(reply)
         if (committed) earlyReplyCommitted = true
@@ -998,7 +1002,7 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
       && !request.groupContext
       && provider.protocol !== 'gemini-interactions'
       && (overrides.responseFormat ?? provider.responseFormat) === 'json-object'
-      && !!request.onEarlyReply
+      && (!!request.onEarlyReply || !!request.onReplyDelta)
     // Keep every non-visual request byte-for-byte compatible with existing
     // OpenAI-compatible providers.  A vision-enabled private turn instead
     // uses one multipart user message, so text, images and audio remain one event.
@@ -1042,10 +1046,13 @@ export class OpenAICompatibleNarrator implements NarrativeProvider {
     if (mobileCard?.before) requestBody.messages.splice(1, 0, { role: 'system', content: mobileCard.before })
     if (mobileCard?.after) requestBody.messages.push({ role: 'system', content: mobileCard.after })
     let earlyReplyHandled = false
+    let visiblePrefix = ''
     const onStreamText = streamingEarlyReply ? async (text: string) => {
       if (earlyReplyHandled) return
+      const prefix = partialReply(text)
+      if (prefix && prefix !== visiblePrefix && request.onReplyDelta) { await request.onReplyDelta(prefix); visiblePrefix = prefix }
       const reply = extractEarlyNarrativeReply(text, !!request.groupContext)
-      if (reply && await request.onEarlyReply!(reply)) earlyReplyHandled = true
+      if (reply && request.onEarlyReply && await request.onEarlyReply(reply)) earlyReplyHandled = true
     } : undefined
     const headers = {
       'content-type': 'application/json',

@@ -94,6 +94,19 @@ class CharacterNotificationsTest {
         assertTrue(notifications.receive("card", "星禾", message().copy(occurredAt = arrival), false, time = LocalTime.NOON))
         assertEquals(Notification.GROUP_ALERT_SUMMARY, shadowOf(manager).allNotifications.single().groupAlertBehavior)
     }
+    @Test fun preferencesControlChannelPrivacyAndCustomQuietHours() {
+        notifications.configure(org.json.JSONObject().put("mode", "normal").put("preview", false).put("quietEnabled", true).put("quietStart", 12).put("quietEnd", 14))
+        val hidden = notifications.build("card", "星禾", message(), null, LocalTime.NOON)
+        assertEquals("character-normal", hidden.channelId)
+        assertEquals("你收到了一条新消息", hidden.extras.getString(Notification.EXTRA_TEXT))
+        assertEquals("你收到了一条新消息", hidden.extras.getString(Notification.EXTRA_BIG_TEXT))
+        assertEquals(Notification.VISIBILITY_SECRET, hidden.visibility)
+        assertEquals(Notification.GROUP_ALERT_SUMMARY, hidden.groupAlertBehavior)
+        assertEquals(Notification.GROUP_ALERT_ALL, notifications.build("card", "星禾", message(), null, LocalTime.of(15, 0)).groupAlertBehavior)
+        notifications.configure(org.json.JSONObject().put("mode", "silent").put("quietEnabled", false))
+        assertEquals(Notification.GROUP_ALERT_SUMMARY, notifications.build("card", "星禾", message(), null, LocalTime.NOON).groupAlertBehavior)
+        assertEquals("silent", CharacterNotifications(app).status().getString("mode"))
+    }
     @Test fun foregroundConsumesWithoutNotificationAndSurvivesReloadAndCatchup() {
         notifications.setEnabled(true)
         val message = message()

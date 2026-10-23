@@ -1,6 +1,6 @@
-import type { ImageAttachment } from '../../packages/contracts'
+import { messageAudio, type ImageAttachment, type MessageAudio } from '../../packages/contracts'
 
-export type Draft = { content: string; attachments: ImageAttachment[] }
+export type Draft = { content: string; attachments: ImageAttachment[]; audio?: MessageAudio }
 const empty = (): Draft => ({ content: '', attachments: [] })
 export function createDraftStore(storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>) {
   const key = (cardId: string) => `hds-draft-${cardId}`
@@ -9,21 +9,21 @@ export function createDraftStore(storage: Pick<Storage, 'getItem' | 'setItem' | 
       if (!cardId) return empty()
       try {
         const value = JSON.parse(storage.getItem(key(cardId)) || 'null')
-        return value ? { content: typeof value.content === 'string' ? value.content : '', attachments: Array.isArray(value.attachments) ? value.attachments.filter((image: ImageAttachment) => /^[a-f0-9]{64}$/.test(image?.id) && /^data:image\//.test(image?.dataUri)).slice(0, 3) : [] } : empty()
+        return value ? { content: typeof value.content === 'string' ? value.content : '', ...(messageAudio(value.audio) ? { audio: messageAudio(value.audio) } : {}), attachments: Array.isArray(value.attachments) ? value.attachments.filter((image: ImageAttachment) => /^[a-f0-9]{64}$/.test(image?.id) && /^data:image\//.test(image?.dataUri)).slice(0, 3) : [] } : empty()
       } catch { return empty() }
     },
     write(cardId: string, value: Draft) {
       if (!cardId) return
-      if (!value.content && !value.attachments.length) storage.removeItem(key(cardId))
+      if (!value.content && !value.attachments.length && !value.audio) storage.removeItem(key(cardId))
       else storage.setItem(key(cardId), JSON.stringify(value))
     },
   }
 }
 
 /** Some Android WebViews only report IME composition through the legacy 229 code. */
-export function composerEnter(event: { key: string; shiftKey?: boolean; isComposing?: boolean; keyCode?: number }, composing = false) {
+export function composerEnter(event: { key: string; shiftKey?: boolean; ctrlKey?: boolean; isComposing?: boolean; keyCode?: number }, composing = false, behavior: 'send' | 'newline' = 'send') {
   if (event.key !== 'Enter' || event.shiftKey) return 'newline'
-  return composing || event.isComposing || event.keyCode === 229 ? 'composition' : 'send'
+  return composing || event.isComposing || event.keyCode === 229 ? 'composition' : behavior === 'newline' && !event.ctrlKey ? 'newline' : 'send'
 }
 
 /** Match provider reasoning fields when present, and literal think blocks left in content.

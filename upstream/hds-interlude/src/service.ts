@@ -4493,6 +4493,11 @@ export class InterludeService extends Service {
     const requestId = revision
     turn.inFlightRequestId = requestId
     const batch = turn.messages.splice(0)
+    const mobileTurnId = randomUUID()
+    const mobileSources = batch.map(message => message.messageId).filter((id): id is string => !!id)
+    const mobileStream = turn.latestSession?.platform === 'mobile-local' ? this.config.model.mobileStream : undefined
+    let mobileOutcome: 'completed' | 'failed' | 'superseded' = 'failed'
+    mobileStream?.({ id: mobileTurnId, sourceIds: mobileSources, status: 'generating' })
     // issue #5（死锁加固）：try 原先从快照阶段才开始——splice 与 try 之间的
     // 任何异常（日志/簿记）会让 endFlush 永不执行，turn 永久 in-flight 且批次
     // 已被消费：后续消息持续入队但永不进入模型调度，直到重启。try 提前到
@@ -4581,9 +4586,16 @@ export class InterludeService extends Service {
             early.deliveryEntry = deliveryEntry
           }
           return !!deliveryEntry
-        },
+        }, [], mobileStream ? async content => {
+          if (turn.obsoleteRequestIds.has(requestId) || this.desktopRuntimePhase === 'paused' || this.databaseResetting || !this.canHandleParticipant(snapshot.participant)) return false
+          if (!content) return false
+          turn.visibleRequestId = requestId
+          mobileStream({ id: mobileTurnId, sourceIds: mobileSources, content, status: 'streaming' })
+          return true
+        } : undefined,
       )
       const { succeeded, effectiveNow, immediateObservations } = narrative
+      mobileOutcome = succeeded ? 'completed' : 'failed'
       const decision = early.delivered && early.interaction
         ? { ...narrative.decision, interaction: early.interaction }
         : narrative.decision
@@ -4671,7 +4683,7 @@ export class InterludeService extends Service {
           await this.cancelPendingNarrativeRetries(current, currentParticipant.id, now)
           const consumedDueIds = consumedLiveIntentIds(snapshot.due)
           if (consumedDueIds.length) await this.dbSet('interlude_intent', { id: { $in: consumedDueIds } }, { status: 'completed', updatedAt: now })
-        } else {
+        } else if (!mobileStream) {
           await this.scheduleNarrativeRetry(current.id, currentParticipant.id, now)
         }
         if (succeeded) await this.scheduleConversationFollowUpsAfterTurn(current.id, effectiveNow, decision.interaction, currentParticipant.id)
@@ -4680,6 +4692,7 @@ export class InterludeService extends Service {
       })
 
       if (result.obsolete) {
+        mobileOutcome = 'superseded'
         if (result.requeue) turn.messages.unshift(...batch)
         this.reportOperation('standard', 'info', snapshot.story, 'user-message', '已丢弃过期主模型结果 参与者=%s 请求=%d 回队消息=%d', snapshot.participant.id, requestId, batch.length)
         return
@@ -4718,21 +4731,59 @@ export class InterludeService extends Service {
       }
       this.scheduleCompaction(turn.storyId)
     } catch (error) {
+      mobileOutcome = 'failed'
       if (isContextDisposedError(error) || this.disposed) {
         this.reportStandalone('debug', '插件重载中，合并写作任务放弃 参与者=%s', turn.participantId)
       } else {
         this.reportStandalone('warn', '合并写作任务失败：参与者=%s 错误=%s', turn.participantId, error)
         // 持久化抛错不再静默吞批——未 committed 的回合从已落库入站条目排一次重试。
-        if (turn.firstMessageCommittedRequestId !== requestId) {
+        if (!mobileStream && turn.firstMessageCommittedRequestId !== requestId) {
           await this.scheduleNarrativeRetry(turn.storyId, turn.participantId, new Date()).catch(() => undefined)
         }
       }
     } finally {
+      mobileStream?.({ id: mobileTurnId, sourceIds: mobileSources, status: mobileOutcome })
       this.turnEngine.endFlush(key, requestId)
     }
     })()
     tasks.add(task)
     try { await task } finally { tasks.delete(task) }
+  }
+
+  /** User feed activity gets one bounded observation pass without inventing a chat input. */
+  async mobileObserveFeed(session: Session) {
+    const story = await this.findStory(session)
+    if (!story || session.platform !== 'mobile-local' || !this.canHandleStory(story) || this.desktopRuntimePhase === 'paused') return false
+    if (this.hasPendingNarrative(story.id)) return false
+    this.turnEngine.narrating.add(story.id)
+    const generation = this.taskGeneration(story.id), now = new Date(), from = narrativeCursor(story, now)
+    try {
+      const result = await this.tryDecide(story, null, 'advance', from, now, undefined, [])
+      if (!result.succeeded) return true
+      await this.serial(story.id, async () => {
+        if (!this.taskGenerationCurrent(story.id, generation)) return
+        const current = await this.getStory(story.id)
+        if (!this.canHandleStory(current)) return
+        await this.persistDecision(current, null, result.decision, from, result.effectiveNow, false, 'advance')
+        await this.dbSet('interlude_story', { id: current.id }, { cursorAt: result.effectiveNow, updatedAt: now })
+      })
+      return true
+    } finally { this.turnEngine.narrating.delete(story.id) }
+  }
+
+  /** Retry an already persisted local input without calling receive/appendEntry again. */
+  async mobileRetryLocal(session: Session) {
+    const story = await this.findStory(session)
+    if (!story || session.platform !== 'mobile-local' || !this.canHandleStory(story) || this.desktopRuntimePhase === 'paused') throw new Error('当前故事不可重试')
+    const participant = await this.findParticipant(session, story)
+    if (!participant || !this.canHandleParticipant(participant)) throw new Error('当前参与者不可重试')
+    await this.serial(story.id, async () => {
+      if (this.hasPendingNarrative(story.id)) throw new Error('已有回复正在处理，请等待完成')
+      await this.cancelPendingNarrativeRetries(story, participant.id, new Date())
+      const input = this.describeUserEvent(story, session)
+      this.bufferUserNarrative(story, participant, session, new Date(), [], input.content, input.sources, input.audioSources, input.quote)
+    })
+    return true
   }
 
   async advanceStory(story: InterludeStory, force = true) {
@@ -5122,7 +5173,7 @@ export class InterludeService extends Service {
     return messages
   }
 
-  private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = [], retrievalContext: FactRetrievalContext = {}) {
+  private async decide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], extraWebContext: WebObservation[] = [], outputRecovery = false, chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], timelinePlan?: TimelinePlan, onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = [], retrievalContext: FactRetrievalContext = {}, onReplyDelta?: (content: string) => Promise<boolean>) {
     if (!chatCapabilities && !groupContext && (participant?.platform ?? story.platform) === 'mobile-local') {
       const voice = this.config.model.mobileVoiceCapabilities?.()
       if (voice?.enabled) chatCapabilities = { platform: 'local', quoteReply: false, reactions: [], voice }
@@ -5439,7 +5490,7 @@ export class InterludeService extends Service {
         : [],
       followUpCommitments,
       schedulePreplan: await this.currentSchedulePreplanWindow(story, now),
-      onEarlyReply,
+      onEarlyReply, onReplyDelta,
     })
     // script 对象形态归一（rc50 issue 报告）：必须在 no-usable-script 闸门
     // (tryDecide:5465) 之前——归一后 script 恒为字符串,闸门与 normalizeDecision 自然通过。
@@ -5568,7 +5619,7 @@ export class InterludeService extends Service {
     }
   }
 
-  private async tryDecide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = []) {
+  private async tryDecide(story: InterludeStory, participant: InterludeParticipant | null, phase: NarrativeRequest['phase'], from: Date, now: Date, userMessage: string | undefined, dueIntents: NarrativeIntent[], supersededIntents: NarrativeIntent[] = [], groupContext?: GroupContext, images: NarrativeImage[] = [], audio: NarrativeAudio[] = [], chatCapabilities?: ChatActionCapabilities, quotedMessages: IndexedQuotedMessageContext[] = [], stickerCatalog: StickerCatalogEntry[] = [], turnQueryEmbedding?: number[], visualObservations?: string[], onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>, historicalGroupImages: NarrativeHistoricalImage[] = [], onReplyDelta?: (content: string) => Promise<boolean>) {
     let immediateObservations: WebObservation[] = []
     let effectiveNow = now
     const automaticPhase = phase === 'advance' || phase === 'conversation-follow-up' || phase === 'intent-due'
@@ -5603,7 +5654,7 @@ export class InterludeService extends Service {
         return committed
       } : undefined
       const retrievalContext: FactRetrievalContext = { rerankCache: new Map(), deadline: startedAt + (this.config.model?.mobileTurnDeadlineMs ?? 240000) }
-      let decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, [], false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, earlyReply, historicalGroupImages, retrievalContext)
+      let decision = await this.decide(story, participant, phase, from, effectiveNow, userMessage, dueIntents, supersededIntents, groupContext, images, audio, [], false, chatCapabilities, quotedMessages, stickerCatalog, turnQueryEmbedding, visualObservations, timelinePlan, earlyReply, historicalGroupImages, retrievalContext, onReplyDelta ? async content => { const visible = await onReplyDelta(content); if (visible) earlyReplyCommitted = true; return visible } : undefined)
       const immediate = phase === 'user-message' && participant && !groupContext && this.browserConfig.enabled && this.browserConfig.mode === 'allow-immediate'
         ? decision.browserIntents?.map(intent => normalizeBrowserIntentDraft(intent, this.browserConfig)).find(intent => intent?.timing === 'immediate')
         : undefined
@@ -6353,6 +6404,10 @@ export class InterludeService extends Service {
     // App presentation hint follows the final normalized text, without audio IO here.
     if (typeof raw.voice?.willingness === 'number' && Number.isFinite(raw.voice.willingness) && raw.voice.willingness >= 0 && raw.voice.willingness <= 1) {
       for (const message of prepared) message.voice = { willingness: raw.voice.willingness }
+    }
+    if (scriptEntry && this.config.model?.mobileDecisionCommitted) {
+      try { await this.config.model.mobileDecisionCommitted(raw, scriptEntry.id, participant ? participant.platform === 'mobile-local' : phase !== 'user-message') }
+      catch (error) { this.reportStandalone('warn', '本地扩展动作登记失败：%s', error) }
     }
     return { messages: prepared, commit, scriptEntry }
   }
@@ -9939,7 +9994,7 @@ export class InterludeService extends Service {
     const month = Number(new Intl.DateTimeFormat('en-US', { month: 'numeric', timeZone: story.setting.timezone }).format(now))
     const season = month >= 3 && month <= 5 ? 'spring' : month >= 6 && month <= 8 ? 'summer' : month >= 9 && month <= 11 ? 'autumn' : 'winter'
     // 天气协同:当前环境快照传给播种器——天象切面只产后果,不产天气本身
-    const latestWeather = this.weatherConfig.enabled ? lastWeatherSnapshot() : undefined
+    const latestWeather = this.weatherConfig.enabled ? lastWeatherSnapshot(this.weatherConfig, story.setting.location) : undefined
     return JSON.stringify({
       nowLocal: new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: story.setting.timezone }).format(now),
       timezone: story.setting.timezone,

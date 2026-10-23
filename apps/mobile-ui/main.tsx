@@ -5,6 +5,13 @@ import { fromBase64, parseCard, type Card } from '../../packages/card-format'
 import type { DiagnosticsMessageFocus, QQConversation, SchedulingStatus, Message, ModelSettings, NativeBridge, RuntimeStatus, SavedCard } from '../../packages/contracts'
 import { messageImages, imageEntryReason, visionProjection, visionRouteReason, refreshCoordinator, mergeMessages, localRequestFailure } from '../../packages/contracts'
 import './style.css'
+import { useExperience, ExperiencePanel } from './Experience'
+import { Feed } from './Feed'
+import { AvatarSettings, useCharacterAvatar } from './CharacterAvatar'
+import { MediaComposer } from './MediaComposer'
+import { outbox } from './outbox'
+import { NotificationBanner } from './NotificationBanner'
+import { WeatherStatus } from './WeatherStatus'
 import { Onboarding, onboardingStorageKey, type OnboardingTarget } from './Onboarding'
 import { RetrievalSettings } from './RetrievalSettings'
 import { ModelCenter, defaultOptions, newProvider } from './ModelCenter'
@@ -39,34 +46,41 @@ const effectCaption = (key: keyof typeof settingEffects) => settingEffectLabels[
 
 const bridge = registerPlugin<NativeBridge>('HdsRuntime')
 const spaceEntries = [
+  { key: 'chat', label: '聊天与输入', caption: '回车发送、换行与消息合并' },
+  { key: 'media', label: '语音识别与生图', caption: '独立服务、免费渠道与模型' },
+  { key: 'avatar', label: '角色头像', caption: '聊天与动态头像，上传或按人设生成' },
+  { key: 'visual', label: '角色视觉档案', caption: '固定外观、参考图与自主生图' },
   { key: 'models', label: '模型连接', caption: '服务地址、密钥与模型名称' },
   { key: 'tasks', label: '任务分工', caption: '对话、记忆、图片识别与检索' },
   { key: 'world', label: '角色与故事', caption: '角色库、你的身份与故事设定' },
   { key: 'life', label: '持续生活', caption: '主动联系、情绪与后台运行' },
-  { key: 'voice', label: '语音与音色', caption: '角色语音、音色库与用量' },
+  { key: 'voice', label: '角色语音与音色', caption: '角色说话的音色、合成与用量' },
   { key: 'notifications', label: '消息通知', caption: '回复提醒与系统权限' },
   { key: 'appearance', label: '界面个性化', caption: '壁纸、字体与阅读样式' },
   { key: 'advanced', label: '高级设置', caption: '后台预算、生成参数与世界节奏' },
   { key: 'system', label: '备份与维护', caption: '存档、组件与设备诊断' },
 ] as const
 type SpacePage = typeof spaceEntries[number]['key']
-type Page = 'chat' | 'inbox' | 'cards' | 'story' | 'settings'
-const tabs = ['chat', 'story', 'inbox', 'settings'] as const
+type Page = 'feed' | 'chat' | 'inbox' | 'cards' | 'story' | 'settings'
+const tabs = ['chat', 'story', 'feed', 'settings'] as const
 type Tab = typeof tabs[number]
-const labels: Record<Page, string> = { chat: '故事', inbox: '信箱', cards: '角色', story: '见闻', settings: '空间' }
+const labels: Record<Page, string> = { feed: '动态', chat: '故事', inbox: '信箱', cards: '角色', story: '见闻', settings: '空间' }
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
 function Icon({ name }: { name: Page | 'arrow' | 'plus' }) {
-  const paths = { inbox: 'M3 5h18v14H3V5Zm0 0 9 8 9-8', chat: 'M5 4h14v12H9l-4 4V4Z', cards: 'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM3 20v-2a7 7 0 0 1 14 0v2M17 4a3 3 0 0 1 0 6M21 20v-2a7 7 0 0 0-4-6', story: 'M5 5h14M5 12h10M5 19h14', settings: 'M4 7h16M4 17h16M9 4v6M15 14v6', arrow: 'M5 12h14M13 6l6 6-6 6', plus: 'M12 5v14M5 12h14' }
+  const paths = { feed: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l3 3m6 6 3 3M6 18l3-3m6-6 3-3', inbox: 'M3 5h18v14H3V5Zm0 0 9 8 9-8', chat: 'M5 4h14v12H9l-4 4V4Z', cards: 'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM3 20v-2a7 7 0 0 1 14 0v2M17 4a3 3 0 0 1 0 6M21 20v-2a7 7 0 0 0-4-6', story: 'M5 5h14M5 12h10M5 19h14', settings: 'M4 7h16M4 17h16M9 4v6M15 14v6', arrow: 'M5 12h14M13 6l6 6-6 6', plus: 'M12 5v14M5 12h14' }
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>
 }
-const MessageRow = React.memo(function MessageRow({ message, userName, characterName, lastCharacterReplyTs, onRetry, retryDisabled, sticker, entrance, failureReason, onDiagnosticFocus }: { sticker?: StickerAsset; entrance?: number; message: Message; userName: string; characterName: string; lastCharacterReplyTs: number; onRetry: (message: Message) => void; retryDisabled: boolean; failureReason?: string; onDiagnosticFocus: (message: DiagnosticsMessageFocus) => void }) {
+const MessageRow = React.memo(function MessageRow({ message, userName, characterName, lastCharacterReplyTs, onRetry, retryDisabled, sticker, entrance, failureReason, onDiagnosticFocus, avatar }: { sticker?: StickerAsset; avatar?: string; entrance?: number; message: Message; userName: string; characterName: string; lastCharacterReplyTs: number; onRetry: (message: Message) => void; retryDisabled: boolean; failureReason?: string; onDiagnosticFocus: (message: DiagnosticsMessageFocus) => void }) {
   const opening = message.status === 'card-opening'
   const characterSticker = message.direction === 'character' && !message.content.trim() && messageImages(message.images).length > 0
   const isSticker = !!sticker || characterSticker
-  return <article data-read-anchor={`message-${message.id}`} style={entrance === undefined ? undefined : { '--i': entrance } as React.CSSProperties} className={`message${isSticker ? ' sticker-message' : ''}${entrance === undefined ? '' : ' message-enter'} ${message.direction === 'character' ? 'character-reply' : message.direction}`}>
+  return <article data-read-anchor={`message-${message.id}`} style={entrance === undefined ? undefined : { '--i': entrance } as React.CSSProperties} className={`message${isSticker ? ' sticker-message' : ''}${entrance === undefined ? '' : ' message-enter'} ${message.direction === 'character' ? `character-reply${avatar ? ' has-avatar' : ''}` : message.direction}`}>
+    {message.direction === "character" && avatar && <img className="character-avatar chat-avatar" src={avatar} alt={`${characterName}的头像`} />}
     {opening && <MessageStatus message={message} />}
     <div className="message-label">{message.direction === 'user' ? userName : characterName}<time>{new Date(message.occurredAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div>
-    <div className={isSticker ? "sticker-body" : "bubble"}>{!isSticker && (message.direction === 'character' ? messageAudio(message.audio) ? <VoiceBubble audio={messageAudio(message.audio)!} content={message.content} bridge={bridge} /> : <MessageContent message={message} /> : message.content)}{sticker ? <StoredImage id={messageImages(message.images)[0]} bridge={bridge} source={stickerSource(sticker)} /> : messageImages(message.images).map(id => <StoredImage key={id} id={id} bridge={bridge} />)}</div>
+    <div className={isSticker ? "sticker-body" : "bubble"}>{!isSticker && (messageAudio(message.audio) ? <VoiceBubble audio={messageAudio(message.audio)!} content={message.content} bridge={bridge} /> : message.direction === 'character' ? <MessageContent message={message} /> : message.content)}{sticker ? <StoredImage id={messageImages(message.images)[0]} bridge={bridge} source={stickerSource(sticker)} /> : messageImages(message.images).map(id => <StoredImage key={id} id={id} bridge={bridge} />)}</div>
+    {message.replyState === 'failed' && message.direction === 'user' && <button className="message-retry" disabled={retryDisabled} onClick={() => onRetry(message)}>回复失败 · 重试回复</button>}
+    {message.status === 'unknown' && <button className="message-retry" disabled={retryDisabled} onClick={() => onRetry(message)}>发送结果待确认 · 安全重试</button>}
     {!opening && <MessageStatus message={message} lastCharacterReplyTs={lastCharacterReplyTs} onRetry={() => onRetry(message)} disabled={retryDisabled} />}
     {message.direction === 'user' && failureReason && <MessageFailureHint messageId={message.id} reason={failureReason} focus={onDiagnosticFocus} />}
   </article>
@@ -107,7 +121,7 @@ function App() {
     if (!draftCache.current.has(id)) draftCache.current.set(id, draftStore.current.read(id))
     return draftCache.current.get(id)!
   }
-  const { content: draft, attachments } = getDraft(selected)
+  const { content: draft, attachments, audio: draftAudio } = getDraft(selected)
   const updateDraft = (patch: Partial<Draft>, id = selectedRef.current) => {
     if (!id) return
     const next = { ...getDraft(id), ...patch }
@@ -125,6 +139,10 @@ function App() {
     localStorage.setItem('hds-stickers-v1', JSON.stringify(value))
     stickersRef.current = value; setStickers(value)
   }
+  const [mediaDrawer, setMediaDrawer] = useState(false)
+  const outgoing = useRef(outbox(localStorage))
+  const [outgoingRows, setOutgoingRows] = useState<Message[]>([])
+  useEffect(() => { setOutgoingRows(outgoing.current.read(selected)); setMediaDrawer(false) }, [selected])
   const [stickerDrawer, setStickerDrawer] = useState(false)
   const [stickerManager, setStickerManager] = useState(false)
   const stickerManagerBack = useRef<(() => void) | undefined>()
@@ -163,16 +181,33 @@ function App() {
   runtimeRef.current = runtime
   const profileRevision = useRef(0)
   const imageLock = useRef(false)
-  const pending = useRef<{ requestId: string; content: string; images?: string[] } | null>(null)
+  const pending = useRef<{ requestId: string; content: string; images?: string[]; audio?: Message['audio'] } | null>(null)
   const sendRef = useRef<(message?: Message) => Promise<void>>(async () => {})
   const retryMessage = useCallback((message: Message) => { void sendRef.current(message) }, [])
   const active = cards.find(card => card.id === selected)
   const characterName = story?.story?.setting?.character?.name || active?.card.name || ''
   const native = Capacitor.isNativePlatform()
+  const experience = useExperience(bridge, native, selected, runtime?.state === 'healthy')
+  const scopedBridge = React.useMemo(() => new Proxy(bridge, { get(target, property) { if (property === 'rpc') return (request: Parameters<NativeBridge['rpc']>[0]) => { if (selectedRef.current !== selected) return Promise.reject(new Error('故事已切换，请回到原故事继续')); return target.rpc({ ...request, payload: { ...request.payload, expectedCardId: selected } }) }; return Reflect.get(target, property) } }), [selected])
+  const displayMessages = [...messages, ...outgoingRows.filter(row => !messages.some(m => m.id === row.id))].sort((a,b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt))
+  const pendingInHistory = displayMessages.some(row => row.id === pending.current?.requestId && ['failed', 'unknown'].includes(row.status || ''))
   const voices = useVoices(bridge, native)
+  const avatar = useCharacterAvatar(bridge, native, selected, profileRevision.current)
   const appearance = useAppearance(bridge, native, setNotice)
   const [diagnostic, setDiagnostic] = useState<Record<string, unknown> | null>(null)
   const navigation = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+    let baseline = viewport.height
+    const resize = () => {
+      const editing = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement
+      if (!editing) baseline = viewport.height
+      appShell.current?.classList.toggle('keyboard-open', innerWidth < 768 && editing && baseline - viewport.height > 150)
+    }
+    viewport.addEventListener('resize', resize); document.addEventListener('focusout', resize)
+    return () => { viewport.removeEventListener('resize', resize); document.removeEventListener('focusout', resize) }
+  }, [])
   const scroll = useRef<HTMLDivElement>(null)
   const pageRef = useRef(page)
   pageRef.current = page
@@ -210,13 +245,13 @@ function App() {
     setInboxSource(source); setPage('inbox', direction)
   }
   const openSpace = (next: typeof spacePage, direction = 0) => { if (page === 'settings') savePosition(); setSpacePage(next); setPage('settings', direction) }
-  const selectTab = (next: Tab, direction = 0) => next === 'inbox' ? openInbox('tab', direction) : next === 'settings' ? openSpace(null, direction) : setPage(next, direction)
+  const selectTab = (next: Tab, direction = 0) => next === 'settings' ? openSpace(null, direction) : setPage(next, direction)
   const prepareOnboarding = (target: OnboardingTarget) => {
     cancelPageMotion(); setPageMotion({ phase: 'idle', direction: 0 }); touchStart.current = null
     if (target === 'library') updatePage('cards')
     else if (target === 'models' || target === 'help') { setSpacePage(null); updatePage('settings') }
     else if (target === 'story') { updateDetail('story'); updatePage('story') }
-    else if (target === 'inbox') { setInboxSource('tab'); updatePage('inbox') }
+    else if (target === 'inbox') { setSpacePage(null); updatePage('settings') }
     else updatePage('chat')
   }
   const closeOnboarding = () => {
@@ -255,6 +290,7 @@ function App() {
       if (onboardingOpen) { closeOnboarding(); return true }
       if (stickerManager) { stickerManagerBack.current?.(); return true }
       if (stickerDrawer) { setStickerDrawer(false); return true }
+      if (mediaDrawer) { setMediaDrawer(false); return true }
       if (exportOpen) { if (!busy) setExportOpen(false); return true }
       if (importCodeOpen) { if (!busy) setImportCodeOpen(false); return true }
       if (messageDiagnostic !== null) { setMessageDiagnostic(null); return true }
@@ -336,10 +372,11 @@ function App() {
   }, ({ cardId, rows: value }, revision) => {
     if (revision !== profileRevision.current || !cardId || cardId !== selectedRef.current) return
     replyWatermarks.current.observe(cardId, value)
+    try { outgoing.current.remove(cardId, value.map(row => row.id)); setOutgoingRows(outgoing.current.read(cardId)) } catch { /* Retain the durable queue when storage is temporarily unavailable. */ }
     const request = pending.current
     if (request && value.some(row => row.id === request.requestId && row.status === 'accepted')) {
       pending.current = null; setRetryTarget(null); setRequestState('accepted')
-      if (!stickersRef.current.messages[stickerMessageKey(cardId, request.requestId)] && getDraft(cardId).content.trim() === request.content && JSON.stringify(getDraft(cardId).attachments.map(image => image.id)) === JSON.stringify(request.images ?? [])) { setDraft(''); setAttachments([]) }
+      if (!stickersRef.current.messages[stickerMessageKey(cardId, request.requestId)] && getDraft(cardId).content.trim() === request.content && JSON.stringify(getDraft(cardId).attachments.map(image => image.id)) === JSON.stringify(request.images ?? [])) { updateDraft({ content: '', attachments: [], audio: undefined }, cardId) }
     }
     const previous = messagesRef.current
     const next = mergeMessages(previous, value)
@@ -516,11 +553,19 @@ function App() {
     await saveImportedCard(preview, useNow); setPreview(null)
   })
   const send = async (retry?: Message, sticker?: { packId: string; asset: StickerAsset }) => {
+    if (retry?.replyState === 'failed') {
+      if (sendLock.current || busy || runtime?.state !== 'healthy') return
+      sendLock.current = true; setSending(true)
+      try { await scopedBridge.rpc({ method: 'turn.retry', payload: { messageId: retry.id } }); await refreshHistory(); await experience.refresh() } catch (error) { setNotice(errorText(error)) } finally { sendLock.current = false; setSending(false) }
+      return
+    }
     const content = sticker ? '' : retry ? retry.content : draft.trim()
+    const audio = sticker ? undefined : retry ? messageAudio(retry.audio) : draftAudio
     const imageIds = sticker ? [] : retry ? messageImages(retry.images) : attachments.map(image => image.id)
     if ((!sticker && !content && !imageIds.length) || sendLock.current || busy || runtime?.state !== 'healthy') return
+    const submittingDraft = !sticker && (!retry || (pending.current?.requestId === retry.id && !retryTarget))
     sendLock.current = true
-    const request = retry ? { requestId: retry.id, content, images: imageIds } : !sticker && pending.current?.content === content && JSON.stringify(pending.current.images || []) === JSON.stringify(imageIds) ? pending.current : { requestId: crypto.randomUUID(), content, images: imageIds }
+    const request = retry ? { requestId: retry.id, content, images: imageIds, audio } : !sticker && pending.current?.audio?.audioId === audio?.audioId && pending.current?.content === content && JSON.stringify(pending.current.images || []) === JSON.stringify(imageIds) ? pending.current : { requestId: crypto.randomUUID(), content, images: imageIds, audio }
     if (sticker) pending.current = null
     else { pending.current = request; setRetryTarget(retry ?? null) }
     setSending(true); setRequestState('sending'); setNotice(''); setStickerDrawer(false)
@@ -541,15 +586,21 @@ function App() {
       }
       pending.current = request
       setRetryTarget(sticker ? { id: request.requestId, content: '', images: request.images, direction: 'user', occurredAt: new Date().toISOString(), status: 'failed' } : retry ?? null)
-      await bridge.rpc({ method: 'messages.sendLocal', payload: request })
+      const localRow: Message = { id: request.requestId, content, images: request.images, audio, direction: 'user', occurredAt: retry?.occurredAt ?? new Date().toISOString(), status: 'sending' }
+      outgoing.current.put(cardId, localRow); setOutgoingRows(outgoing.current.read(cardId).map(row => row.id === localRow.id ? localRow : row))
+      await scopedBridge.rpc({ method: 'messages.sendLocal', payload: request })
+      outgoing.current.remove(cardId, [request.requestId])
       // A notification may select another card while the RPC is in flight.
       // Clear the acknowledged card's matching draft before the UI revision guard.
       const sentDraft = getDraft(cardId)
-      if (!retry && !sticker && sentDraft.content.trim() === content && JSON.stringify(sentDraft.attachments.map(image => image.id)) === JSON.stringify(imageIds)) updateDraft({ content: '', attachments: [] }, cardId)
+      if (submittingDraft && sentDraft.content.trim() === content && JSON.stringify(sentDraft.attachments.map(image => image.id)) === JSON.stringify(imageIds)) updateDraft({ content: '', attachments: [], audio: undefined }, cardId)
       if (revision !== profileRevision.current) return
       forceBottom.current = true; setRequestState('accepted')
       pending.current = null; setRetryTarget(null); await historyReads.current(revision, true)
     } catch (error) {
+      const stored = outgoing.current.read(cardId).find(row => row.id === request.requestId)
+      if (stored) { try { outgoing.current.put(cardId, { ...stored, status: localRequestFailure(error) }) } catch {} }
+      if (revision === profileRevision.current) { setOutgoingRows(outgoing.current.read(cardId)) }
       if (revision === profileRevision.current) {
         if (messagesRef.current.some(row => row.id === request.requestId && row.status === 'accepted')) { setRequestState('accepted'); setRetryTarget(null); setNotice('') }
         else if (sticker && !pending.current) { setRequestState('idle'); setNotice(`${errorText(error)}；请重新点击表情发送。`) }
@@ -567,7 +618,7 @@ function App() {
     if (reason) throw new Error(reason)
   }
   const attachmentReason = imageEntryReason({ native, healthy: runtime?.state === 'healthy', busy, sending, count: attachments.length, enabled: settings.modelOptions.visionEnabled === true })
-  const pickImage = async (pasted?: File[]) => {
+  const pickImage = async (pasted?: File[], source: 'gallery' | 'camera' = 'gallery') => {
     if (imageLock.current) return
     if (attachmentReason) { setNotice(attachmentReason); if (!settingsRef.current.modelOptions.visionEnabled) setPage('settings'); return }
     imageLock.current = true
@@ -586,7 +637,7 @@ function App() {
       savedFingerprint = JSON.stringify(settingsRef.current)
       await checkVision()
       if (!stillCurrent()) return
-      const result = pasted ? { cancelled: false, images: await Promise.all(pasted.slice(0, 3 - attachments.length).map(async file => ({ dataUri: await clipboardJpeg(file) }))), truncated: pasted.length > 3 - attachments.length } : await bridge.pickImage({ limit: 3 - attachments.length })
+      const result = pasted ? { cancelled: false, images: await Promise.all(pasted.slice(0, 3 - attachments.length).map(async file => ({ dataUri: await clipboardJpeg(file) }))), truncated: pasted.length > 3 - attachments.length } : await bridge.pickImage({ limit: 3 - attachments.length, source })
       if (result.cancelled || !stillCurrent()) return
       const images = result.images ?? (result.dataUri ? [{ dataUri: result.dataUri }] : [])
       const errors = (result.errors ?? []).map(error => `第 ${error.index + 1} 张：${error.message}`)
@@ -613,20 +664,21 @@ function App() {
   const wakePanel = <div className={`wake-panel ${transitioning ? 'waking' : ''}`} role="status"><div><b>{active?.card.name || '故事'} · {runtimeLabel}</b><p>{runtime?.state === 'installing' ? '首次准备约 1 分钟，请稍候…' : runtime?.state === 'starting' ? '正在翻开属于你们的这一页。' : '之前的经历留在这里，下一句话由你开始。'}</p></div>{transitioning ? <progress aria-label={runtimeLabel} /> : <button className="primary wake-button" disabled={!native || busy || !settingsReady} onClick={wake}>{!active ? '选择主角' : !modelReady ? '连接故事模型' : runtime?.state === 'failed' ? '再次唤醒' : '点击唤醒'}<Icon name="arrow" /></button>}{runtime?.state === 'installing' && <button className="text-button" onClick={() => act(() => bridge.cancelInstall())}>取消准备</button>}{runtime?.error && <p className="error">{runtime.error}</p>}</div>
   return <>
     {appearance.value.backgroundData && <BackgroundImage source={appearance.value.backgroundData} opacity={appearance.value.backgroundOpacity} blur={appearance.value.backgroundBlur} failed={() => setNotice('背景图片无法显示，请在界面设置中重新选择图片。')} />}
-    <div className="app" ref={appShell}>
+    <div className="app" ref={appShell}><NotificationBanner bridge={bridge} native={native} cardId={selected} messages={messages} reading={page === 'chat'} name={characterName} open={() => setPage('chat')} />
     <header><div className="wordmark" ref={onboardingTargets.welcome as React.RefObject<HTMLDivElement>}>HDS<span>INTERLUDE</span></div><div className="header-actions"><button className={`status ${runtime?.state === 'healthy' ? 'online' : ''}`} disabled={busy || transitioning || (native && !settingsReady)} onClick={() => healthy ? setPage('chat') : native ? void wake() : setPage('settings')}><i />{runtimeLabel}</button></div></header>
     <main className={`accordion page-transition page-${pageMotion.phase}`} style={{ '--page-offset': `${pageMotion.direction * 24}px`, '--page-duration': '150ms' } as React.CSSProperties} key={page} data-page={page} onTouchStart={beginSwipe} onTouchMove={event => { if (event.touches.length !== 1) touchStart.current = null }} onTouchEnd={endSwipe} onTouchCancel={() => { touchStart.current = null }} onBlurCapture={() => { void persistSettings().catch(() => {}) }}>
       {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
       {restartNeeded && <div className="restart-banner" role="status"><div><b>新配置已就绪</b><span>重启后生效，剧情与记忆会保留。</span></div><button disabled={busy || sending || transitioning} onClick={restart}>立即重启生效</button></div>}
       {page === 'inbox' && <Inbox bridge={bridge} healthy={runtime?.state === 'healthy'} native={native} configure={() => openSpace(null)} onRootBack={inboxSource === 'space' ? () => openSpace(null) : undefined} backHandler={inboxBack} onUnread={setInboxUnread} />}
+      {page === 'feed' && (experience.settings.feedEnabled ? <Feed avatar={avatar.source} cardId={selected} key={selected} bridge={scopedBridge} snapshot={experience.snapshot} refresh={experience.refresh} healthy={healthy} name={characterName} /> : <div className="quiet-empty">动态已关闭。<button onClick={() => openSpace('chat')}>前往设置</button></div>)}
       {page === 'chat' && <>
-        <div className="page-heading"><div><div className="eyebrow">A LIFE IN PROGRESS</div><h1><button className="character-switch" aria-label="切换角色或故事" onClick={() => setSwitcher(true)}>{characterName || '此刻之外'}<span aria-hidden="true">⌄</span></button></h1><p>{active ? '从一句话开始，让故事慢慢发生。' : '一个角色，一段继续发生的日常。'}</p></div><span className="chapter">01 / 故事</span></div>
-        {!messages.length && requestState !== 'sending' && !typing ? <div className="empty-chat"><div className="empty-art"><span /><span /><span /><b>未完待续</b></div><h2>{active ? healthy ? '故事正在继续' : '等你轻轻唤醒' : '先认识一个角色'}</h2><p>{active ? '那些一起经历的日常，都值得被记住。' : '导入一张角色卡，或亲手写下一个人。让日常从这里开始。'}</p>{!active && <button className="primary" onClick={() => setSwitcher(true)}>选择故事的主角<Icon name="arrow" /></button>}</div> : <div className="messages">{messages.map((message, index) => <MessageRow entrance={index >= messages.length - 6 ? Math.max(0, index - Math.max(0, messages.length - 6)) : undefined} sticker={message.direction === 'user' ? stickers.messages[stickerMessageKey(selected, message.id)] : undefined} key={message.id} message={message} failureReason={messageFailures?.get(message.id)} onDiagnosticFocus={focusMessageDiagnostic} userName={settings.userName} characterName={characterName} lastCharacterReplyTs={lastCharacterReplyTs} onRetry={retryMessage} retryDisabled={sending || busy || !healthy || message.direction !== 'user'} />)}<TypingBubble requestState={requestState} typing={typing} characterName={characterName} /><div ref={scroll} /></div>}
+        <div className="page-heading"><div><div className="eyebrow">A LIFE IN PROGRESS</div><h1><button className="character-switch" aria-label="切换角色或故事" onClick={() => setSwitcher(true)}>{characterName || '此刻之外'}<span aria-hidden="true">⌄</span></button></h1><p>{active ? '从一句话开始，让故事慢慢发生。' : '一个角色，一段继续发生的日常。'}</p></div><button className="text-button" onClick={() => openSpace('chat')}>聊天设置</button></div>
+        {!displayMessages.length && !experience.snapshot.streams.length && requestState !== 'sending' && !typing ? <div className="empty-chat"><div className="empty-art"><span /><span /><span /><b>未完待续</b></div><h2>{active ? healthy ? '故事正在继续' : '等你轻轻唤醒' : '先认识一个角色'}</h2><p>{active ? '那些一起经历的日常，都值得被记住。' : '导入一张角色卡，或亲手写下一个人。让日常从这里开始。'}</p>{!active && <button className="primary" onClick={() => setSwitcher(true)}>选择故事的主角<Icon name="arrow" /></button>}</div> : <div className="messages">{displayMessages.map((message, index) => <MessageRow avatar={avatar.source} entrance={index >= messages.length - 6 ? Math.max(0, index - Math.max(0, messages.length - 6)) : undefined} sticker={message.direction === 'user' ? stickers.messages[stickerMessageKey(selected, message.id)] : undefined} key={message.id} message={message} failureReason={messageFailures?.get(message.id)} onDiagnosticFocus={focusMessageDiagnostic} userName={settings.userName} characterName={characterName} lastCharacterReplyTs={lastCharacterReplyTs} onRetry={retryMessage} retryDisabled={sending || busy || !healthy || message.direction !== 'user'} />)}{experience.snapshot.streams.filter(row => !messages.some(m => m.id === row.id)).map(row => <article className={`message character-reply stream-reply${avatar.source ? " has-avatar" : ""}`} key={row.id}>{avatar.source && <img className="character-avatar chat-avatar" src={avatar.source} alt={`${characterName}的头像`} />}<div className="message-label">{characterName}</div><div className="bubble">{row.content}<span className={row.status === 'streaming' ? 'stream-caret' : ''} /></div><small>{row.status === 'streaming' ? '正在输入…' : '回复中断 · 可在原消息下重试'}</small></article>)}<TypingBubble requestState={requestState} typing={typing && !experience.snapshot.streams.some(row => row.status === 'streaming')} characterName={characterName} /><div ref={scroll} /></div>}
         {newMessages > 0 && <button className="new-messages" onClick={toLatest}>有 {newMessages} 条新消息 · 回到最新</button>}
-        {requestState === 'unknown' && <p role="status">发送结果未知，请保留原内容安全重试。<button disabled={sending || busy || !healthy} onClick={() => void send(retryTarget ?? undefined)}>重试发送</button></p>}
-        {requestState === 'failed' && <div role="status"><MessageStatus message={{ direction: 'user', status: 'failed' }} disabled={sending || busy || !healthy} onRetry={() => void send(retryTarget ?? undefined)} /></div>}
+        {requestState === 'unknown' && !pendingInHistory && <p role="status">发送结果未知，请保留原内容安全重试。<button disabled={sending || busy || !healthy} onClick={() => void send(retryTarget ?? undefined)}>重试发送</button></p>}
+        {requestState === 'failed' && !pendingInHistory && <div role="status"><MessageStatus message={{ direction: 'user', status: 'failed' }} disabled={sending || busy || !healthy} onRetry={() => void send(retryTarget ?? undefined)} /></div>}
         {active && !healthy && wakePanel}
-        <div className="composer-wrap" ref={onboardingTargets.chat as React.RefObject<HTMLDivElement>}>{stickerDrawer && stickerEntryVisible(stickers) && <StickerDrawer library={stickers} disabled={sending || busy || !healthy} close={() => setStickerDrawer(false)} send={(packId, asset) => void send(undefined, { packId, asset })} />}{attachments.length > 0 && <div className="attachment-tray">{attachments.map(image => <div key={image.id}><img src={image.dataUri} alt="待发送图片" /><button aria-label="移除图片" disabled={sending || busy} onClick={() => setAttachments(current => current.filter(item => item.id !== image.id))}>×</button></div>)}</div>}<form className="composer" onSubmit={event => { event.preventDefault(); if (!composing.current) void send() }}><button type="button" className="attach-button" aria-label="添加图片" disabled={busy || sending} aria-disabled={!!attachmentReason} aria-describedby="image-entry-hint" onClick={() => void pickImage()}>＋</button>{stickerEntryVisible(stickers) && <button type="button" className="sticker-entry" aria-label="打开表情包" aria-expanded={stickerDrawer} disabled={busy || sending} onClick={() => { composer.current?.blur(); setStickerDrawer(value => !value) }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 14q4 5 8 0M8 8v2M16 8v2" /></svg></button>}<textarea ref={composer} disabled={sending} rows={1} value={draft} onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false }} onKeyDown={event => { const action = composerEnter({ key: event.key, shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode }, composing.current); if (action === 'send') { event.preventDefault(); void send() } }} onPaste={event => { const images = [...event.clipboardData.items].filter(item => item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => file !== null); if (images.length) { event.preventDefault(); void pickImage(images) } }} onChange={event => setDraft(event.target.value)} placeholder={runtime?.state === 'healthy' ? '写下你想说的话…' : '先写下来，唤醒后就能发送…'} maxLength={12000} aria-label="消息内容" /><button className="send" disabled={!native || runtime?.state !== 'healthy' || sending || busy || (!draft.trim() && !attachments.length)} aria-label="发送消息"><Icon name="arrow" /></button></form><p id="image-entry-hint" className="composer-hint">{attachmentReason || '最多 3 张图片 · 在任务分工中设置图片识别'}</p></div>
+        <div className="composer-wrap" ref={onboardingTargets.chat as React.RefObject<HTMLDivElement>}>{mediaDrawer && <MediaComposer onVisual={() => { setMediaDrawer(false); openSpace('visual') }} key={selected} bridge={scopedBridge} healthy={healthy} snapshot={experience.snapshot} refresh={experience.refresh} onPick={source => void pickImage(undefined, source)} close={() => setMediaDrawer(false)} onTranscript={(text, audio) => { const current = getDraft(selected); updateDraft({ content: [current.content, text].filter(Boolean).join("\n"), audio }); composer.current?.focus() }} />}{draftAudio && <div className="draft-audio"><VoiceBubble bridge={bridge} audio={draftAudio} content={draft} /><button onClick={() => updateDraft({ audio: undefined })}>移除语音</button></div>}{stickerDrawer && stickerEntryVisible(stickers) && <StickerDrawer library={stickers} disabled={sending || busy || !healthy} close={() => setStickerDrawer(false)} send={(packId, asset) => void send(undefined, { packId, asset })} />}{attachments.length > 0 && <div className="attachment-tray">{attachments.map(image => <div key={image.id}><img src={image.dataUri} alt="待发送图片" /><button aria-label="移除图片" disabled={sending || busy} onClick={() => setAttachments(current => current.filter(item => item.id !== image.id))}>×</button></div>)}</div>}<form className="composer" onSubmit={event => { event.preventDefault(); if (!composing.current) void send() }}><button type="button" className="attach-button" aria-label="添加图片或语音" aria-expanded={mediaDrawer} disabled={busy || sending} onClick={() => { composer.current?.blur(); setStickerDrawer(false); setMediaDrawer(value => !value) }}>＋</button>{stickerEntryVisible(stickers) && <button type="button" className="sticker-entry" aria-label="打开表情包" aria-expanded={stickerDrawer} disabled={busy || sending} onClick={() => { composer.current?.blur(); setStickerDrawer(value => !value) }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 14q4 5 8 0M8 8v2M16 8v2" /></svg></button>}<textarea ref={composer} disabled={sending} rows={1} value={draft} onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false }} onKeyDown={event => { const action = composerEnter({ key: event.key, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode }, composing.current, experience.settings.enterBehavior); if (action === 'send') { event.preventDefault(); void send() } }} onPaste={event => { const images = [...event.clipboardData.items].filter(item => item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => file !== null); if (images.length) { event.preventDefault(); void pickImage(images) } }} onChange={event => setDraft(event.target.value)} placeholder={runtime?.state === 'healthy' ? '写下你想说的话…' : '先写下来，唤醒后就能发送…'} maxLength={12000} aria-label="消息内容" /><button className="send" disabled={!native || runtime?.state !== 'healthy' || sending || busy || (!draft.trim() && !attachments.length)} aria-label="发送消息"><Icon name="arrow" /></button></form><p id="image-entry-hint" className="composer-hint">{attachmentReason || (experience.settings.enterBehavior === 'send' ? '回车发送 · Shift+Enter 换行' : '回车换行 · Ctrl+Enter 发送')}</p></div>
       </>}
       {page === 'cards' && <>
         <div className="page-heading"><div><div className="eyebrow">CHARACTER LIBRARY</div><h1>故事里的人<span>。</span></h1><p>人设是起点，经历让她成为自己。</p></div><button className="text-button" onClick={() => setPage('chat')}>返回故事</button></div>
@@ -648,12 +700,19 @@ function App() {
         {!spacePage ? <div className="space-home">
           <section className="space-wake"><div className="section-title"><h2>故事的节奏</h2><span className="tag">{runtimeLabel}</span></div>{healthy ? <button className="secondary" disabled={busy || sending} onClick={() => act(async () => { await bridge.stop(); setRuntime(await bridge.status()) }, '故事暂时歇息，经历都已留存。')}>让故事休息一下</button> : wakePanel}</section>
           <div className="settings-directory">{spaceEntries.filter(item => !['advanced', 'system'].includes(item.key)).map(item => <button ref={item.key === 'models' ? onboardingTargets.models as React.RefObject<HTMLButtonElement> : undefined} className="settings-entry" key={item.key} onClick={() => openSpace(item.key)}><span>{item.label}<small>{item.caption}</small></span><Icon name="arrow" /></button>)}</div>
+          <button ref={onboardingTargets.inbox as React.RefObject<HTMLButtonElement>} className="settings-entry" onClick={() => openInbox('space')}><span>信箱与外部连接<small>来信、QQ 接入与会话管理{inboxUnread > 0 ? ` · ${inboxUnread} 条未读` : ''}</small></span><Icon name="arrow" /></button>
           <button className="settings-entry" onClick={() => setStickerManager(true)}><span>表情包<small>我的表情与角色表情 · 独立素材池</small></span><Icon name="arrow" /></button>
           <button ref={onboardingTargets.help as React.RefObject<HTMLButtonElement>} className="settings-entry" onClick={() => setMessageDiagnostic('')}><span>消息诊断<small>处理过程、未回复与调用失败原因</small></span><Icon name="arrow" /></button>
           <button className="settings-entry" onClick={startOnboarding}><span>重看新手引导<small>认识角色、模型连接与消息诊断</small></span><Icon name="arrow" /></button>
           <div className="settings-secondary">{spaceEntries.filter(item => ['advanced', 'system'].includes(item.key)).map(item => <button className="settings-entry" key={item.key} onClick={() => openSpace(item.key)}><span>{item.label}<small>{item.caption}</small></span><Icon name="arrow" /></button>)}</div>
         </div> : <div className="space-detail" data-settings-category={spacePage}>
-          <div className="save-status" role="status"><span>{native ? saveState : '界面预览 · 设置不会保存'}</span>{saveError && <><p className="error">{saveError}</p><button className="text-button" disabled={busy} onClick={() => void persistSettings().catch(() => {})}>重试保存</button></>}</div>
+          <div className="save-status" role="status"><span>{native ? ['chat', 'media', 'visual'].includes(spacePage) ? '点击保存设置后应用' : saveState : '界面预览 · 设置不会保存'}</span>{saveError && <><p className="error">{saveError}</p><button className="text-button" disabled={busy} onClick={() => void persistSettings().catch(() => {})}>重试保存</button></>}</div>
+          {spacePage === 'avatar' && <AvatarSettings key={selected} avatar={avatar} bridge={scopedBridge} cardId={selected} name={characterName} native={native} healthy={healthy} imageEnabled={experience.settings.image.enabled} snapshot={experience.snapshot} refresh={experience.refresh} />}
+          {(['chat', 'media', 'visual'] as string[]).includes(spacePage) && <ExperiencePanel characterName={characterName} key={`${selected}:${spacePage}`} value={experience.settings} save={async value => { await persistSettings(); await experience.save(value) }} bridge={scopedBridge} native={native} healthy={healthy} mode={spacePage as 'chat' | 'media' | 'visual'}>
+          {spacePage === 'chat' && <label className="toggle"><input type="checkbox" checked={settings.modelOptions.mainStreamingMode === 'experimental'} onChange={e => setSettings(previous => ({ ...previous, modelOptions: { ...previous.modelOptions, mainStreamingMode: e.target.checked ? 'experimental' : 'off', ...(e.target.checked ? { mainResponseFormat: 'json-object' as const } : {}) } }))} />流式输出 · 回复边生成边显示</label>}
+          {spacePage === 'chat' && <label>连续消息合并等待（秒）<input type="number" min={0} max={30} step={0.5} value={Number(settings.mobileConfig?.sections?.runtime?.userMessageDebounceSeconds ?? 1)} onChange={e => setSettings(previous => ({ ...previous, mobileConfig: { ...previous.mobileConfig, sections: { ...previous.mobileConfig?.sections, runtime: { ...previous.mobileConfig?.sections?.runtime, userMessageDebounceSeconds: Number(e.target.value) } } } }))} /><small>等你连续说完再回复；保存后重启核心生效。</small></label>}
+          </ExperiencePanel>}
+          {spacePage === 'life' && <WeatherStatus bridge={scopedBridge} healthy={healthy} />}
           {spacePage === 'appearance' && <AppearanceSettings appearance={appearance} native={native} busy={busy} act={act} />}
           {spacePage === 'notifications' && <NotificationSettings bridge={bridge} native={native} notify={setNotice} />}
           {spacePage === 'voice' && <VoiceSettings bridge={bridge} state={voices.state} accept={voices.accept} cardId={selected} name={active?.card.name || ""} native={native} notify={setNotice} />}
@@ -678,7 +737,7 @@ function App() {
       </>}
 
     </main>
-    <nav ref={navigation} aria-label="主导航" style={{ '--active-tab': tabs.indexOf(page === 'cards' ? 'chat' : page) } as React.CSSProperties}><span className="nav-indicator" aria-hidden="true" />{tabs.map(key => <button ref={key === 'inbox' ? onboardingTargets.inbox as React.RefObject<HTMLButtonElement> : undefined} key={key} className={key === page || (key === 'chat' && page === 'cards') ? 'active' : ''} onClick={() => selectTab(key)} aria-current={key === page || (key === 'chat' && page === 'cards') ? 'page' : undefined} aria-label={labels[key]}><Icon name={key} /><span>{labels[key]}</span>{key === 'inbox' && inboxUnread > 0 && <span className="letter-unread nav-unread" aria-label={`${inboxUnread} 条未读`}>{inboxUnread > 99 ? '99+' : inboxUnread}</span>}</button>)}</nav>
+    <nav ref={navigation} aria-label="主导航" style={{ '--active-tab': tabs.indexOf(page === 'cards' ? 'chat' : page === 'inbox' ? 'settings' : page) } as React.CSSProperties}><span className="nav-indicator" aria-hidden="true" />{tabs.map(key => <button key={key} className={key === page || (key === 'chat' && page === 'cards') ? 'active' : ''} onClick={() => selectTab(key)} aria-current={key === page || (key === 'chat' && page === 'cards') ? 'page' : undefined} aria-label={labels[key]}><Icon name={key} /><span>{labels[key]}</span>{key === 'settings' && inboxUnread > 0 && <span className="letter-unread nav-unread" aria-label={`${inboxUnread} 条未读`}>{inboxUnread > 99 ? '99+' : inboxUnread}</span>}</button>)}</nav>
     {messageDiagnostic !== null && <MessageDiagnostics key={selected} bridge={bridge} healthy={healthy} messageId={messageDiagnostic} messages={messages} close={() => setMessageDiagnostic(null)} />}
     {settingEditor && <StorySettingEditor key={selected} bridge={bridge} close={() => setSettingEditor(false)} saved={async () => { await refreshStory(); setNotice('故事设定已更新。') }} />}
     {stickerManager && <StickerManager back={stickerManagerBack} library={stickers} bridge={bridge} native={native} change={value => { saveStickers(value); if (runtimeRef.current?.state === 'healthy') setRestartNeeded(true) }} close={() => setStickerManager(false)} notify={setNotice} importReason={!settingsReady ? '正在读取模型设置，请稍候…' : stickerImportReason(settings)} beforeImport={async () => { const reason = stickerImportReason(settingsRef.current); if (reason) throw new Error(reason); await persistSettings() }} configureVision={() => { setStickerManager(false); openSpace('tasks') }} />}
@@ -695,3 +754,4 @@ function App() {
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
 
 import './glass.css'
+import './experience.css'

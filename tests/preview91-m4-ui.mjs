@@ -52,7 +52,7 @@ try {
     localStorage.setItem('hds.onboarding.v1', '1')
     window.androidBridge = {}
     const methods = ['settings', 'cards', 'status', 'saveSettings', 'appearance', 'notificationSettings', 'notificationLaunch', 'voiceState', 'rpc']
-    window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: methods.map(name => ({ name, rtype: 'promise' })) }], nativePromise: async (_, method, options) => {
+    window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: [...methods, 'addListener', 'removeListener'].map(name => ({ name, rtype: 'promise' })) }], nativePromise: async (_, method, options) => { if (method === 'addListener' || method === 'removeListener') return {}; 
       const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, options }) })
       const result = await response.json(); if (!response.ok) throw new Error(result.error); return result
     } }

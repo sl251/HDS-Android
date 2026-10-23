@@ -7,6 +7,14 @@
       "description": "【节奏 5】运行时：消息合并、打字、失败重试与自动生活推进。",
       "fields": [
         {
+          "key": "userMessageDebounceSeconds",
+          "type": "number",
+          "default": 2,
+          "description": "短消息合并等待秒数；0 关闭。",
+          "min": 0,
+          "max": 15
+        },
+        {
           "key": "minimumFollowUpCommitmentSeconds",
           "type": "number",
           "default": 300,

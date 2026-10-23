@@ -23,7 +23,6 @@ jobs:
           distribution: temurin
           java-version: '21'
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm test
       - run: npm run build
       - name: Runtime archive policy and OpenSSL fixture checks
         run: |
@@ -36,6 +35,7 @@ jobs:
           node tests/character-export-ui.mjs
           node tests/media-controls-ui.mjs
           node tests/message-diagnostics-ui.mjs
+          node tests/experience-ui.mjs
       - name: Exercise chat, sticker and voice flows
         run: |
           export HDS_BROWSER="$(node --input-type=module -e "import { chromium } from 'playwright-core'; console.log(chromium.executablePath())")"
@@ -44,6 +44,8 @@ jobs:
           trap 'kill "$vite_pid"' EXIT
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:5173 >/dev/null && break; sleep 1; done
           npm run test:ui
+      - name: Full host regression after browser checks
+        run: npm test
       - run: npx cap sync android
       - name: Android compilation and persistence tests
         run: |
@@ -59,4 +61,6 @@ jobs:
           path: |
             artifacts/media-controls
             artifacts/typing-tasks
+            artifacts/experience-ui
+            artifacts/m5
             android/app/build/reports/tests

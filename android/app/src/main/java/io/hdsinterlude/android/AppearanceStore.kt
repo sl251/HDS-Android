@@ -14,7 +14,7 @@ import java.io.File
 class AppearanceStore(private val context: Context) {
     private val root = File(context.noBackupFilesDir, "hds/appearance").apply { mkdirs() }
     private val settings = File(root, "settings.json")
-    private fun defaults() = JSONObject().put("font", "default").put("fontSize", 14).put("backgroundOpacity", 35).put("panelOpacity", 84).put("backgroundBlur", 0).put("theme", "system")
+    private fun defaults() = JSONObject().put("font", "default").put("fontSize", 14).put("backgroundOpacity", 35).put("panelOpacity", 84).put("backgroundBlur", 0).put("theme", "system").put("palette", "sky")
     fun read(): JSONObject {
         val result = if (settings.exists()) JSONObject(AtomicFile(settings).openRead().bufferedReader().use { it.readText() }) else defaults()
         // Let Capacitor's local file server stream assets; avoid multi-megabyte bridge JSON.
@@ -34,6 +34,8 @@ class AppearanceStore(private val context: Context) {
         val font = input.optString("font", "default"); require(font in listOf("default", "sans", "serif", "custom")) { "字体选项无效" }
         require(font != "custom" || File(root, "font.bin").exists()) { "请先导入字体文件" }
         val theme = input.optString("theme", "system"); require(theme in listOf("system", "light", "dark")) { "主题选项无效" }
+        val palette = input.optString("palette", "sky"); require(palette in listOf("sky", "sage", "rose", "lavender", "amber")) { "主题配色无效" }
+        next.put("palette", palette)
         next.put("font", font).put("theme", theme).put("fontName", input.optString("fontName", "自定义字体").take(128))
         atomic(settings, next.toString().toByteArray())
         if (input.optBoolean("removeBackground")) { File(root, "background.jpg").delete() }

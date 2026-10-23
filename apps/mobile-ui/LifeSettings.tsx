@@ -88,7 +88,7 @@ export function LifeSettings({ value = {}, change, bridge, healthy, native, noti
         {enabledField && <label className="toggle"><input type="checkbox" checked={enabled} onChange={event => update(section.key, 'enabled', event.target.checked)} /><span>{areas.world.includes(section.key) ? `启用${names[section.key]}` : enabledField.description}</span></label>}
         <p className="caption">{section.key === 'timelineDirector' ? '默认开启；仅在自动生活回合运行，持续生活总开关仍优先。' : '修改自动保存，重启后生效。'}</p>
         {section.fields.length > 1 && <details className="advanced"><summary>高级<span className="tag">参数</span></summary>
-      <div className={areas.world.includes(section.key) ? 'config-fields' : undefined}>{section.fields.filter(field => field.key !== 'enabled' && !(section.key === 'embedding' && field.key === 'providerId')).map(field => {
+      <div className={areas.world.includes(section.key) ? 'config-fields' : undefined}>{section.fields.filter(field => field.key !== 'enabled' && !(section.key === 'runtime' && field.key === 'userMessageDebounceSeconds') && !(section.key === 'embedding' && field.key === 'providerId')).map(field => {
         const item = value.sections?.[section.key]?.[field.key] ?? field.default
         const f = field as typeof field & { min?: number; max?: number; step?: number; options?: string[]; itemOptions?: string[]; itemMin?: number; itemMax?: number }
         const label = `${names[section.key]} · ${field.description}`

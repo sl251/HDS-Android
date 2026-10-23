@@ -4,7 +4,7 @@ import { validateRetrievalEndpoint } from '../upstream/hds-interlude/src/model-r
 
 // This is the supported surface, not a second copy of upstream defaults/types.
 export const supportedFields: Record<string, string[]> = {
-  runtime: ['minimumFollowUpCommitmentSeconds', 'sweepIntervalMinutes', 'autoAdvanceIntervalMinutes', 'autoAdvanceJitterMinutes', 'conversationFollowUpMinutes', 'conversationFollowUpJitterMinutes'],
+  runtime: ['userMessageDebounceSeconds', 'minimumFollowUpCommitmentSeconds', 'sweepIntervalMinutes', 'autoAdvanceIntervalMinutes', 'autoAdvanceJitterMinutes', 'conversationFollowUpMinutes', 'conversationFollowUpJitterMinutes'],
   urge: ['enabled', 'frequency', 'proactiveWillingnessThreshold'],
   agency: ['enabled', 'contactMode', 'maxWindowMinutes', 'minimumProactiveIntervalMinutes', 'naturalWillingnessThreshold', 'naturalMinimumIntervalMinutes', 'proactiveDailyCap'],
   schedulePreplan: ['enabled', 'horizonDays', 'variationLevel', 'candidateActivationProbability', 'candidateRevealMinutes', 'reviewAfterLocalHour', 'anchorAutoAdvance'],
@@ -87,7 +87,7 @@ export function mapMobileConfig(value: MobileConfig | undefined, autoAdvance: bo
       ...Object.fromEntries(section.fields.map(field => [field.key, field.default])), ...sections[section.key],
     }])),
     runtime: { ...sections.runtime, autoCreate: true, autoAdvanceEnabled: autoAdvance, allowProactiveMessages: autoAdvance,
-      userMessageDebounceSeconds: 1, typingMaxDelaySeconds: 12,
+      userMessageDebounceSeconds: sections.runtime?.userMessageDebounceSeconds ?? 1, typingMaxDelaySeconds: 12,
       contextEntryLimit: 20, contextTimeWindowMinutes: 10,
       conversationFollowUpMinutes: !autoAdvance || urge ? [] : sections.runtime?.conversationFollowUpMinutes ?? [10, 20] },
     urge: { ...sections.urge, enabled: autoAdvance && urge },

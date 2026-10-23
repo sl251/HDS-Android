@@ -95,6 +95,10 @@ class VoiceStore(private val context: Context, private val credential: () -> Str
         require(id.matches(Regex("[a-f0-9]{64}"))) { "音频编号无效" }
         val file = File(base, "$id.wav")
         require(file.canonicalFile == File(base.canonicalFile, "$id.wav")) { "音频路径无效" }
+        if (!file.exists()) runCatching {
+            val archived = File(HdsStore(context).profile(), "voice-media/$id.wav")
+            if (archived.isFile && archived.length() <= MAX_AUDIO && !java.nio.file.Files.isSymbolicLink(archived.toPath())) archived.copyTo(file, overwrite = false)
+        }
         return file
     }
     fun putAudio(bytes: ByteArray): JSONObject {
