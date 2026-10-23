@@ -32,7 +32,11 @@
 
 这里的「生活」是由 AI 模型与叙事引擎模拟的持续角色状态，并不意味着角色拥有现实世界中的独立意识。
 
-<!-- PROMO_VIDEO: 上传 GitHub user-attachments 视频后，将附件原始 URL 单独放在本段下方，使其渲染为内嵌播放器。 -->
+### 🎬 宣传短片 · A Story Beyond the Chat
+
+https://github.com/user-attachments/assets/809470b8-84a5-4e32-ac78-d59d217fac7b
+
+<sub>50 秒概念宣传片 · 演示 HDSI Android 的角色生活理念与架构愿景，实际功能请以当前版本说明为准。</sub>
 
 ## ✨ 现在，你可以
 
