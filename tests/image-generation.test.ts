@@ -7,6 +7,7 @@ import { defaultExperience } from '../packages/contracts/experience'
 import { imageApi, imageResponse, imageResult, imageSize, boundedResponse, mediaFailure } from '../runtime/image-provider'
 import { mediaJobs } from '../runtime/media-jobs'
 import { normalizeExperience } from '../runtime/experience-config'
+import { experienceRuntime } from '../runtime/experience-runtime'
 import { MessageDiagnostics, runMessageDiagnostics } from '../runtime/message-diagnostics'
 import { aggregateDiagnosticMessages, visibleDiagnosticMessages } from '../apps/mobile-ui/message-diagnostics'
 
@@ -184,4 +185,50 @@ test('failed avatar and feed image jobs are visible without a chat message and s
   assert.ok(cards.some(card => card.preview.startsWith('动态配图')))
   assert.ok(f.diagnostics.list('avatar-failure-task').events.every(event => event.mediaJobId === 'avatar-failure-task'))
   assert.doesNotMatch(JSON.stringify(f.diagnostics.list()), /PRIVATE_|captcha/)
+})
+
+for (const provider of ['compatible', 'imagefree'] as const) test(`unsubmitted image uses the latest ${provider} settings instead of failing configuration checks`, async t => {
+  const requests: string[] = []
+  const f = fixture(t, { fetch: async (url: string) => { requests.push(url); return Response.json({ image: uri }) } })
+  f.create()
+  Object.assign(f.config.image, { provider, endpoint: provider === 'imagefree' ? 'https://imagefree.net' : 'https://new-provider.test/v1', model: 'gemini-3.1-flash-image', imageApi: 'auto' })
+  await waitFor(() => ['ready', 'failed', 'unknown'].includes(f.jobs.list()[0].status))
+  assert.equal(f.jobs.list()[0].status, 'ready', f.jobs.list()[0].error)
+  assert.deepEqual(requests, [provider === 'imagefree' ? 'https://imagefree.net/api/generate' : 'https://new-provider.test/v1/chat/completions'])
+  assert.equal(f.diagnostics.list().events.at(-1)?.mediaProvider, provider)
+})
+
+for (const result of ['imageUrl', 'providerTaskId'] as const) test(`old configuration failure resumes ${result} using its original result after changing channels`, async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hds-image-route-resume-'))
+  const route = { enabled: true, provider: 'imagefree', endpoint: 'https://imagefree.net', model: '', imageApi: 'auto' }
+  writeFileSync(join(directory, 'media-jobs.json'), JSON.stringify({ jobs: [{ id: 'old-config-failure', kind: 'image', purpose: 'chat', status: 'failed', at: new Date().toISOString(), route, submission: true, error: '任务的服务配置已改变', [result]: result === 'imageUrl' ? 'https://cdn.test/result.jpg' : 'imagefree-original-task' }] }))
+  const requests: string[] = []
+  const f = fixture(t, { directory, fetch: async (url: string, init: RequestInit) => {
+    requests.push(url); assert.notEqual(init?.method, 'POST'); assert.equal((init?.headers as any)?.Authorization, undefined)
+    return result === 'imageUrl' ? new Response(bytes) : Response.json({ status: 'completed', image: uri })
+  } })
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  f.config.image.enabled = false
+  f.jobs.retry('old-config-failure')
+  await waitFor(() => ['ready', 'failed', 'unknown'].includes(f.jobs.list()[0].status))
+  assert.equal(f.jobs.list()[0].status, 'ready', f.jobs.list()[0].error)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0], result === 'imageUrl' ? 'https://cdn.test/result.jpg' : 'https://imagefree.net/api/generate/status?taskId=imagefree-original-task')
+})
+
+test('a known pre-submission failure does not consume the autonomous image cooldown', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hds-image-cooldown-'))
+  const settings = defaultExperience(); settings.image = { enabled: true, provider: 'compatible', endpoint: 'https://provider.test/v1', model: 'gpt-image-1' }
+  let posts = 0
+  const runtime = experienceRuntime({ directory, settings, getImage: () => uri, saveImage: () => ({ id: assetId }), deliver: async () => {}, wake: async () => true,
+    fetch: async () => ++posts === 1 ? new Response('', { status: 401 }) : Response.json({ image: uri }) })
+  t.after(async () => { await runtime.stop(); rmSync(directory, { recursive: true, force: true }) })
+  const decision = { mobileActions: [{ kind: 'image', purpose: 'chat', scene: 'a cat', willingness: 1 }] }
+  await runtime.committed(decision, 101, true)
+  await waitFor(() => runtime.jobs.list()[0].status === 'failed')
+  await runtime.committed(decision, 102, true)
+  assert.equal(runtime.jobs.list().length, 2, 'a fresh attempt after explicit refusal must not wait 30 minutes')
+  await waitFor(() => !!runtime.jobs.list()[1].delivered)
+  await runtime.committed(decision, 103, true)
+  assert.equal(runtime.jobs.list().length, 2, 'successful images still consume the configured cooldown')
 })

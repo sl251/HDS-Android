@@ -9,6 +9,8 @@ export { boundedResponse, imageResult } from './image-provider'
 
 type Job = MediaJob & { route?: Omit<MediaConnection, 'apiKey'>; references?: string[]; ratio?: string; submission?: boolean; requestIds?: string[] }
 const refused = (status: number) => [400, 401, 402, 403, 404, 405, 413, 415, 422, 429].includes(status)
+const hasRemoteResult = (job: Job) => job.kind === 'image' && !!(job.providerTaskId || job.imageUrl)
+const uncertainSubmission = (job: Job) => !!job.submission && !hasRemoteResult(job) && !job.imageId && job.status !== 'ready'
 export function mediaEndpoint(base: string, suffix: string) {
   const url = new URL(base)
   const path = url.pathname.replace(/\/$/, '').replace(/\/(?:chat\/completions|audio\/transcriptions|images\/(?:generations|edits))$/, '')
@@ -33,7 +35,7 @@ export function mediaJobs(options: { directory: string; identity?: string; audio
         mediaPhase: phase, reason: error?.reason, httpStatus: error?.status, elapsedMs: started === undefined ? undefined : Date.now() - started })
     } catch { /* Diagnostics must not fail a media task. */ }
   }
-  db.change(s => { for (const job of s.jobs) if (['running', 'submitted'].includes(job.status)) job.status = job.providerTaskId || job.imageUrl ? 'submitted' : job.submission ? 'unknown' : 'queued' })
+  db.change(s => { for (const job of s.jobs) if (['queued', 'running', 'submitted'].includes(job.status)) job.status = hasRemoteResult(job) ? 'submitted' : uncertainSubmission(job) ? 'unknown' : 'queued' })
   const publicJob = ({ route, references, ratio, submission, requestIds, ...job }: Job): MediaJob => job
   const deliver = async (job: Job, epoch = options.diagnostics?.epoch) => {
     const started = Date.now()
@@ -44,17 +46,26 @@ export function mediaJobs(options: { directory: string; identity?: string; audio
   const run = async (initial: Job) => {
     if (stopped || active.has(initial.id)) return
     const controller = new AbortController(); active.set(initial.id, controller)
-    const current = initial.kind === 'image' ? options.config().image : options.config().stt
+    const configured = initial.kind === 'image' ? options.config().image : options.config().stt
+    const resuming = hasRemoteResult(initial)
+    // A remote task belongs to its original provider. Retrieving it never uses another channel's key.
+    const current = resuming && initial.route ? initial.route : configured
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(current.provider === 'imagefree' ? 900000 : 240000)])
     const started = Date.now(), epoch = options.diagnostics?.epoch
-    let phase = 'prepare'
-    const progress = (next: string) => { phase = next; record(initial, 'started', phase, undefined, undefined, epoch) }
+    let phase = 'prepare', job = initial
+    const progress = (next: string) => { phase = next; record(job, 'started', phase, undefined, undefined, epoch) }
     try {
+      // Bind unsent work at execution time: saving settings between enqueue and execution is safe.
+      if (!resuming && !initial.submission) {
+        const { apiKey, ...route } = configured
+        job = update(initial.id, { route })
+      }
       progress('prepare')
-      if (!current.enabled) throw new MediaError('media_disabled')
-      if (initial.route && (initial.route.endpoint !== current.endpoint || initial.route.provider !== current.provider || initial.route.model !== current.model || (initial.route.imageApi ?? 'auto') !== (current.imageApi ?? 'auto'))) throw new MediaError('media_configuration')
-      let job = update(initial.id, { status: 'running', error: undefined })
-      const headers: Record<string, string> = current.apiKey ? { Authorization: `Bearer ${current.apiKey}` } : {}
+      if (uncertainSubmission(initial)) throw new MediaError('media_submission_unknown')
+      if (!resuming && !current.enabled) throw new MediaError('media_disabled')
+      job = update(initial.id, { status: 'running', error: undefined })
+      const apiKey = !resuming ? configured.apiKey : undefined
+      const headers: Record<string, string> = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
       if (job.kind === 'stt') {
         if (!options.audioDirectory || !/^[a-f0-9]{64}$/.test(job.audioId ?? '')) throw new Error('录音不存在')
         const bytes = readFileSync(join(options.audioDirectory, `${job.audioId}.wav`))
@@ -79,7 +90,7 @@ export function mediaJobs(options: { directory: string; identity?: string; audio
             contentHeaders = { 'Content-Type': 'application/json' }
             if (api === 'gemini') {
               endpoint = geminiImageEndpoint(current.endpoint, current.model)
-              if (current.apiKey) contentHeaders['x-goog-api-key'] = current.apiKey
+              if (apiKey) contentHeaders['x-goog-api-key'] = apiKey
               if (new URL(endpoint).hostname === 'generativelanguage.googleapis.com') delete headers.Authorization
               const parts = [{ text: job.prompt }, ...references.map(uri => { const [meta, data] = uri.split(','); return { inlineData: { mimeType: meta.slice(5).split(';')[0], data } } })]
               body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: job.ratio } } })
@@ -153,6 +164,10 @@ export function mediaJobs(options: { directory: string; identity?: string; audio
   }, 500)
   return {
     list: () => db.read().jobs.slice(-100).map(publicJob),
+    latestAutonomousImageWasRejected() {
+      const last = db.read().jobs.reverse().find(job => job.kind === 'image' && ['chat', 'feed'].includes(job.purpose))
+      return !!last && last.status === 'failed' && !last.submission && !hasRemoteResult(last) && !last.imageId
+    },
     skipped(input: { id: string; purpose: MediaJob['purpose']; entryId: number }, reason: string) { record({ ...input, kind: 'image', requestIds: ids(input.entryId) }, 'skipped', 'prepare', new MediaError(reason)) },
     create(input: Partial<MediaJob> & { id: string; kind: 'image' | 'stt'; purpose: MediaJob['purpose']; entryId?: number }) {
       const requestIds = ids(input.entryId)
@@ -175,7 +190,7 @@ export function mediaJobs(options: { directory: string; identity?: string; audio
       const job = db.read().jobs.find(j => j.id === id)
       if (!job) throw new Error('任务不存在')
       if (job.delivered || active.has(id) || ['queued', 'running', 'submitted'].includes(job.status)) return
-      if (job.status === 'unknown') throw new Error('提交结果未知，不能安全重复生成；请先在服务端确认')
+      if (job.status === 'unknown' || uncertainSubmission(job)) throw new Error('提交结果未知，不能安全重复生成；请先在服务端确认')
       const { apiKey, ...route } = job.kind === 'image' ? options.config().image : options.config().stt
       const updated = update(id, { status: job.status === 'ready' ? 'ready' : 'queued', error: undefined, ...(!job.submission && !job.providerTaskId && !job.imageUrl ? { route } : {}) })
       record(updated, 'queued')

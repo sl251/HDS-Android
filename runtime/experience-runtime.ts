@@ -7,7 +7,7 @@ import type { MessageDiagnostics } from './message-diagnostics'
 import type { ExperienceSettings, MediaJob, StreamReply } from '../packages/contracts/experience'
 
 type Turn = { id: string; sourceIds: string[]; content?: string; status: 'generating' | 'streaming' | 'completed' | 'failed' | 'superseded'; occurredAt: string; delivered?: boolean }
-export function experienceRuntime(options: { directory: string; identity?: string; settings?: Partial<ExperienceSettings>; audioDirectory?: string; diagnostics?: MessageDiagnostics; getImage: (id: string) => string; saveImage: (bytes: Buffer) => { id: string }; deliver: (job: MediaJob) => Promise<void>; wake: () => Promise<boolean> }) {
+export function experienceRuntime(options: { directory: string; identity?: string; settings?: Partial<ExperienceSettings>; audioDirectory?: string; diagnostics?: MessageDiagnostics; getImage: (id: string) => string; saveImage: (bytes: Buffer) => { id: string }; deliver: (job: MediaJob) => Promise<void>; wake: () => Promise<boolean>; fetch?: typeof fetch }) {
   let config = normalizeExperience(options.settings)
   const feed = feedStore(options.directory)
   const turns = atomicState<{ rows: Turn[] }>(join(options.directory, 'mobile-turns.json'), () => ({ rows: [] }))
@@ -62,7 +62,7 @@ export function experienceRuntime(options: { directory: string; identity?: strin
             const purpose = action.purpose === 'feed' && config.feedEnabled ? 'feed' : 'chat'
             const reason = !config.image.enabled || !config.visual.autonomous ? 'media_disabled'
               : !(Number(action.willingness) >= .7 && Number(action.willingness) <= 1) ? 'image_willingness'
-              : Date.now() - actions.read().lastImageAt < config.visual.cooldownMinutes * 60000 ? 'image_cooldown' : undefined
+              : Date.now() - actions.read().lastImageAt < config.visual.cooldownMinutes * 60000 && !jobs.latestAutonomousImageWasRejected() ? 'image_cooldown' : undefined
             if (reason) { jobs.skipped({ id, purpose, entryId }, reason); continue }
             jobs.create({ id, kind: 'image', purpose, prompt: action.scene, caption: action.content, entryId })
             actions.change(s => { s.lastImageAt = Date.now() })
