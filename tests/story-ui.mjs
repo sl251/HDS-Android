@@ -796,6 +796,7 @@ try {
   await page.evaluate(() => { window.__storyFixture.failSend = false })
   await page.getByRole('button', { name: '未送达·点击重试', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('.sticker-message'))
+  await page.waitForFunction(() => window.__storyFixture.sent?.requestId === window.__storyFixture.attempts[1]?.requestId && window.__storyFixture.sent !== undefined)
   assert.equal(await page.evaluate(() => window.__storyFixture.attempts.length), 2)
   assert.equal(await page.evaluate(() => window.__storyFixture.attempts[0].requestId === window.__storyFixture.attempts[1].requestId), true)
   assert.equal(await page.locator('.sticker-message .bubble').count(), 0)
