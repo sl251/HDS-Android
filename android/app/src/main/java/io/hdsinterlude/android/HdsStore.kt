@@ -100,6 +100,11 @@ class HdsStore(private val context: Context) {
             val model = draft.optString("model").trim()
             require(model.length <= 256 && (!draft.optBoolean("enabled") || endpoint.isNotBlank() && (provider == "imagefree" || model.isNotBlank()))) { "请填写媒体模型和地址" }
             val row = JSONObject().put("enabled", draft.optBoolean("enabled")).put("provider", provider).put("endpoint", endpoint).put("model", model).put("referenceImages", draft.optBoolean("referenceImages"))
+            if (kind == "image") {
+                val imageApi = draft.optString("imageApi", "auto")
+                require(imageApi in listOf("auto", "images", "chat", "gemini")) { "生图接口格式无效" }
+                row.put("imageApi", imageApi)
+            }
             val previous = old.optJSONObject(kind)
             val plain = draft.optString("apiKey").trim()
             if (plain.isNotEmpty()) encrypt(plain, row)

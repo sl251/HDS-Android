@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, renameSync, statSync } from 'node:fs'
 import type { DiagnosticEvent } from '../packages/contracts/diagnostics'
 
-type Detail = Partial<Pick<DiagnosticEvent, 'messageId' | 'reason' | 'elapsedMs' | 'attempt' | 'count' | 'willingness' | 'mode' | 'entryId' | 'providerSlot' | 'httpStatus' | 'vectorDimensions' | 'resultCount'>>
+type Detail = Partial<Omit<DiagnosticEvent, 'id' | 'at' | 'requestIds' | 'stage' | 'outcome'>>
 const context = new AsyncLocalStorage<{ store: MessageDiagnostics; ids: string[]; epoch: number; active: boolean }>()
 const safeId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(value)
 const code = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9_:-]{1,80}$/.test(value)
+const mediaId = (value: unknown): value is string => typeof value === 'string' && /^[\w:-]{8,160}$/.test(value)
 
 /** Classify in memory; never persist provider response bodies, URLs or error messages. */
 export function diagnosticError(error: unknown): string {
@@ -49,7 +50,7 @@ export class MessageDiagnostics {
     const pending = new Map<string, DiagnosticEvent>()
     for (const event of this.events) {
       if (event.stage === 'submission' && event.reason === 'duplicate') continue
-      if (event.stage === 'commit' || event.stage === 'voice' || (event.stage === 'model' && event.outcome === 'succeeded')) continue
+      if (event.stage === 'commit' || event.stage === 'voice' || event.stage === 'image' || (event.stage === 'model' && event.outcome === 'succeeded')) continue
       for (const id of event.requestIds) pending.set(id, event)
     }
     for (const [id, event] of pending) if (['queued', 'accepted', 'started', 'retry', 'requeued', 'delayed', 'immediate'].includes(event.outcome)) this.record([id], 'lifecycle', 'interrupted', { reason: 'restart' })
@@ -60,6 +61,11 @@ export class MessageDiagnostics {
     if (safeId(value.messageId)) result.messageId = value.messageId
     if (code(value.reason)) result.reason = value.reason
     if (code(value.mode)) result.mode = value.mode
+    if (mediaId(value.mediaJobId)) result.mediaJobId = value.mediaJobId
+    if (['compatible', 'imagefree'].includes(value.mediaProvider ?? '')) result.mediaProvider = value.mediaProvider
+    if (['images', 'chat', 'gemini', 'imagefree'].includes(value.mediaApi ?? '')) result.mediaApi = value.mediaApi
+    if (['prepare', 'submit', 'poll', 'download', 'save', 'deliver'].includes(value.mediaPhase ?? '')) result.mediaPhase = value.mediaPhase
+    if (['chat', 'feed', 'avatar', 'preview'].includes(value.mediaPurpose ?? '')) result.mediaPurpose = value.mediaPurpose
     for (const key of ['elapsedMs', 'attempt', 'count', 'willingness', 'entryId', 'providerSlot', 'httpStatus', 'vectorDimensions', 'resultCount'] as const) {
       const number = value[key]
       if (typeof number === 'number' && Number.isFinite(number) && number >= 0 && number <= 1e12) result[key] = number
@@ -103,9 +109,9 @@ export class MessageDiagnostics {
     const before = this.events.length
     this.trim()
     if (before !== this.events.length) this.save()
-    const ids = new Set(this.events.filter(row => row.messageId === messageId).flatMap(row => row.requestIds))
+    const ids = new Set(this.events.filter(row => row.messageId === messageId || row.mediaJobId === messageId).flatMap(row => row.requestIds))
     if (messageId) ids.add(messageId)
-    return { events: this.events.filter(row => !messageId || row.messageId === messageId || row.requestIds.some(id => ids.has(id))), storageAvailable: this.storageAvailable }
+    return { events: this.events.filter(row => !messageId || row.messageId === messageId || row.mediaJobId === messageId || row.requestIds.some(id => ids.has(id))), storageAvailable: this.storageAvailable }
   }
   requestIdsForEntries(entries: number[]) {
     this.trim()
@@ -134,6 +140,10 @@ export function diagnosticEvent(stage: string, outcome: string, detail: Detail =
 export function hasMessageDiagnostics() {
   const scope = context.getStore()
   return !!(scope?.active && scope.ids.length && scope.epoch === scope.store.epoch)
+}
+export function currentDiagnosticIds(store?: MessageDiagnostics) {
+  const scope = context.getStore()
+  return scope?.active && scope.store === store && scope.epoch === store?.epoch ? [...scope.ids] : []
 }
 export function withDeliveryDiagnostics<T>(store: MessageDiagnostics | undefined, entries: number[], task: () => T): T {
   if (hasMessageDiagnostics()) return task()

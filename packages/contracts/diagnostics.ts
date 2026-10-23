@@ -2,11 +2,12 @@ export type DiagnosticEvent = {
   id: string; at: number; requestIds: string[]; stage: string; outcome: string;
   messageId?: string; reason?: string; elapsedMs?: number; attempt?: number;
   count?: number; willingness?: number; mode?: string; entryId?: number; providerSlot?: number; httpStatus?: number; vectorDimensions?: number; resultCount?: number;
+  mediaJobId?: string; mediaProvider?: string; mediaApi?: string; mediaPhase?: string; mediaPurpose?: string;
 }
 export const diagnosticLabels: Record<string, string> = {
   embedding: '向量检索', rerank: '重排序', fallback: '已回退本地排序',
   submission: '消息提交', processing: '回合处理', model: '模型调用', decision: '角色决策',
-  sticker: '表情选择', voice: '语音处理', delivery: '最终投递', lifecycle: '运行状态', commit: '故事记录',
+  sticker: '表情选择', voice: '语音处理', image: '图片生成', delivery: '最终投递', lifecycle: '运行状态', commit: '故事记录',
   queued: '等待处理', accepted: '核心已接收', started: '开始', succeeded: '成功',
   failed: '失败', unknown: '结果未确认', skipped: '跳过', delivered: '已投递',
   selected: '已选择', sticker_reply: '以表情回复', none: '本轮不回复', delayed: '计划稍后回复', immediate: '立即回复',
@@ -38,4 +39,15 @@ export const diagnosticReasons: Record<string, string> = {
   no_bridge: '本地语音服务未配置。', no_text: '本条没有可朗读文字。',
   invalid_bridge: '本地语音服务地址无效。',
   duplicate: '相同请求已接收，未重复提交模型。',
+  image_verification: '免费渠道要求站点验证，应用内暂不支持完成验证，请更换生图渠道。',
+  image_busy: '免费渠道报告已有任务正在生成，请等待原任务结束。',
+  image_blocked: '服务拒绝本次图片内容，请调整画面描述。',
+  image_response: '服务返回的生图响应格式无法识别。', image_empty: '服务返回成功，但没有可用图片，可能只返回了文字。',
+  image_async: '服务返回异步任务，当前不支持该渠道的任务查询协议。',
+  image_download: '图片下载地址不可用。', image_save: '图片保存失败，请检查图片格式、大小和本机存储。',
+  image_delivery: '图片已生成，但投递失败，可重试投递。', media_size: '媒体响应超过大小限制。',
+  media_disabled: '对应媒体服务未开启。', media_configuration: '任务原服务配置已改变，请恢复原配置后重试。',
+  media_pending: '已有同类媒体任务正在处理。', media_input: '媒体任务参数无效，请检查画面描述或录音。',
+  media_route: '媒体接口不存在或不支持此方法，请检查服务地址和生图接口格式。',
+  image_cooldown: '自主生图仍在冷却间隔内，本次未提交。', image_willingness: '角色本次生图意愿未达到阈值，未提交任务。',
 }

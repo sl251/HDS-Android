@@ -17,7 +17,11 @@ export const diagnosticHelp = {
   unknown_error: { label: '原因未确认', advice: '查看下方明细，可将原因码复制反馈。' },
 } satisfies Record<string, { label: string; advice: string }>
 export const genericDiagnosticAdvice = '查看下方明细，可将原因码复制反馈。'
-export function diagnosticAdvice(reason?: string) {
+export function diagnosticAdvice(reason?: string, stage?: string) {
+  if (stage === 'image') {
+    if (reason === 'timeout' || reason === 'network') return '先在生图服务端确认任务是否完成；提交结果未知时不要重复生成，避免重复计费。'
+    return `${diagnosticReasons[reason ?? ''] ?? '查看下方生图明细。'} 在空间→语音识别与生图中检查渠道、密钥、模型和接口格式。`
+  }
   return diagnosticHelp[reason as keyof typeof diagnosticHelp]?.advice ?? genericDiagnosticAdvice
 }
 export function diagnosticReasonLabel(reason?: string, stage?: string) {
@@ -61,7 +65,13 @@ function pipeline(events: DiagnosticMessageEvent[]) {
   })
   const last = (stage: string) => lastEvents.get(stage)
   const decision = last('decision'), delivery = last('delivery')
-  const steps: DiagnosticStep[] = diagnosticSteps.map(step => {
+  // Image jobs run independently of the text reply and may finish after its delivery.
+  const imageJobs = new Map<string, DiagnosticMessageEvent>()
+  for (const event of events) if (event.stage === 'image') imageJobs.set(event.mediaJobId ?? event.id, event)
+  const imageFailure = [...imageJobs.values()].find(failed)
+  if (imageFailure) lastEvents.set('image', imageFailure)
+  const stages = events.every(event => event.stage === 'image') ? [{ stage: 'image', name: '生图' }] : events.some(event => event.stage === 'image') ? [...diagnosticSteps.slice(0, 5), { stage: 'image', name: '生图' }, diagnosticSteps[5]] : diagnosticSteps
+  const steps: DiagnosticStep[] = stages.map(step => {
     const event = last(step.stage)
     if (!event) {
       if ((step.stage === 'voice' && delivery) || (['voice', 'delivery'].includes(step.stage) && decision?.outcome === 'none')) return { ...step, state: 'skipped', label: '本轮跳过' }
@@ -77,7 +87,8 @@ function pipeline(events: DiagnosticMessageEvent[]) {
   const failures = steps.flatMap(step => step.state === 'failed' ? [last(step.stage)!] : [])
   const failure = modelFailure ?? failures.find(event => event.reason) ?? failures[0]
   let currentStep = failure ? Math.max(0, steps.findIndex(step => step.stage === failure.stage || (failure.stage === 'lifecycle' && step.stage === 'processing'))) : steps.reduce((index, step, current) => step.state !== 'missing' && step.state !== 'skipped' ? current : index, -1)
-  if (!failure && !delivery && decision?.outcome === 'delayed') currentStep = 5
+  if (!failure && !delivery && decision?.outcome === 'delayed') currentStep = steps.findIndex(step => step.stage === 'delivery')
+  if (!failure && last('image') && (!delivery || last('image')!.at > delivery.at)) currentStep = steps.findIndex(step => step.stage === 'image')
   return { steps, currentStep: Math.max(0, currentStep), failure, modelFailure, recovered: !modelFailure && events.some(event => event.stage === 'model' && failed(event)) && last('model')?.outcome === 'succeeded' }
 }
 
@@ -91,15 +102,16 @@ export function aggregateDiagnosticMessages(input: DiagnosticMessageEvent[], mes
   }
   const groups = new Map<string, DiagnosticMessageEvent[]>()
   for (const event of events) {
-    const ids = event.requestIds.length ? event.requestIds : event.messageId ? [...(replyRequests.get(event.messageId) ?? [event.messageId])] : [`event:${event.id}`]
+    const ids = event.requestIds.length ? event.requestIds : event.mediaJobId ? [event.mediaJobId] : event.messageId ? [...(replyRequests.get(event.messageId) ?? [event.messageId])] : [`event:${event.id}`]
     for (const id of new Set(ids)) { const group = groups.get(id) ?? []; group.push(event); groups.set(id, group) }
   }
   const history = new Map(messages.map(message => [message.id, message]))
   return [...groups].map(([id, rows]) => {
-    const aliases = [...new Set([id, ...rows.flatMap(event => event.messageId ? [event.messageId] : [])])]
+    const aliases = [...new Set([id, ...rows.flatMap(event => [event.messageId, event.mediaJobId].filter((id): id is string => !!id))])]
     const message = history.get(id) ?? aliases.map(alias => history.get(alias)).find(Boolean)
     const text = message?.content.trim()
-    const preview = text ? [...text].slice(0, 40).join('') + ([...text].length > 40 ? '…' : '') : message ? '图片或语音消息' : id.startsWith('event:') ? '未关联消息的记录' : `消息 #${id.slice(0, 8)}（正文不在当前聊天记录中）`
+    const purpose = rows.find(event => event.mediaPurpose)?.mediaPurpose
+    const preview = text ? [...text].slice(0, 40).join('') + ([...text].length > 40 ? '…' : '') : message ? '图片或语音消息' : rows.some(event => event.mediaJobId === id) ? `${({ chat: '聊天配图', feed: '动态配图', avatar: '头像生成', preview: '图片预览' } as Record<string, string>)[purpose ?? ''] ?? '生图任务'} #${id.slice(-12)}` : id.startsWith('event:') ? '未关联消息的记录' : `消息 #${id.slice(0, 8)}（正文不在当前聊天记录中）`
     return { id, aliases, events: rows, preview, at: rows[0].at, updatedAt: rows.at(-1)!.at, ...pipeline(rows) }
   }).sort((a, b) => b.updatedAt - a.updatedAt)
 }

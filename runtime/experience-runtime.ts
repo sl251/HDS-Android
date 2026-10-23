@@ -3,10 +3,11 @@ import { atomicState } from './atomic-state'
 import { feedStore } from './feed'
 import { mediaJobs } from './media-jobs'
 import { normalizeExperience } from './experience-config'
+import type { MessageDiagnostics } from './message-diagnostics'
 import type { ExperienceSettings, MediaJob, StreamReply } from '../packages/contracts/experience'
 
 type Turn = { id: string; sourceIds: string[]; content?: string; status: 'generating' | 'streaming' | 'completed' | 'failed' | 'superseded'; occurredAt: string; delivered?: boolean }
-export function experienceRuntime(options: { directory: string; identity?: string; settings?: Partial<ExperienceSettings>; audioDirectory?: string; getImage: (id: string) => string; saveImage: (bytes: Buffer) => { id: string }; deliver: (job: MediaJob) => Promise<void>; wake: () => Promise<boolean> }) {
+export function experienceRuntime(options: { directory: string; identity?: string; settings?: Partial<ExperienceSettings>; audioDirectory?: string; diagnostics?: MessageDiagnostics; getImage: (id: string) => string; saveImage: (bytes: Buffer) => { id: string }; deliver: (job: MediaJob) => Promise<void>; wake: () => Promise<boolean> }) {
   let config = normalizeExperience(options.settings)
   const feed = feedStore(options.directory)
   const turns = atomicState<{ rows: Turn[] }>(join(options.directory, 'mobile-turns.json'), () => ({ rows: [] }))
@@ -57,8 +58,13 @@ export function experienceRuntime(options: { directory: string; identity?: strin
         if (!action || typeof action !== 'object') continue
         const id = `role-action-${entryId}-${index}`
         try {
-          if (action.kind === 'image' && config.image.enabled && config.visual.autonomous && Number(action.willingness) >= .7 && Number(action.willingness) <= 1 && Date.now() - actions.read().lastImageAt >= config.visual.cooldownMinutes * 60000) {
-            jobs.create({ id, kind: 'image', purpose: action.purpose === 'feed' && config.feedEnabled ? 'feed' : 'chat', prompt: action.scene, caption: action.content })
+          if (action.kind === 'image') {
+            const purpose = action.purpose === 'feed' && config.feedEnabled ? 'feed' : 'chat'
+            const reason = !config.image.enabled || !config.visual.autonomous ? 'media_disabled'
+              : !(Number(action.willingness) >= .7 && Number(action.willingness) <= 1) ? 'image_willingness'
+              : Date.now() - actions.read().lastImageAt < config.visual.cooldownMinutes * 60000 ? 'image_cooldown' : undefined
+            if (reason) { jobs.skipped({ id, purpose, entryId }, reason); continue }
+            jobs.create({ id, kind: 'image', purpose, prompt: action.scene, caption: action.content, entryId })
             actions.change(s => { s.lastImageAt = Date.now() })
           } else if (config.feedEnabled && ['post', 'comment', 'like'].includes(action.kind)) feed.mutate('character', action.kind, action, id)
         } catch { /* An invalid optional action must not veto the authored reply. */ }

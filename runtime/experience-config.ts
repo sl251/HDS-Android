@@ -9,7 +9,9 @@ export function normalizeExperience(value: Partial<ExperienceSettings> = {}): Ex
     const model = String(input.model ?? '').trim()
     if (endpoint.length > 2048 || model.length > 256 || String(input.apiKey ?? '').length > 8192) throw new Error('媒体服务配置过长')
     if (input.enabled && (!endpoint || provider === 'compatible' && !model)) throw new Error('请填写媒体服务地址和模型')
-    return { enabled: input.enabled === true, provider, endpoint, model, apiKey: input.apiKey ?? '', referenceImages: provider === 'compatible' && input.referenceImages === true }
+    const imageApi = input.imageApi ?? 'auto'
+    if (!['auto', 'images', 'chat', 'gemini'].includes(imageApi)) throw new Error('生图接口格式无效')
+    return { enabled: input.enabled === true, provider, endpoint, model, apiKey: input.apiKey?.trim() ?? '', referenceImages: provider === 'compatible' && input.referenceImages === true, ...(image ? { imageApi } : {}) }
   }
   const visual = { ...defaults.visual, ...value.visual }
   for (const field of ['appearance', 'style', 'outfit', 'constraints'] as const) {
@@ -21,5 +23,5 @@ export function normalizeExperience(value: Partial<ExperienceSettings> = {}): Ex
 }
 export function imagePrompt(config: ExperienceSettings, scene: string) {
   const v = config.visual
-  return [`角色固定外观（保持身份与面部特征一致，优先于场景中的冲突描述）：${v.appearance || '以场景描述为准'}`, v.outfit && `常用衣装（场景明确指定时可换装）：${v.outfit}`, `本次场景：${scene}`, `画风：${v.style}`, v.constraints && `画面约束：${v.constraints}`].filter(Boolean).join('\n')
+  return ['请根据以下设定生成一张图片。', `角色固定外观（保持身份与面部特征一致，优先于场景中的冲突描述）：${v.appearance || '以场景描述为准'}`, v.outfit && `常用衣装（场景明确指定时可换装）：${v.outfit}`, `本次场景：${scene}`, `画风：${v.style}`, v.constraints && `画面约束：${v.constraints}`].filter(Boolean).join('\n')
 }

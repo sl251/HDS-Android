@@ -98,6 +98,20 @@ try {
   assert.equal(await page.getByRole('checkbox', { name: /流式输出/ }).count(), 0)
   await page.getByRole('button', { name: '前往聊天与输入 →', exact: true }).click()
   assert.equal(await page.getByRole('checkbox', { name: /流式输出/ }).count(), 1)
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^语音识别与生图/ }).click()
+  await page.getByLabel(/^渠道/).selectOption('compatible')
+  await page.getByLabel('服务地址', { exact: true }).last().fill('https://provider.test/v1')
+  await page.getByLabel('模型', { exact: true }).last().fill('gemini-3.1-flash-image')
+  for (const api of ['images', 'chat', 'gemini', 'auto']) {
+    await page.getByLabel(/^生图接口格式/).selectOption(api)
+    await page.getByRole('button', { name: '保存设置', exact: true }).click()
+    await page.waitForFunction(api => fixture.experience.image.imageApi === api, api)
+  }
+  await page.getByLabel('发送角色参考图（服务需支持）', { exact: true }).check()
+  await page.getByRole('button', { name: '保存设置', exact: true }).click()
+  await page.waitForFunction(() => fixture.experience.image.referenceImages === true)
+  await page.screenshot({ path: 'artifacts/experience-ui/image-protocol-settings.png', fullPage: true })
   assert.deepEqual(f.errors, [])
   console.log('Experience UI: retry, Enter, visual profile, autonomous generation, feed, camera, navigation and responsive layout passed')
 } catch (error) { console.error(f.errors); await page.screenshot({ path: 'artifacts/experience-ui/failure.png', fullPage: true }); console.error(await page.locator('main').innerText()); throw error } finally { await f.close() }

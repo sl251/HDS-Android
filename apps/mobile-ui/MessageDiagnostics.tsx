@@ -64,10 +64,10 @@ export function MessageDiagnostics({ bridge, healthy, messageId, messages = [], 
   }}>
     <div className="section-title"><h2>消息诊断</h2><button ref={closeButton} onClick={close} aria-label="关闭消息诊断">×</button></div>
     <p className="caption">诊断记录保留 7 天，最多 2000 个事件、1 MiB，仅保存在本机。消息预览取自当前聊天，不写入诊断文件；诊断不保存正文、人设、密钥或音频，也不额外调用模型。</p>
-    <p className="caption">从左到右看六步，红色表示失败，可先看“怎么办”。不回复、稍后回复和跳过语音都可能是正常结果；未记录的步骤不代表成功。合并处理的消息会共享实际事件。</p>
+    <p className="caption">红色表示失败，可先看“怎么办”。生图会单独记录请求、查询、下载、保存和投递的失败原因；头像与动态生图也会显示。不回复、稍后回复和跳过媒体都可能是正常结果；未记录的步骤不代表成功。</p>
     {!healthy && <p role="status">先唤醒当前故事，再查看诊断。</p>}
     <div className="diagnostic-filters" role="group" aria-label="诊断筛选">{([['all', '全部'], ['failed', '失败'], ['latest', '最新']] as const).map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => setView(key)}>{label}</button>)}</div>
-    <label>查看范围<select value={scope} onChange={event => setScope(event.target.value)}><option value="">全部记录</option>{ids.map(id => <option value={id} key={id}>消息 {id.slice(0, 8)}</option>)}</select></label>
+    <label>查看范围<select value={scope} onChange={event => setScope(event.target.value)}><option value="">全部记录</option>{ids.map(id => <option value={id} key={id}>{events.some(event => event.mediaJobId === id) ? `生图 ${id.slice(-12)}` : `消息 ${id.slice(0, 8)}`}</option>)}</select></label>
     <div className="actions"><button disabled={!healthy || busy || !events.length} onClick={() => void exportEvents()}>导出脱敏记录</button><button disabled={!healthy || busy} onClick={() => setConfirmClear(true)}>清空本故事记录</button></div>
     {confirmClear && <div role="alert"><p>清空诊断不会删除聊天。后续新回合仍会产生诊断记录。</p><button disabled={busy} onClick={() => { setBusy(true); void bridge.rpc({ method: 'diagnostics.clear' }).then(() => { setEvents([]); setRevision(value => value + 1); setConfirmClear(false) }).catch(() => setError('清空失败，请重试。')).finally(() => setBusy(false)) }}>确认清空</button><button disabled={busy} onClick={() => setConfirmClear(false)}>取消</button></div>}
     {error && <p role="alert">{error}</p>}

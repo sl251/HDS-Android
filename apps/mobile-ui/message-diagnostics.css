@@ -15,6 +15,7 @@
 .diagnostic-message-card .diagnostic-advice { margin:0 0 14px; padding:12px; border-left:3px solid #e5484d; border-radius:8px; background:var(--accent-soft); }
 .message-diagnostics .diagnostic-pipeline { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 .diagnostic-pipeline li { min-width:0; padding:8px; border:1px solid var(--line); border-radius:12px; font-size:12px; line-height:1.65; }
+.diagnostic-pipeline li:only-child { grid-column:1 / -1; }
 .diagnostic-pipeline small { display:block; color:var(--muted); }
 .diagnostic-pipeline [aria-current=step] { border-color:var(--accent); background:var(--accent-soft); box-shadow:inset 0 0 0 1px var(--accent); }
 .diagnostic-pipeline [data-state=failed] { border-color:#e5484d; color:#e5484d; }

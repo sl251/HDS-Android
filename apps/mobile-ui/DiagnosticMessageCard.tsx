@@ -13,6 +13,10 @@ export function EventDetail({ event }: { event: DiagnosticMessageEvent }) {
     {event.attempt !== undefined && <small className={event.attempt >= 2 ? 'diagnostic-attempt' : undefined}>第 {event.attempt} 次尝试</small>}
     {event.willingness !== undefined && <small>本轮语音意愿：{event.willingness}</small>}
     {event.httpStatus !== undefined && <small>HTTP {event.httpStatus}</small>}
+    {event.mediaJobId && <small>生图任务：<code>{event.mediaJobId}</code></small>}
+    {event.mediaProvider && <small>生图渠道：{event.mediaProvider === 'imagefree' ? 'Imagefree · 免费渠道' : '自定义兼容渠道'}</small>}
+    {event.mediaApi && <small>接口格式：{({ imagefree: 'Imagefree', images: 'OpenAI Images', chat: 'Chat Completions', gemini: 'Gemini 原生' } as Record<string, string>)[event.mediaApi] ?? event.mediaApi}</small>}
+    {event.mediaPhase && <small>生图阶段：{({ prepare: '准备任务', submit: '提交请求', poll: '查询结果', download: '下载图片', save: '保存图片', deliver: '投递图片' } as Record<string, string>)[event.mediaPhase] ?? event.mediaPhase}</small>}
     {event.vectorDimensions !== undefined && <small>向量维度：{event.vectorDimensions}</small>}
     {event.resultCount !== undefined && <small>精排结果：{event.resultCount}</small>}
     {event.count !== undefined && <small>数量：{event.count}</small>}
@@ -29,12 +33,12 @@ export function DiagnosticMessageCard({ message, focused = false }: { message: D
   const current = message.steps[message.currentStep]
   const detailsId = `diagnostic-details-${encodeURIComponent(message.id)}`
   return <li className="diagnostic-message-card" data-diagnostic-message={message.id} data-focused={focused || undefined} data-failed={!!message.failure} tabIndex={-1} aria-label={`消息诊断：${message.preview}`}>
-    {message.failure && <p className="diagnostic-advice"><b>怎么办：</b>{diagnosticAdvice(message.failure.reason)}</p>}
+    {message.failure && <p className="diagnostic-advice"><b>怎么办：</b>{diagnosticAdvice(message.failure.reason, message.failure.stage)}</p>}
     <div className="diagnostic-card-heading"><b>{message.preview}</b><time dateTime={new Date(message.at).toISOString()}>{diagnosticTime(message.at)}</time></div>
     <p className="diagnostic-summary">{message.failure ? `本轮${current.name}失败 · ${diagnosticReasonLabel(message.failure.reason, message.failure.stage)}` : message.recovered ? '模型重试后已恢复，尝试记录可在下方查看。' : current.label === '未记录' ? '记录不完整，最终结果未确认。' : `${current.name} · ${current.label}`}</p>
     {message.events.some(event => ['embedding', 'rerank'].includes(event.stage)) && <p className="caption">检索增强：{message.events.some(event => event.outcome === 'fallback') ? '检索失败，已回退本地排序；聊天投递状态见下方。' : '检索已完成'}</p>}
     <ol className="diagnostic-pipeline" aria-label="消息处理步骤">{message.steps.map((step, index) => <li key={step.stage} data-stage={step.stage} data-state={step.state} aria-current={index === message.currentStep ? 'step' : undefined} aria-label={`第${index + 1}步：${step.name}，${step.label}`}>
-      <span>{index + 1}. {step.name}{index < 5 && <span className="diagnostic-arrow" aria-hidden="true"> →</span>}</span><small>{step.state === 'failed' ? '失败 · ' : ''}{step.label}</small>
+      <span>{index + 1}. {step.name}{index < message.steps.length - 1 && <span className="diagnostic-arrow" aria-hidden="true"> →</span>}</span><small>{step.state === 'failed' ? '失败 · ' : ''}{step.label}</small>
     </li>)}</ol>
     <button type="button" className="diagnostic-expand" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(value => !value)}>{expanded ? '收起明细' : '展开明细'}（{message.events.length} 个事件）</button>
     {expanded && <div id={detailsId}>

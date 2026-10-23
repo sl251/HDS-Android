@@ -149,7 +149,7 @@ export async function startHost(input: HostConfig) {
   const activeVision = visionProjection(input)
   const media = imageStore(input.dataDir)
   const experience = experienceRuntime({ directory: input.dataDir, identity: `${input.card.name}: ${input.card.description}`.slice(0, 1800), settings: input.experience, audioDirectory: input.voiceBridge?.directory,
-    getImage: media.get, saveImage: media.registerSticker,
+    getImage: media.get, saveImage: media.registerSticker, diagnostics,
     wake: async () => app.interlude.mobileObserveFeed(current),
     deliver: async job => {
       if (job.kind !== 'image' || job.purpose !== 'chat') return
