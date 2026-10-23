@@ -6,6 +6,11 @@
 .composer-wrap .composer .attach-button { order: 1; }
 .composer-wrap .composer .sticker-entry { order: 3; }
 .composer-wrap .composer .send { order: 4; flex-shrink: 0; }
+@media (max-width: 360px) {
+  .composer-wrap { margin-inline: -16px; }
+  .composer-wrap form.composer { gap: 2px; padding: 6px; }
+  .composer-wrap .composer .send { width: 44px; }
+}
 .app.keyboard-open > nav { display: none; }
 .app.keyboard-open .composer-wrap { bottom: 8px; }
 .experience-settings fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
