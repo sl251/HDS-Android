@@ -100,4 +100,4 @@ try {
   assert.equal(await page.getByRole('checkbox', { name: /流式输出/ }).count(), 1)
   assert.deepEqual(f.errors, [])
   console.log('Experience UI: retry, Enter, visual profile, autonomous generation, feed, camera, navigation and responsive layout passed')
-} finally { await f.close() }
+} catch (error) { console.error(f.errors); await page.screenshot({ path: 'artifacts/experience-ui/failure.png', fullPage: true }); console.error(await page.locator('main').innerText()); throw error } finally { await f.close() }
