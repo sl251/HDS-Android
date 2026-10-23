@@ -42,9 +42,11 @@ try {
     window.androidBridge = {}
     window.Capacitor = {
       convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch','saveMessageDiagnostics','voiceState','previewVoice','voiceAudio','pickVoiceAudio','cancelVoiceRecording'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch','saveMessageDiagnostics','voiceState','previewVoice','voiceAudio','pickVoiceAudio','cancelVoiceRecording','experienceSettings','characterAvatar'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
+        if (method === 'experienceSettings') return { enterBehavior: 'send' }
+        if (method === 'characterAvatar') return { cardId: f.prefs.activeCard }
         if (method === 'voiceState') return { voices: Array.from({ length: 20 }, (_, i) => ({ id: `voice-${i}`, name: `音色 ${i + 1}`, type: 'builtin', value: '茉莉' })), characters: {}, defaultVoiceId: 'voice-0', cooldown: 5, credentialPresent: false }
         if (method === 'previewVoice' || method === 'pickVoiceAudio') return { audioId: 'a'.repeat(64), duration: 2 }
         if (method === 'voiceAudio') return { dataUri: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAwF0AAIC7AAACABAAZGF0YQAAAAA=' }
@@ -137,7 +139,7 @@ try {
     return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
   })
   const guideTitles = ['欢迎来到 HDS', '先认识故事的主角', '连接会回话的模型', '唤醒后，说第一句话', '在见闻里读故事', '信箱里，留意新的来信', '消息出问题，先看这里']
-  const guidePages = ['chat', 'cards', 'settings', 'chat', 'story', 'inbox', 'settings']
+  const guidePages = ['chat', 'cards', 'settings', 'chat', 'story', 'settings', 'settings']
   for (let index = 1; index <= 7; index++) {
     await guideStep(index)
     await page.getByRole('dialog', { name: guideTitles[index - 1], exact: true }).waitFor()
@@ -200,9 +202,9 @@ try {
     await page.waitForTimeout(220)
     const indicator = await page.locator('nav').evaluate(element => {
       const active = element.querySelector('button.active').getBoundingClientRect(), bar = element.querySelector('.nav-indicator').getBoundingClientRect()
-      return { left: Math.abs(active.left - bar.left), width: Math.abs(active.width - bar.width), height: bar.height }
+      return { left: bar.left - active.left, right: active.right - bar.right, width: bar.width, height: bar.height }
     })
-    assert.ok(indicator.left < 1 && indicator.width < 1 && indicator.height >= 2 && indicator.height <= 3)
+    assert.ok(indicator.left >= 0 && indicator.right >= 0 && indicator.width > 0 && indicator.width <= 32 && indicator.height >= 2 && indicator.height <= 3)
   }
   await page.getByRole('button', { name: '故事', exact: true }).click(); await checkPage('chat', '故事')
   for (const [dx, dy, startX, mode] of [[-59, 0, 180], [-90, 60, 180], [-60, 90, 180], [100, 0, 2], [-100, 0, 350], [-100, 0, 180, 'multi'], [-100, 0, 180, 'cancel']]) {
@@ -212,25 +214,25 @@ try {
   await swipe('.composer-wrap', -100); await checkPage('chat', '故事')
   await swipe('textarea[aria-label="消息内容"]', -100); await checkPage('chat', '故事')
   await swipe('main', 100); await checkPage('chat', '故事')
-  for (const [key, label] of [['story', '见闻'], ['inbox', '信箱'], ['settings', '空间']]) {
+  for (const [key, label] of [['story', '见闻'], ['feed', '动态'], ['settings', '空间']]) {
     await swipe('main', -60, 20); await checkPage(key, label)
   }
   await swipe('main', -100); await checkPage('settings', '空间')
-  for (const [key, label] of [['inbox', '信箱'], ['story', '见闻'], ['chat', '故事']]) {
+  for (const [key, label] of [['feed', '动态'], ['story', '见闻'], ['chat', '故事']]) {
     await swipe('main', 100, 20); await checkPage(key, label)
   }
   await swipe('main', -100); await checkPage('story', '见闻')
-  await swipe('main', -100); await checkPage('inbox', '信箱')
-  assert.equal(await page.getByRole('button', { name: '返回空间', exact: true }).count(), 0, 'Swipe uses the Inbox tab source')
-  assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
-  await checkPage('story', '见闻')
+  await swipe('main', -100); await checkPage('feed', '动态')
+  assert.equal(await page.getByRole('button', { name: '返回空间', exact: true }).count(), 0, 'Feed is a primary tab')
+  assert.equal(await page.evaluate(() => window.hdsHandleBack()), false)
+  await page.getByRole('button', { name: '见闻', exact: true }).click(); await checkPage('story', '见闻')
   await page.getByRole('button', { name: '空间', exact: true }).click()
   await page.getByRole('button', { name: /^模型连接/ }).click()
-  await swipe('main', 100); await checkPage('inbox', '信箱')
+  await swipe('main', 100); await checkPage('feed', '动态')
   await swipe('main', -100); await checkPage('settings', '空间')
   await replayGuide.waitFor()
   assert.equal(await page.locator('.space-detail').count(), 0, 'Swipe into settings returns to its root')
-  await page.getByRole('button', { name: /^语音与音色/ }).click()
+  await page.getByRole('button', { name: /^角色语音与音色/ }).click()
   await page.getByRole('button', { name: /音色工作台/ }).click()
   const workbench = page.getByRole('dialog', { name: '音色工作台', exact: true })
   await workbench.waitFor()
@@ -279,7 +281,7 @@ try {
   if (!process.env.HDS_P1_ONLY) {
   if (!process.env.HDS_M3_ONLY) {
   await page.getByRole('button', { name: '点击唤醒', exact: true }).waitFor()
-  assert.deepEqual(await page.locator('nav button').allTextContents(), ['故事','见闻','信箱','空间'])
+  assert.deepEqual(await page.locator('nav button').allTextContents(), ['故事','见闻','动态','空间'])
   await page.screenshot({ path: 'artifacts/story-resting.png', fullPage: true })
   await page.getByRole('textbox', { name: '消息内容' }).fill('等你醒来')
   await page.getByRole('button', { name: '点击唤醒', exact: true }).click()
@@ -295,25 +297,26 @@ try {
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '消息内容')
   assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '等你醒来')
   await page.getByRole('button', { name: '空间', exact: true }).click()
-  assert.deepEqual(await page.locator('.settings-directory .settings-entry > span > small').allTextContents(), ['服务地址、密钥与模型名称', '对话、记忆、图片识别与检索', '角色库、你的身份与故事设定', '主动联系、情绪与后台运行', '角色语音、音色库与用量', '回复提醒与系统权限', '壁纸、字体与阅读样式'])
+  assert.deepEqual(await page.locator('.settings-directory .settings-entry > span > small').allTextContents(), ['回车发送、换行与消息合并', '独立服务、免费渠道与模型', '聊天与动态头像，上传或按人设生成', '固定外观、参考图与自主生图', '服务地址、密钥与模型名称', '对话、记忆、图片识别与检索', '角色库、你的身份与故事设定', '主动联系、情绪与后台运行', '角色说话的音色、合成与用量', '回复提醒与系统权限', '壁纸、字体与阅读样式'])
   assert.equal(await page.locator('.space-home details').count(), 0)
   await page.getByRole('button', { name: /^备份与维护/ }).scrollIntoViewIfNeeded()
   assert.ok(await page.getByRole('button', { name: /^备份与维护/ }).isVisible(), 'Last directory entry is reachable')
   await page.screenshot({ path: 'artifacts/preview9.1-m4/space-home.png', fullPage: true })
-  await page.locator('nav').getByRole('button', { name: '信箱', exact: true }).getByLabel('5 条未读', { exact: true }).waitFor()
+  await page.getByRole('button', { name: /信箱与外部连接.*5 条未读/ }).waitFor()
   await page.evaluate(() => { window.__storyFixture.conversations = [{ id: 'private:10001', name: '外部朋友', last: '新信', time: Date.now(), unread: 120 }] })
-  await page.locator('nav .nav-unread').getByText('99+', { exact: true }).waitFor()
-  await page.locator('nav').getByLabel('120 条未读', { exact: true }).waitFor()
+  await page.getByRole('button', { name: /信箱与外部连接.*120 条未读/ }).waitFor()
   await page.evaluate(() => { delete window.__storyFixture.conversations })
-  await page.locator('nav').getByLabel('5 条未读', { exact: true }).waitFor()
-  await page.getByRole('button', { name: '信箱', exact: true }).click()
+  await page.getByRole('button', { name: /信箱与外部连接.*5 条未读/ }).waitFor()
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^信箱与外部连接/ }).click()
   await page.locator('.inbox-page').waitFor()
-  assert.equal(await page.getByRole('button', { name: '返回空间', exact: true }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: '返回空间', exact: true }).count(), 1)
   assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
   await page.locator('.space-home').waitFor()
-  // A different preceding tab is also restored.
+  // Inbox always returns to its Space entry, preserving its nested back behavior.
   await page.getByRole('button', { name: '见闻', exact: true }).click()
-  await page.getByRole('button', { name: '信箱', exact: true }).click()
+  await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^信箱与外部连接/ }).click()
   await page.getByRole('button', { name: /外部朋友/ }).click()
   await page.getByRole('button', { name: '← 返回信件', exact: true }).waitFor()
   await page.getByRole('button', { name: /角色自动回复/ }).click()
@@ -325,10 +328,10 @@ try {
   assert.equal(await page.locator('.letter-thread').count(), 0)
   assert.equal(await page.locator('main').getAttribute('data-page'), 'inbox')
   assert.equal(await page.evaluate(() => window.hdsHandleBack()), true)
-  await page.waitForFunction(() => document.querySelector('main').dataset.page === 'story')
-  // Inbox has a dedicated primary navigation entry; the duplicate settings entry was removed.
+  await page.locator('.space-home').waitFor()
+  // Unread counts now belong to the Space entry; the feed owns the primary tab.
   await page.evaluate(() => { window.__storyFixture.conversations = [] })
-  await page.waitForFunction(() => !document.querySelector('nav .letter-unread'))
+  await page.waitForFunction(() => ![...document.querySelectorAll('.space-home button')].some(button => button.textContent.includes('条未读')))
   await openLibrary()
   await page.getByRole('button', { name: '导入角色卡', exact: true }).waitFor()
   assert.equal(await page.locator('nav button.active').textContent(), '故事')
@@ -355,10 +358,10 @@ try {
   assert.equal(await notifications.isChecked(), false)
   await notifications.check()
   await page.getByText('系统通知权限或角色消息渠道未开启', { exact: true }).waitFor()
-  await page.getByRole('button', { name: '去系统设置', exact: true }).click()
+  await page.getByRole('button', { name: '调整系统声音、振动与悬浮权限', exact: true }).click()
   assert.equal(await page.evaluate(() => window.__storyFixture.openedNotificationSettings), true)
   await notifications.uncheck()
-  await page.getByRole('button', { name: '去系统设置', exact: true }).waitFor()
+  await page.getByRole('button', { name: '调整系统声音、振动与悬浮权限', exact: true }).waitFor()
   console.log('PASS P0-b: notification toggle defaults off, denied permission state and system settings link.')
   await openCategory('tasks')
   await page.getByLabel('识图模型', { exact: true }).selectOption('light')
@@ -490,7 +493,8 @@ try {
 
   await page.evaluate(() => { window.__storyFixture.attempts = [] })
   await page.getByRole('textbox', { name: '消息内容' }).fill('')
-  await page.getByRole('button', { name: '添加图片', exact: true }).click()
+  await page.getByRole('button', { name: '添加图片或语音', exact: true }).click()
+  await page.getByRole('button', { name: '相册', exact: true }).click()
   await page.getByAltText('待发送图片').waitFor()
   await page.evaluate(() => { window.__storyFixture.failSend = true })
   await page.getByRole('button', { name: '发送消息', exact: true }).click()
@@ -554,7 +558,7 @@ try {
   assert.equal(await page.getByRole('textbox', { name: '消息内容' }).inputValue(), '')
   for (const width of [320,390,740]) {
     await page.setViewportSize({ width, height: 844 })
-    for (const tab of ['故事','见闻','信箱','空间']) {
+    for (const tab of ['故事','见闻','动态','空间']) {
       await page.getByRole('button', { name: tab, exact: true }).click()
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${tab} @ ${width}`)
     }
@@ -565,7 +569,8 @@ try {
     }
     await openCategory('personal')
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Expanded settings @ ${width}`)
-    await page.getByRole('button', { name: '信箱', exact: true }).click()
+    await page.getByRole('button', { name: '空间', exact: true }).click()
+  await page.getByRole('button', { name: /^信箱与外部连接/ }).click()
     await page.locator('.inbox-page').waitFor()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Inbox @ ${width}`)
     await openLibrary()

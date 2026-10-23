@@ -66,7 +66,7 @@ try {
     await page.setViewportSize({ width, height: 844 })
     const input = await page.getByRole('textbox', { name: '消息内容' }).boundingBox()
     const send = await page.getByRole('button', { name: '发送消息', exact: true }).boundingBox()
-    assert.ok(input.width >= width * .65); assert.ok(send.y >= input.y + input.height)
+    assert.ok(input.width >= width * .45, 'Input stays usable beside the send control'); assert.ok(send.x >= input.x + input.width, 'Send button sits beside input'); assert.ok(send.y < input.y + input.height && send.y + send.height > input.y, 'Input and send control share a row')
     await page.screenshot({ path: `artifacts/media-controls/composer-${width}.png` })
   }
   assert.deepEqual(f.errors, [])
