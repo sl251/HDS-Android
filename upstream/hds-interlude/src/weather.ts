@@ -80,6 +80,8 @@ const snapshotCache = new Map<string, CacheEntry>()
 const geoCache = new Map<string, { lat: number; lon: number; name: string; cachedAt: number }>()
 
 const GEO_CACHE_TTL = 24 * 3_600_000
+let status: { state: string; city?: string; latitude?: number; longitude?: number; source?: string; fetchedAt?: number; text?: string; error?: string } = { state: 'idle' }
+export const weatherStatus = () => ({ ...status })
 
 // ── 地理编码 ─────────────────────────────────────────────────────────────────
 
@@ -122,16 +124,19 @@ export async function fetchWeatherSnapshot(
     const geo = await geocode(ctx, locationHint)
     if (geo) {
       lat = geo.lat; lon = geo.lon
-      cacheKey = `auto:${geo.name}`
+      cacheKey = `coords:${geo.lat},${geo.lon}`
+      status = { state: 'fetching', city: geo.name, source: '故事地点', latitude: lat, longitude: lon }
     }
     // 地理编码失败时回退到手动经纬度(下面用手动 key)
   }
+
+  if (cacheKey.startsWith('manual:')) status = { state: 'fetching', source: config.autoFromLocation ? '地点未解析，使用手动坐标' : '手动坐标', latitude: lat, longitude: lon }
 
   const cached = snapshotCache.get(cacheKey)
   // TTL 取 cadence 的 90%：TTL==sweep 周期时,首次拉取耗时使下一轮 sweep
   // 必定命中缓存(年龄 C-f < C),实际刷新率减半。留 10% 余量保证每轮都拉新。
   const ttl = config.cadenceMinutes * 60_000 * 0.9
-  if (cached && Date.now() - cached.cachedAt < ttl) return cached.snapshot
+  if (cached && Date.now() - cached.cachedAt < ttl) { status = { ...status, state: 'ready', fetchedAt: cached.snapshot.fetchedAt, text: cached.snapshot.text }; return cached.snapshot }
 
   try {
     const data = await ctx.http.get('https://api.open-meteo.com/v1/forecast', {
@@ -143,7 +148,7 @@ export async function fetchWeatherSnapshot(
       timeout: 10_000,
     }) as { current?: Record<string, number> }
     const cur = data?.current
-    if (!cur || typeof cur.temperature_2m !== 'number') return undefined
+    if (!cur || typeof cur.temperature_2m !== 'number' || !Number.isFinite(cur.temperature_2m)) { status = { ...status, state: 'failed', error: '天气服务未返回有效温度' }; return undefined }
     const weatherCode = typeof cur.weather_code === 'number' ? cur.weather_code : undefined
     const condition = weatherCode !== undefined ? WMO_CODES[weatherCode] ?? `天气码${weatherCode}` : '未知天气'
     const snapshot: WeatherSnapshot = {
@@ -156,8 +161,9 @@ export async function fetchWeatherSnapshot(
       text: `环境：${Math.round(cur.temperature_2m)}°C ${condition}。`,
     }
     snapshotCache.set(cacheKey, { snapshot, cachedAt: Date.now() })
+    status = { ...status, state: 'ready', fetchedAt: snapshot.fetchedAt, text: snapshot.text }
     return snapshot
-  } catch { return undefined }
+  } catch { status = { ...status, state: 'failed', error: '天气请求失败，请检查网络和地点配置' }; return undefined }
 }
 
 /** 架空世界判定(手动开关语义下与 weatherSweep 共用的唯一权威拷贝)：
@@ -169,10 +175,16 @@ export function isFantasyStory(world: unknown, location: unknown): boolean {
 }
 
 /** 获取最近一次成功快照(不触发拉取)——供播种器 payload 协同用 */
-export function lastWeatherSnapshot(): WeatherSnapshot | undefined {
+export function lastWeatherSnapshot(config?: WeatherConfig, locationHint?: string): WeatherSnapshot | undefined {
+  if (config) {
+    const geo = config.autoFromLocation && locationHint ? geoCache.get(locationHint.trim().toLowerCase()) : undefined
+    const key = geo?.name && Date.now() - geo.cachedAt < GEO_CACHE_TTL ? `coords:${geo.lat},${geo.lon}` : `manual:${config.latitude},${config.longitude}`
+    const entry = snapshotCache.get(key)
+    return entry && Date.now() - entry.snapshot.fetchedAt <= config.cadenceMinutes * 60000 + 30 * 60000 ? entry.snapshot : undefined
+  }
   let latest: WeatherSnapshot | undefined
   for (const entry of snapshotCache.values()) {
-    if (!latest || entry.snapshot.fetchedAt > latest.fetchedAt) latest = entry.snapshot
+    if (Date.now() - entry.snapshot.fetchedAt <= 60 * 60000 && (!latest || entry.snapshot.fetchedAt > latest.fetchedAt)) latest = entry.snapshot
   }
   return latest
 }

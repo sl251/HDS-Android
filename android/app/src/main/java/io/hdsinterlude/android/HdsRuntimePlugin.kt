@@ -32,12 +32,15 @@ class HdsRuntimePlugin : Plugin() {
     private val io = Executors.newSingleThreadExecutor()
     private val retrievalIo = Executors.newSingleThreadExecutor()
     private fun runtime() = HdsRuntime.get(context)
+    private val streamListener: (JSONObject) -> Unit = { notifyListeners("replyStream", JSObject.fromJSONObject(it)) }
+    override fun load() { super.load(); runtime().replyStream = streamListener }
     private fun resolve(call: PluginCall, result: JSONObject = JSONObject()) { call.resolve(JSObject.fromJSONObject(result)) }
     private fun run(call: PluginCall, operation: () -> JSONObject) { io.execute { try { resolve(call, operation()) } catch (failure: Throwable) { call.reject(failure.message ?: "原生操作失败", failure.javaClass.simpleName) } } }
     @PluginMethod fun notificationSettings(call: PluginCall) { resolve(call, CharacterNotifications(context).status()) }
     @PluginMethod fun setMessageNotifications(call: PluginCall) {
         val notifications = CharacterNotifications(context)
         val enabled = call.getBoolean("enabled", false) == true
+        try { notifications.configure(call.data) } catch (failure: Exception) { call.reject(failure.message ?: "通知设置无效"); return }
         notifications.setEnabled(enabled)
         if (enabled && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             notifications.markRequested()
@@ -84,9 +87,17 @@ class HdsRuntimePlugin : Plugin() {
     }
     @PluginMethod fun stopVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.stop() } }
     @PluginMethod fun cancelVoiceRecording(call: PluginCall) { run(call) { voiceRecorder.cancel(); JSONObject() } }
-    override fun handleOnDestroy() { runtime().cancelModelProbe(); voiceRecorder.cancel(); super.handleOnDestroy() }
+    override fun handleOnDestroy() { if (runtime().replyStream === streamListener) runtime().replyStream = null; runtime().cancelModelProbe(); voiceRecorder.cancel(); super.handleOnDestroy() }
     @PluginMethod fun status(call: PluginCall) { resolve(call, runtime().status()) }
     @PluginMethod fun settings(call: PluginCall) { run(call) { runtime().store.publicSettings() } }
+    @PluginMethod fun experienceSettings(call: PluginCall) { run(call) { runtime().store.experienceSettings() } }
+    @PluginMethod fun saveExperience(call: PluginCall) { run(call) {
+        runtime().store.saveExperience(call.data)
+        if (runtime().status().optString("state") == "healthy") runtime().rpc("experience.configure", runtime().store.experienceSettings(true))
+        runtime().store.experienceSettings()
+    } }
+    @PluginMethod fun characterAvatar(call: PluginCall) { run(call) { CharacterAvatarStore(context, runtime().store).read(call.getString("cardId") ?: "") } }
+    @PluginMethod fun saveCharacterAvatar(call: PluginCall) { run(call) { CharacterAvatarStore(context, runtime().store).save(call.data) } }
     @PluginMethod fun appearance(call: PluginCall) { run(call) { AppearanceStore(context).read() } }
     @PluginMethod fun saveAppearance(call: PluginCall) { run(call) { AppearanceStore(context).save(call.data); JSONObject() } }
     @PluginMethod fun pickAppearanceAsset(call: PluginCall) {
@@ -101,7 +112,29 @@ class HdsRuntimePlugin : Plugin() {
         run(call) { AppearanceStore(context).import(call.getString("kind")!!, result.data!!.data!!) }
     }
     @PluginMethod fun pickImage(call: PluginCall) {
+        if (call.getString("source") == "camera") {
+            try {
+                val file = java.io.File.createTempFile("hds-camera-", ".jpg", context.cacheDir)
+                call.data.put("captureName", file.name)
+                val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE).putExtra(android.provider.MediaStore.EXTRA_OUTPUT, uri)
+                    .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                startActivityForResult(call, intent, "cameraPicked")
+            } catch (failure: Exception) { call.reject("无法打开系统相机", failure) }
+            return
+        }
         startActivityForResult(call, Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), "imagePicked")
+    }
+    @ActivityCallback private fun cameraPicked(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        val name = call.getString("captureName") ?: ""
+        if (!name.matches(Regex("hds-camera-[a-zA-Z0-9-]+\\.jpg"))) { call.reject("拍摄文件已丢失，请重拍"); return }
+        val file = java.io.File(context.cacheDir, name)
+        if (result.resultCode != Activity.RESULT_OK) { file.delete(); resolve(call, JSONObject().put("cancelled", true)); return }
+        run(call) {
+            try { JSONObject().put("cancelled", false).put("images", JSONArray().put(JSONObject().put("dataUri", AppearanceStore(context).image(android.net.Uri.fromFile(file))))) }
+            finally { file.delete() }
+        }
     }
     @ActivityCallback private fun imagePicked(call: PluginCall?, result: ActivityResult) {
         if (call == null) return

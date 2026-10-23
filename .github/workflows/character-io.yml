@@ -36,6 +36,7 @@ jobs:
           node tests/character-export-ui.mjs
           node tests/media-controls-ui.mjs
           node tests/message-diagnostics-ui.mjs
+          node tests/experience-ui.mjs
       - name: Exercise chat, sticker and voice flows
         run: |
           export HDS_BROWSER="$(node --input-type=module -e "import { chromium } from 'playwright-core'; console.log(chromium.executablePath())")"
@@ -59,4 +60,5 @@ jobs:
           path: |
             artifacts/media-controls
             artifacts/typing-tasks
+            artifacts/experience-ui
             android/app/build/reports/tests

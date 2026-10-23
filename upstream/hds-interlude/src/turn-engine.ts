@@ -10,6 +10,7 @@ import type { Session } from 'koishi'
 import type { InterludeStory, InterludeParticipant, NarrativeIntent, QuotedMessageContext } from './types'
 
 export interface BufferedUserMessage {
+  messageId?: string
   content: string
   occurredAt: Date
   /** Registered inbound endpoint for deterministic batch attribution. */
@@ -29,6 +30,7 @@ export interface BufferedNarrativeTurn {
   nextRevision: number
   inFlightRequestId?: number
   firstMessageCommittedRequestId?: number
+  visibleRequestId?: number
   obsoleteRequestIds: Set<number>
   /** Requests invalidated by an administrative reset/purge must not be requeued. */
   discardedRequestIds?: Set<number>
@@ -115,11 +117,11 @@ export function createTurnEngine(deps: TurnEngineDeps): TurnEngine {
       storyId: story.id, participantId: participant.id, messages: [], nextRevision: 0,
       obsoleteRequestIds: new Set(), discardedRequestIds: new Set(), sources: [],
     }
-    if (shouldSupersedeRequest(turn.inFlightRequestId, turn.firstMessageCommittedRequestId, turn.obsoleteRequestIds)) {
+    if (shouldSupersedeRequest(turn.inFlightRequestId, turn.firstMessageCommittedRequestId ?? turn.visibleRequestId, turn.obsoleteRequestIds)) {
       turn.obsoleteRequestIds.add(turn.inFlightRequestId!)
       deps.reportOperation('standard', 'info', story, 'user-message', '新消息到达且首条回复尚未提交，放弃旧请求 参与者=%s 请求=%d', participant.id, turn.inFlightRequestId)
     }
-    turn.messages.push({ content, occurredAt: now, supersededIntents, imageSources, audioSources,
+    turn.messages.push({ content, occurredAt: now, messageId: session.messageId, supersededIntents, imageSources, audioSources,
       ...(endpointId ? { endpointId } : {}), ...(quote !== undefined && quote !== null ? { quote } : {}) })
     turn.latestSession = session
     if (turn.timer) turn.timer()
@@ -132,7 +134,7 @@ export function createTurnEngine(deps: TurnEngineDeps): TurnEngine {
 
   function signalIncomingInterruption(story: InterludeStory, participant: InterludeParticipant) {
     const turn = turns.get(participant.id)
-    if (!turn || !shouldSupersedeRequest(turn.inFlightRequestId, turn.firstMessageCommittedRequestId, turn.obsoleteRequestIds)) return
+    if (!turn || !shouldSupersedeRequest(turn.inFlightRequestId, turn.firstMessageCommittedRequestId ?? turn.visibleRequestId, turn.obsoleteRequestIds)) return
     turn.obsoleteRequestIds.add(turn.inFlightRequestId!)
     deps.reportOperation('standard', 'info', story, 'user-message',
       '新消息到达且首条回复尚未提交，放弃旧请求 参与者=%s 请求=%d', participant.id, turn.inFlightRequestId)
@@ -166,6 +168,7 @@ export function createTurnEngine(deps: TurnEngineDeps): TurnEngine {
     if (turn.inFlightRequestId === requestId) {
       turn.inFlightRequestId = undefined
       turn.firstMessageCommittedRequestId = undefined
+      turn.visibleRequestId = undefined
       // These fields describe only the request that just ended. Clear them
       // before a pending replacement batch or an automatic continuation can
       // reuse the same turn owner.

@@ -29,6 +29,11 @@ export const mobileTestPatches = readPatches('./mobile-hds-rc56-tests.patch')
 export function applyMobilePatches(source, name, patches = mobilePatches) {
   source = source.replace(/\r\n/g, '\n')
   for (const [index, patch] of (patches[name] ?? []).entries()) {
+    if (!patch.before) {
+      if (source === patch.after) continue
+      if (source) throw new Error(`Mobile patch unknown/ambiguous anchor: ${name} #${index + 1}`)
+      source = patch.after; continue
+    }
     if (source.split(patch.after).length === 2) continue
     if (source.split(patch.before).length !== 2) throw new Error(`Mobile patch unknown/ambiguous anchor: ${name} #${index + 1}`)
     source = source.replace(patch.before, () => patch.after)
@@ -45,7 +50,8 @@ export function patchMobile(directory = 'upstream/hds-interlude/src') {
     for (const name of Object.keys(patches)) {
       const path = resolve(base, name)
       if (patches === mobileTestPatches && !existsSync(path)) continue
-      outputs.push([path, applyMobilePatches(readFileSync(path, 'utf8'), name, patches)])
+      const source = existsSync(path) ? readFileSync(path, 'utf8') : patches[name][0]?.before === '' ? '' : readFileSync(path, 'utf8')
+      outputs.push([path, applyMobilePatches(source, name, patches)])
     }
   }
   for (const [path, source] of outputs) writeFileSync(path, source)

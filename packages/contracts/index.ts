@@ -1,4 +1,6 @@
 import { messageAudio, type MessageAudio, type VoiceState, type VoiceBinding, type Voice } from './voice'
+import type { ExperienceSettings } from './experience'
+export * from './experience'
 export * from './voice'
 import type { Card } from '../card-format'
 import type { DiagnosticEvent } from './diagnostics'
@@ -25,13 +27,14 @@ export type ModelOptions = {
 export type MobileConfig = { sections?: Record<string, Record<string, unknown>>; backgroundLimit?: number }
 export type ModelSettings = { mobileConfig?: MobileConfig; providers: ModelProvider[]; modelOptions: ModelOptions; userName: string; userProfile: string; autoAdvance: boolean }
 export type ImageAttachment = { id: string; dataUri: string }
-export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string; images?: string[]; audio?: MessageAudio }
+export type Message = { id: string; direction: 'user' | 'character'; content: string; occurredAt: string; status: string; images?: string[]; audio?: MessageAudio; replyState?: string }
 /** SQLite JSON columns from older records may contain {} instead of an array. */
 export function messageImages(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return [...new Set(value.filter((id): id is string => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)))].slice(0, 3)
 }
-export type Appearance = { font: 'default' | 'sans' | 'serif' | 'custom'; fontSize: number; backgroundOpacity: number; panelOpacity: number; backgroundBlur: number; backgroundData?: string; fontData?: string; fontName?: string; backgroundPath?: string; backgroundRevision?: number; fontPath?: string; fontRevision?: number; theme: 'system' | 'light' | 'dark' }
+export type CharacterAvatar = { cardId: string; path?: string; revision?: number }
+export type Appearance = { palette?: 'sky' | 'sage' | 'rose' | 'lavender' | 'amber'; font: 'default' | 'sans' | 'serif' | 'custom'; fontSize: number; backgroundOpacity: number; panelOpacity: number; backgroundBlur: number; backgroundData?: string; fontData?: string; fontName?: string; backgroundPath?: string; backgroundRevision?: number; fontPath?: string; fontRevision?: number; theme: 'system' | 'light' | 'dark' }
 export type QQUserAccount = { qq: string; label: string; personId: string; profile: string; relationship: string; enabled: boolean }
 export type QQWillingnessPreset = 'off' | 'quiet' | 'reserved' | 'normal' | 'active' | 'eager' | 'auto' | 'custom'
 export type QQWillingness = { enabled: boolean; maxScore: number; threshold: number; probabilityAmplifier: number; decayHalfLifeSeconds: number; replyCost: number; baseGain: number; quoteGain: number; keywordGain: number }
@@ -50,8 +53,11 @@ export type QQRecovery = { state: 'idle' | 'cleaning' | 'backoff' | 'restarting'
 export type QQStatus = { phase: string; installed: boolean; running: boolean; loggedIn: boolean; online: boolean; progress: string; download?: DownloadProgress; error: string; account: string; nickname: string; qr: string; policy: QQPolicy; logs: string[]; recovery?: QQRecovery }
 export type QQConversation = { id: string; name: string; last: string; time: number; unread: number }
 export type QQMessage = { id: string; conversation: string; sender: string; name: string; content: string; time: number; outgoing: boolean }
-export type MessageNotificationSettings = { enabled: boolean; permission: 'prompt' | 'granted' | 'denied'; available: boolean }
+export type MessageNotificationSettings = { enabled: boolean; permission: 'prompt' | 'granted' | 'denied'; available: boolean; mode?: 'popup' | 'normal' | 'silent'; preview?: boolean; foreground?: boolean; quietEnabled?: boolean; quietStart?: number; quietEnd?: number }
 export type NativeBridge = {
+  addListener?(event: 'replyStream', listener: (value: { cardId: string; id: string; content?: string; status: string; sourceIds: string[]; occurredAt: string; delivered?: boolean }) => void): Promise<{ remove(): Promise<void> }>;
+  experienceSettings(): Promise<ExperienceSettings>;
+  saveExperience(options: ExperienceSettings & { cardId: string }): Promise<ExperienceSettings>;
   voiceState(): Promise<VoiceState>;
   saveVoiceSettings(options: { cooldown?: number; defaultVoiceId?: string; apiKey?: string; clearKey?: boolean; cardId?: string; binding?: VoiceBinding }): Promise<VoiceState>;
   saveVoice(options: Partial<Voice> & { name: string }): Promise<VoiceState>;
@@ -64,13 +70,15 @@ export type NativeBridge = {
   cancelVoiceRecording(): Promise<void>;
 
   notificationSettings(): Promise<MessageNotificationSettings>;
-  setMessageNotifications(options: { enabled: boolean }): Promise<MessageNotificationSettings>;
+  setMessageNotifications(options: { enabled: boolean } & Partial<Pick<MessageNotificationSettings, 'mode' | 'preview' | 'foreground' | 'quietEnabled' | 'quietStart' | 'quietEnd'>>): Promise<MessageNotificationSettings>;
   openNotificationSettings(): Promise<void>;
   notificationLaunch(): Promise<{ cardId?: string }>;
+  characterAvatar(options: { cardId: string }): Promise<CharacterAvatar>;
+  saveCharacterAvatar(options: { cardId: string; dataUri?: string; imageId?: string; clear?: boolean }): Promise<CharacterAvatar>;
   appearance(): Promise<Appearance>;
   saveAppearance(options: Appearance & { removeBackground?: boolean; removeFont?: boolean }): Promise<void>;
   pickAppearanceAsset(options: { kind: 'background' | 'font' }): Promise<Appearance & { cancelled?: boolean }>;
-  pickImage(options?: { limit?: number }): Promise<{ cancelled: boolean; dataUri?: string; images?: { dataUri: string }[]; errors?: { index: number; message: string }[]; truncated?: boolean }>;
+  pickImage(options?: { limit?: number; source?: 'camera' | 'gallery' }): Promise<{ cancelled: boolean; dataUri?: string; images?: { dataUri: string }[]; errors?: { index: number; message: string }[]; truncated?: boolean }>;
   pickStickers(options: { directory: boolean }): Promise<{ cancelled: boolean; name?: string; assets?: { id: string; path: string; size: number; mime: string }[]; skipped?: number }>;
   stickerImage(options: { id: string }): Promise<{ dataUri: string }>;
   syncStickerLibrary(options: { packs: { id: string; name: string; ids: string[]; pool?: 'user' | 'character' }[] }): Promise<void>;
@@ -160,7 +168,7 @@ export function mergeMessages(previous: Message[], incoming: Message[]): Message
   const next = incoming.map(row => {
     const normalized = { ...row, images: messageImages(row.images), audio: messageAudio(row.audio) }
     const before = old.get(row.id)
-    return before && JSON.stringify(messageAudio(before.audio)) === JSON.stringify(normalized.audio) && before.content === normalized.content && before.status === normalized.status && before.direction === normalized.direction && before.occurredAt === normalized.occurredAt && JSON.stringify(messageImages(before.images)) === JSON.stringify(normalized.images) ? before : normalized
+    return before && before.replyState === normalized.replyState && JSON.stringify(messageAudio(before.audio)) === JSON.stringify(normalized.audio) && before.content === normalized.content && before.status === normalized.status && before.direction === normalized.direction && before.occurredAt === normalized.occurredAt && JSON.stringify(messageImages(before.images)) === JSON.stringify(normalized.images) ? before : normalized
   })
   return next.length === previous.length && next.every((row, index) => row === previous[index]) ? previous : next
 }

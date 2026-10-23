@@ -45,7 +45,25 @@ class CharacterNotifications(private val context: Context) {
         if (!prefs.contains("baseline")) prefs.edit().putString("baseline", Instant.now().toString()).commit()
     } }
     fun createChannel() {
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "角色消息", NotificationManager.IMPORTANCE_HIGH))
+        manager.createNotificationChannel(NotificationChannel(CHANNEL, "角色消息 · 悬浮提醒", NotificationManager.IMPORTANCE_HIGH))
+        manager.createNotificationChannel(NotificationChannel("character-normal", "角色消息 · 通知栏", NotificationManager.IMPORTANCE_DEFAULT))
+        manager.createNotificationChannel(NotificationChannel("character-silent", "角色消息 · 静默", NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false) })
+    }
+    private fun channel() = when (prefs.getString("mode", "popup")) { "normal" -> "character-normal"; "silent" -> "character-silent"; else -> CHANNEL }
+    private fun isQuiet(time: LocalTime): Boolean {
+        if (!prefs.getBoolean("quietEnabled", true)) return false
+        val start = prefs.getInt("quietStart", 23); val end = prefs.getInt("quietEnd", 8)
+        return if (start == end) true else if (start < end) time.hour >= start && time.hour < end else time.hour >= start || time.hour < end
+    }
+    fun configure(input: JSONObject) = synchronized(lock) {
+        val mode = input.optString("mode", prefs.getString("mode", "popup"))
+        require(mode in listOf("popup", "normal", "silent")) { "提醒形式无效" }
+        val start = input.optInt("quietStart", prefs.getInt("quietStart", 23)); val end = input.optInt("quietEnd", prefs.getInt("quietEnd", 8))
+        require(start in 0..23 && end in 0..23) { "安静时段应为 0 至 23 时" }
+        prefs.edit().putString("mode", mode).putInt("quietStart", start).putInt("quietEnd", end)
+            .putBoolean("preview", input.optBoolean("preview", prefs.getBoolean("preview", true)))
+            .putBoolean("foreground", input.optBoolean("foreground", prefs.getBoolean("foreground", false)))
+            .putBoolean("quietEnabled", input.optBoolean("quietEnabled", prefs.getBoolean("quietEnabled", true))).commit()
     }
     fun enabled() = prefs.getBoolean("enabled", false)
     fun setEnabled(value: Boolean) = synchronized(lock) {
@@ -55,12 +73,14 @@ class CharacterNotifications(private val context: Context) {
         edit.commit()
     }
     fun allowed(): Boolean = (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
-        manager.areNotificationsEnabled() && manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+        manager.areNotificationsEnabled() && manager.getNotificationChannel(channel())?.importance != NotificationManager.IMPORTANCE_NONE
     fun status(): JSONObject {
         createChannel()
         val permission = Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         return JSONObject().put("enabled", enabled()).put("permission", if (permission) "granted" else if (prefs.getBoolean("requested", false)) "denied" else "prompt")
-            .put("available", allowed())
+            .put("available", allowed()).put("mode", prefs.getString("mode", "popup")).put("preview", prefs.getBoolean("preview", true))
+            .put("foreground", prefs.getBoolean("foreground", false)).put("quietEnabled", prefs.getBoolean("quietEnabled", true))
+            .put("quietStart", prefs.getInt("quietStart", 23)).put("quietEnd", prefs.getInt("quietEnd", 8))
     }
     fun markRequested() { prefs.edit().putBoolean("requested", true).commit() }
     fun settingsIntent() = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -100,7 +120,7 @@ class CharacterNotifications(private val context: Context) {
             if (!allowed()) { Log.i("HDS", "角色消息通知跳过：系统权限或渠道关闭"); return false }
             // A quiet-hour arrival stays silent even if catch-up runs after 08:00.
             val arrival = message.occurredAt.atZone(java.time.ZoneId.systemDefault()).toLocalTime()
-            manager.notify(notificationId(message.id), build(cardId, name, message, avatar(), if (quietHours(arrival)) arrival else time))
+            manager.notify(notificationId(message.id), build(cardId, name, message, avatar(), if (isQuiet(arrival)) arrival else time))
             true
         } catch (failure: Exception) {
             Log.i("HDS", "角色消息通知跳过：${failure.javaClass.simpleName}")
@@ -112,10 +132,10 @@ class CharacterNotifications(private val context: Context) {
             .setData(android.net.Uri.parse("hds://character/$cardId/${message.id}"))
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(CARD_EXTRA, cardId)
         val open = PendingIntent.getActivity(context, notificationId(message.id), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(android.R.drawable.ic_menu_edit)
-            .setContentTitle(name).setContentText(message.content.lineSequence().first().codePoints().limit(40).toArray().let { String(it, 0, it.size) })
-            .setStyle(NotificationCompat.BigTextStyle().bigText(message.fullContent)).setContentIntent(open)
-            .setAutoCancel(true).setOnlyAlertOnce(true).setSilent(quietHours(time))
+        val builder = NotificationCompat.Builder(context, channel()).setSmallIcon(android.R.drawable.ic_menu_edit)
+            .setContentTitle(name).setContentText(if (prefs.getBoolean("preview", true)) message.content.lineSequence().first().codePoints().limit(40).toArray().let { String(it, 0, it.size) } else "你收到了一条新消息")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(if (prefs.getBoolean("preview", true)) message.fullContent else "你收到了一条新消息")).setContentIntent(open)
+            .setAutoCancel(true).setOnlyAlertOnce(true).setSilent(isQuiet(time) || channel() == "character-silent").setVisibility(if (prefs.getBoolean("preview", true)) NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_SECRET)
         if (avatar != null) builder.setLargeIcon(avatar)
         return builder.build()
     }

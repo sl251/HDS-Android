@@ -58,6 +58,7 @@ class HdsRuntime private constructor(private val context: Context) {
         else -> progress
     }
     @Volatile var messagePush: ((String, String, CharacterMessage, Boolean) -> Unit)? = null
+    @Volatile var replyStream: ((JSONObject) -> Unit)? = null
     @Volatile var runningCardId = ""
         private set
     @Volatile var runningCardName = ""
@@ -319,6 +320,9 @@ class HdsRuntime private constructor(private val context: Context) {
         val child = builder.start(); process = child
         val prefs = store.publicSettings()
         val configuration = prefs.put("providers", providers).put("card", store.selectedCard()).put("token", token).put("port", port).put("dataDir", "/hds-data").put("qqDir", "/qq-data")
+        val experience = store.experienceSettings(true)
+        secrets = secrets + listOf("stt", "image").map { experience.optJSONObject(it)?.optString("apiKey") ?: "" }.filter { it.isNotEmpty() }
+        configuration.put("experience", experience)
         val cardId = prefs.getString("activeCard")
         voiceBridge?.close()
         val voice = VoiceBridge(context, token, cardId); voiceBridge = voice
@@ -326,7 +330,9 @@ class HdsRuntime private constructor(private val context: Context) {
         val cardName = configuration.getJSONObject("card").getString("name")
         runningCardId = cardId; runningCardName = cardName
         val outputReader = Thread({ child.inputStream.bufferedReader().useLines { lines -> lines.forEach {
-            if (it.startsWith("HDS_MSG_PUSH ")) {
+            if (it.startsWith("HDS_REPLY_STREAM ")) {
+                runCatching { val event = JSONObject(it.removePrefix("HDS_REPLY_STREAM ")); if (event.toString().length <= 12000) replyStream?.invoke(event.put("cardId", cardId)) }
+            } else if (it.startsWith("HDS_MSG_PUSH ")) {
                 val message = parseMessagePush(it)
                 if (message != null) messagePush?.invoke(cardId, cardName, message, AppVisibility.visible)
                 else log("忽略无效角色消息标记")
@@ -439,8 +445,10 @@ class HdsRuntime private constructor(private val context: Context) {
         process = null; token = ""; secrets = emptyList(); port = 0; state = "stopped"; progress = "HDS 已停止，剧情保留在本机"; error = ""
     }
     fun rpc(method: String, payload: JSONObject): JSONObject {
+        require(!payload.has("expectedCardId") || payload.optString("expectedCardId") == store.publicSettings().optString("activeCard")) { "故事已切换，请回到原故事继续" }
         require(!profileMaintenance || method == "health") { "故事正在备份或维护" }
-        require(method in listOf("diagnostics.messages", "diagnostics.clear", "config.status", "preset.sync", "preset.syncStatus", "images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.since", "messages.sendLocal", "story.snapshot", "story.applySetting", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
+        if (method == "experience.configure") secrets = (secrets + listOf("stt", "image").map { payload.optJSONObject(it)?.optString("apiKey") ?: "" }.filter { it.isNotEmpty() }).distinct()
+        require(method in listOf("experience.configure", "experience.snapshot", "feed.mutate", "media.create", "media.retry", "turn.retry", "weather.status", "diagnostics.messages", "diagnostics.clear", "config.status", "preset.sync", "preset.syncStatus", "images.upload", "images.get", "memory.facts", "memory.factSources", "maintenance.start", "maintenance.status", "health", "messages.history", "messages.since", "messages.sendLocal", "story.snapshot", "story.applySetting", "story.pause", "story.resume", "qq.status", "qq.install", "qq.start", "qq.stop", "qq.refreshQr", "qq.accounts", "qq.quickLogin", "qq.policy", "qq.conversations", "qq.history", "qq.send")) { "不允许的本机 API 方法" }
         require(port > 0 && token.isNotEmpty()) { "请先启动 HDS" }
         val connection = URL("http://127.0.0.1:$port/rpc").openConnection() as HttpURLConnection
         try {

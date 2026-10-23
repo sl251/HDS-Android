@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import type { Appearance, NativeBridge } from '../../packages/contracts'
 import { appearanceAssets } from './appearance-assets'
 
-export const defaultAppearance: Appearance = { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 84, backgroundBlur: 0, theme: 'system' }
+export const defaultAppearance: Appearance = { font: 'default', fontSize: 14, backgroundOpacity: 35, panelOpacity: 84, backgroundBlur: 0, theme: 'system', palette: 'sky' }
 export function useAppearance(bridge: NativeBridge, native: boolean, notify: (text: string) => void) {
   const [value, setValue] = useState<Appearance>(defaultAppearance)
   const [ready, setReady] = useState(!native)
@@ -13,6 +13,7 @@ export function useAppearance(bridge: NativeBridge, native: boolean, notify: (te
   useEffect(() => {
     const root = document.documentElement
     root.dataset.theme = value.theme
+    root.dataset.palette = value.palette || 'sky'
     root.style.setProperty('--ui-font', value.font === 'custom' && value.fontData ? 'HdsCustom' : value.font === 'serif' ? '"Noto Serif CJK SC",serif' : value.font === 'sans' ? 'sans-serif' : '-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif')
     root.style.setProperty('--font-scale', String(value.fontSize / 14))
     root.style.setProperty('--panel-alpha', String(value.panelOpacity / 100))
@@ -22,7 +23,7 @@ export function useAppearance(bridge: NativeBridge, native: boolean, notify: (te
       void font.load().then(loaded => { if (!cancelled) document.fonts.add(loaded) }).catch(() => { if (!cancelled) notify('字体无法在当前 WebView 加载，请切换字体或重新导入') })
     }
     return () => { cancelled = true; if (font) document.fonts.delete(font) }
-  }, [value.font, value.fontData, value.fontSize, value.panelOpacity, value.theme])
+  }, [value.font, value.fontData, value.fontSize, value.panelOpacity, value.theme, value.palette])
   const save = (next: Appearance, removals?: { removeBackground?: boolean; removeFont?: boolean }) => {
     setValue(next)
     if (!native || !ready) return
@@ -68,7 +69,7 @@ export function AppearanceSettings({ appearance, native, busy, act }: Props) {
         <label>背景模糊 · {value.backgroundBlur}px<input type="range" min="0" max="20" value={value.backgroundBlur} onChange={event => update({ backgroundBlur: Number(event.target.value) })} /></label>
         <p className="caption">数值越低越透明。图片保存在手机本地；面板透明度影响消息、输入框与设置面板。</p>
       </details>
-      <details><summary>主题与恢复默认</summary><label>主题<select value={value.theme} onChange={event => update({ theme: event.target.value as Appearance['theme'] })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><button className="secondary" onClick={() => save(defaultAppearance, { removeBackground: true, removeFont: true })}>恢复默认外观</button></details>
+      <details><summary>主题与恢复默认</summary><label>主题<select value={value.theme} onChange={event => update({ theme: event.target.value as Appearance['theme'] })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><div className="palette-options" role="group" aria-label="主题配色">{([["sky", "晴空蓝"], ["sage", "松叶绿"], ["rose", "蔷薇粉"], ["lavender", "暮光紫"], ["amber", "暖茶棕"]] as const).map(([key, label]) => <button key={key} type="button" data-swatch={key} aria-pressed={(value.palette || "sky") === key} onClick={() => update({ palette: key })}><span aria-hidden="true" />{label}</button>)}</div><button className="secondary" onClick={() => save(defaultAppearance, { removeBackground: true, removeFont: true })}>恢复默认外观</button></details>
     </fieldset>
   </details></section>
 }

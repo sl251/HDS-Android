@@ -1,10 +1,13 @@
+import { experienceRuntime } from './experience-runtime'
+import type { ExperienceSettings, MediaJob } from '../packages/contracts/experience'
+import { weatherStatus } from '../upstream/hds-interlude/src/weather'
 import { Context, Bot, h, type SendOptions } from 'koishi'
 import { HTTP } from '@cordisjs/plugin-http'
 import { Server } from '@koishijs/plugin-server'
 import { SQLiteDriver } from '@minatojs/driver-sqlite'
 import { createServer } from 'node:http'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs'
+import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, copyFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import * as HDS from '../upstream/hds-interlude/src/index'
@@ -30,7 +33,7 @@ export { mobileSchema } from './mobile-config'
 export { normalizeMobileConfig, mapMobileConfig } from './mobile-config'
 export { mobilePreset, inspectPreset } from './preset'
 
-export type HostConfig = { voiceBridge?: VoiceBridgeConfig; mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
+export type HostConfig = { experience?: Partial<ExperienceSettings>; voiceBridge?: VoiceBridgeConfig; mobileConfig?: MobileConfig; card: Card; endpoint: string; model: string; apiKey?: string; providers?: ModelProvider[]; modelOptions?: Partial<ModelOptions>; userName: string; userProfile: string; autoAdvance: boolean; token: string; port: number; dataDir: string; qqDir?: string }
 export async function startHost(input: HostConfig) {
   if (!input.card?.name || !input.model || !input.endpoint || !input.token || input.token.length < 32) throw new Error('Missing valid host configuration')
   const endpoint = new URL(input.endpoint)
@@ -51,6 +54,7 @@ export async function startHost(input: HostConfig) {
   app.plugin(SQLiteDriver, { path: join(input.dataDir, 'hds.sqlite') })
   app.model.extend('mobile_message', { id: 'string(64)', direction: 'string(16)', content: 'text', occurredAt: 'timestamp', status: 'string(32)', images: { type: 'json', initial: [] }, audio: { type: 'json', initial: {} } }, { primary: 'id' })
   app.model.extend('mobile_request', { id: 'string(64)', content: 'text', status: 'string(32)', occurredAt: 'timestamp' }, { primary: 'id' })
+  const preserveAudio = (audio: ReturnType<typeof messageAudio>) => { if (!audio || !input.voiceBridge?.directory) return; const dir = join(input.dataDir, 'voice-media'); mkdirSync(dir, { recursive: true }); const source = join(input.voiceBridge.directory, `${audio.audioId}.wav`), target = join(dir, `${audio.audioId}.wav`); if (!existsSync(target) && existsSync(source)) copyFileSync(source, target) }
   class LocalBot extends Bot {
     private lastMessageTime = 0
     private disposed = false
@@ -90,9 +94,11 @@ export async function startHost(input: HostConfig) {
           row.audio = await localVoiceDelivery(input.voiceBridge, row.content, options?.mobileVoice?.willingness,
           `按照角色的性格自然朗读，不增加台词。角色：${input.card.name}。性格：${input.card.personality || input.card.description || ''}`.slice(0, 3000), randomUUID(), value => { diagnosticEvent('voice', value.status, { reason: value.reason, elapsedMs: value.elapsedMs }) })
         }
-        const id = randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
+        preserveAudio(row.audio)
+        const id = experience.takeStream(row.content) ?? randomUUID(), occurredAt = new Date(Math.max(Date.now(), this.lastMessageTime + 1))
         this.lastMessageTime = occurredAt.getTime()
         await app.database.create('mobile_message' as never, { id, direction: 'character', ...row, occurredAt, status: 'delivered' } as never)
+        experience.deliveredStream(id)
         diagnosticEvent('delivery', 'delivered', { messageId: id, mode: row.audio ? 'voice' : row.images.length ? 'sticker' : 'text' })
         process.stdout.write(serializeMessagePush({ id, ...row, occurredAt }))
         ids.push(id)
@@ -142,14 +148,28 @@ export async function startHost(input: HostConfig) {
   config.model.mobileSystemPrompt = (prompt, request) => mobileVoicePrompt(request.stickerCatalog?.length ? prompt : emptyStickerSystemPrompt(prompt), request.chatCapabilities?.voice)
   const activeVision = visionProjection(input)
   const media = imageStore(input.dataDir)
+  const experience = experienceRuntime({ directory: input.dataDir, identity: `${input.card.name}: ${input.card.description}`.slice(0, 1800), settings: input.experience, audioDirectory: input.voiceBridge?.directory,
+    getImage: media.get, saveImage: media.registerSticker,
+    wake: async () => app.interlude.mobileObserveFeed(current),
+    deliver: async job => {
+      if (job.kind !== 'image' || job.purpose !== 'chat') return
+      if ((await app.database.get('mobile_message' as never, { id: job.id } as never)).length) return
+      const row = { id: job.id, direction: 'character', content: job.caption || '', images: [job.imageId], occurredAt: new Date(), status: 'delivered' }
+      await app.database.create('mobile_message' as never, row as never)
+      process.stdout.write(serializeMessagePush(row))
+    },
+  })
+  config.model.mobileStream = event => experience.stream(event)
+  config.model.mobileDecisionCommitted = (raw, entryId, local) => experience.committed(raw, entryId, local)
   let promptTrace: string[] = []
   config.model.mobileCardPrompt = request => {
-    if (input.card.format === 'hds') { promptTrace = ['HDS 原生 storyDefaults 映射']; return { before: '', after: '' } }
+    const localContext = request.groupContext || request.participant && request.participant.platform !== 'mobile-local' ? '' : experience.context()
+    if (input.card.format === 'hds') { promptTrace = ['HDS 原生 storyDefaults 映射']; return { before: '', after: localContext } }
     const history = request.recentEntries.filter(entry => entry.kind === 'user-message' || entry.kind === 'character-message').map(entry => entry.content)
     if (request.userMessage) history.push(request.userMessage)
     const compiled = cardPrompt(input.card, input.userName || '我', history)
     promptTrace = compiled.trace
-    return compiled
+    return { ...compiled, after: compiled.after + localContext }
   }
   app.plugin(HDS, config)
   await app.start()
@@ -213,6 +233,31 @@ export async function startHost(input: HostConfig) {
         const label = !historicalDiagnosticIds.has(event.id) && event.providerSlot ? diagnosticProviderLabels[event.providerSlot - 1] : undefined
         return label ? { ...event, providerLabel: label } : event
       }) }
+    }
+    if (method === 'experience.configure') return experience.configure(payload)
+    if (method === 'experience.snapshot') return experience.snapshot()
+    if (method === 'feed.mutate') return experience.mutate(payload)
+    if (method === 'media.create') {
+      const kind = payload.kind === 'stt' ? 'stt' : 'image'
+      const purpose = String(payload.purpose)
+      if (!(kind === 'stt' ? ['voice', 'dictation'] : ['chat', 'feed', 'preview', 'avatar']).includes(purpose)) throw new Error('媒体用途无效')
+      const character = purpose === 'avatar' ? (await app.interlude.findStory(current))?.setting.character : undefined
+      const prompt = purpose === 'avatar' ? `为${character?.name || input.card.name}绘制头像。依据角色人设：${(character?.profile || input.card.description).slice(0, 1800)}。单人头肩肖像，面部清晰，居中构图，简洁背景，适合方形裁切，不加文字、水印或边框。` : payload.prompt as string
+      return experience.jobs.create({ id: String(payload.id), kind, purpose: purpose as MediaJob['purpose'], prompt, caption: payload.caption as string, audioId: payload.audioId as string, duration: payload.duration as number })
+    }
+    if (method === 'media.retry') { experience.jobs.retry(String(payload.id)); return { accepted: true } }
+    if (method === 'weather.status') return weatherStatus()
+    if (method === 'turn.retry') {
+      const retryRun = async () => {
+      const failed = experience.failedTurn(String(payload.messageId))
+      const latest = (await app.database.get('mobile_message' as never, { direction: 'user' } as never, { sort: { occurredAt: 'desc' }, limit: 1 } as never))[0] as any
+      if (!latest || !failed.sourceIds.includes(latest.id)) throw new Error('已有更新消息，不能重放旧回复；请继续当前对话')
+      const rows = await app.database.get('mobile_message' as never, { id: { $in: failed.sourceIds } } as never, { sort: { occurredAt: 'asc' } } as never) as any[]
+      await app.interlude.mobileRetryLocal(session(latest.id, rows.map(row => row.content).join('\n'), rows.flatMap(row => messageImages(row.images)).slice(0, 3).map(id => media.get(id))))
+      experience.clearFailed(failed.id)
+      return { accepted: true }
+      }
+      const result = queue.then(retryRun); queue = result.then(() => {}, () => {}); return result
     }
     if (method === 'diagnostics.clear') { diagnostics.clear(); return { cleared: true } }
     if (method.startsWith('qq.')) { if (!qq) throw new Error('QQ 本机目录未配置'); return qq.dispatch(method, payload) }
@@ -285,7 +330,7 @@ export async function startHost(input: HostConfig) {
       }
       return rows.map(messagePush)
     }
-    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, occurredAt: new Date((row as { occurredAt: Date | string }).occurredAt).toISOString(), images: messageImages((row as { images?: unknown }).images), audio: messageAudio((row as { audio?: unknown }).audio) }))
+    if (method === 'messages.history') return (await app.database.get('mobile_message' as never, {} as never, { limit: 200, sort: { occurredAt: 'desc', id: 'desc' } } as never)).reverse().map(row => ({ ...row, occurredAt: new Date((row as { occurredAt: Date | string }).occurredAt).toISOString(), images: messageImages((row as { images?: unknown }).images), audio: messageAudio((row as { audio?: unknown }).audio), replyState: experience.replyState((row as { id: string }).id) }))
     if (method === 'story.snapshot') { const active = await app.interlude.findStory(current); return { story: active, schedulingStatus: await app.interlude.adminSchedulingStatus(story.id), entries: await app.interlude.recentEntries(story.id, 80), facts: await app.interlude.adminFacts(story.id, 100), memories: await app.interlude.memories(story.id, 100), intents: await app.interlude.adminPendingIntents(story.id, 100), overlay: await app.interlude.adminOverlayStatus(story.id), promptTrace } }
     if (method === 'story.applySetting') {
       const active = await app.interlude.findStory(current)
@@ -307,7 +352,10 @@ export async function startHost(input: HostConfig) {
       if (images.length && !config.model.vision?.enabled) throw new Error('请在模型设置中开启主模型识图，并选择支持图片的模型；重启后生效')
       if (images.length) { const reason = visionRouteReason(activeVision); if (reason) throw new Error(reason) }
       if (!/^[a-zA-Z0-9-]{8,64}$/.test(id) || (!content && !images.length) || content.length > 12000) throw new Error('Invalid requestId or message')
-      const signature = images.length ? JSON.stringify({ content, images: imageIds }) : content
+      const audio = messageAudio(payload.audio)
+      if (payload.audio && (!audio || !input.voiceBridge?.directory || !existsSync(join(input.voiceBridge.directory, `${audio.audioId}.wav`)))) throw new Error('录音不存在或格式无效')
+      preserveAudio(audio)
+      const signature = audio ? JSON.stringify({ content, images: imageIds, audio }) : images.length ? JSON.stringify({ content, images: imageIds }) : content
       const run = async () => {
         const old = (await app.database.get('mobile_request' as never, { id } as never))[0] as { content: string; status: string } | undefined
         if (old && old.content !== signature) throw new Error('requestId conflicts with another message')
@@ -317,7 +365,7 @@ export async function startHost(input: HostConfig) {
         const accepted = await app.interlude.receive(session(id, content, images))
         if (!accepted) throw Object.assign(new Error('故事未接受消息；如果已暂停，请先在见闻恢复故事'), { code: 'HDS_NOT_ACCEPTED' })
         const visible = await app.database.get('mobile_message' as never, { id } as never)
-        if (!visible.length) await app.database.create('mobile_message' as never, { id, direction: 'user', content, images: imageIds, occurredAt: new Date(), status: 'accepted' } as never)
+        if (!visible.length) await app.database.create('mobile_message' as never, { id, direction: 'user', content, images: imageIds, audio, occurredAt: new Date(), status: 'accepted' } as never)
         await app.database.set('mobile_request' as never, { id } as never, { status: 'accepted' } as never)
         diagnosticEvent('submission', 'accepted')
         return { requestId: id, accepted: true }
@@ -350,7 +398,7 @@ export async function startHost(input: HostConfig) {
   })
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(input.port, '127.0.0.1', () => resolve()) })
   let shutdown: Promise<void> | undefined
-  const stop = () => shutdown ??= (async () => { closing = true; await new Promise<void>(resolve => server.close(() => resolve())); await qq?.close(); await queue; await Promise.allSettled([...work]); bot.dispose(); await app.interlude.mobileDrainBeforeStop(); await drainVoice(); await app.stop() })()
+  const stop = () => shutdown ??= (async () => { closing = true; await experience.stop(); await new Promise<void>(resolve => server.close(() => resolve())); await qq?.close(); await queue; await Promise.allSettled([...work]); bot.dispose(); await app.interlude.mobileDrainBeforeStop(); await drainVoice(); await app.stop() })()
   return { app, bot, server, stop, dispatch, qq, drainVoice }
 }
 

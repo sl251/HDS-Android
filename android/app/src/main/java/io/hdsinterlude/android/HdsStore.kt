@@ -67,6 +67,59 @@ class HdsStore(private val context: Context) {
         target.put("keyIv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
     }
     @Synchronized fun voiceKey(): String = decrypt(privateSettings().optJSONObject("voiceCredential") ?: JSONObject())
+    @Synchronized fun experienceSettings(privateKeys: Boolean = false): JSONObject {
+        val result = read(File(base, "experience.json"))
+        if (!result.has("enterBehavior")) result.put("enterBehavior", if (settingsFile.exists()) "send" else "newline")
+        for (kind in listOf("stt", "image")) {
+            val row = result.optJSONObject(kind) ?: JSONObject().put("enabled", false).put("provider", if (kind == "image") "imagefree" else "compatible")
+                .put("endpoint", if (kind == "image") "https://imagefree.net" else "").put("model", "")
+            row.put("credentialPresent", row.optString("encryptedKey").isNotEmpty())
+            if (privateKeys) row.put("apiKey", decrypt(row))
+            row.remove("encryptedKey"); row.remove("keyIv"); result.put(kind, row)
+        }
+        val visual = runCatching { read(File(profile(), "visual-profile.json")) }.getOrDefault(JSONObject())
+        result.put("visual", visual)
+        if (!result.has("feedEnabled")) result.put("feedEnabled", true)
+        return result
+    }
+    @Synchronized fun saveExperience(input: JSONObject) {
+        val currentCard = privateSettings().optString("activeCard")
+        require(input.optString("cardId") == currentCard && currentCard.isNotEmpty()) { "角色已切换，请重新打开设置" }
+        val old = read(File(base, "experience.json"))
+        val result = JSONObject().put("enterBehavior", input.optString("enterBehavior", "newline")).put("feedEnabled", input.optBoolean("feedEnabled", true))
+        require(result.getString("enterBehavior") in listOf("send", "newline")) { "回车设置无效" }
+        for (kind in listOf("stt", "image")) {
+            val draft = input.getJSONObject(kind)
+            val provider = draft.optString("provider", "compatible")
+            require(provider == "compatible" || kind == "image" && provider == "imagefree") { "媒体服务类型无效" }
+            val endpoint = if (provider == "imagefree") "https://imagefree.net" else draft.optString("endpoint").trim()
+            if (endpoint.isNotBlank()) {
+                val uri = java.net.URI(endpoint)
+                require(uri.scheme in listOf("http", "https") && uri.host != null && uri.userInfo == null && uri.fragment == null && endpoint.length <= 2048) { "媒体服务地址无效" }
+            }
+            val model = draft.optString("model").trim()
+            require(model.length <= 256 && (!draft.optBoolean("enabled") || endpoint.isNotBlank() && (provider == "imagefree" || model.isNotBlank()))) { "请填写媒体模型和地址" }
+            val row = JSONObject().put("enabled", draft.optBoolean("enabled")).put("provider", provider).put("endpoint", endpoint).put("model", model).put("referenceImages", draft.optBoolean("referenceImages"))
+            val previous = old.optJSONObject(kind)
+            val plain = draft.optString("apiKey").trim()
+            if (plain.isNotEmpty()) encrypt(plain, row)
+            else if (!draft.optBoolean("clearKey") && previous?.optString("encryptedKey")?.isNotEmpty() == true) {
+                require(previous.optString("endpoint") == endpoint && previous.optString("provider") == provider) { "媒体服务地址已改变，请重填密钥或清除旧密钥" }
+                row.put("encryptedKey", previous.getString("encryptedKey")).put("keyIv", previous.getString("keyIv"))
+            }
+            result.put(kind, row)
+        }
+        val visual = input.optJSONObject("visual") ?: JSONObject()
+        require(visual.toString().length <= 16000) { "视觉档案过长" }
+        for (field in listOf("appearance", "style", "outfit", "constraints")) require(!visual.has(field) || visual.get(field) is String && visual.getString(field).length <= 3000) { "视觉档案字段过长" }
+        require(visual.optString("ratio", "3:4") in listOf("1:1", "3:4", "4:3", "9:16", "16:9")) { "图片比例无效" }
+        val cooldown = visual.optDouble("cooldownMinutes", 30.0)
+        require(cooldown.isFinite() && cooldown in 0.0..1440.0) { "生图间隔无效" }
+        val refs = visual.optJSONArray("references") ?: JSONArray()
+        require(refs.length() <= 3 && (0 until refs.length()).all { refs.optString(it).matches(Regex("[a-f0-9]{64}")) }) { "参考图无效" }
+        write(File(profile(), "visual-profile.json"), visual)
+        write(File(base, "experience.json"), result)
+    }
     @Synchronized fun saveVoiceKey(value: String) {
         val source = privateSettings()
         if (value.isBlank()) source.remove("voiceCredential")

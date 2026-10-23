@@ -56,16 +56,16 @@ export function StickerManager({ library, bridge, native, change, close, notify,
     setFeedback(text); notify(text)
   })
   return <div className="modal-backdrop"><section className="modal sticker-manager" role="dialog" aria-modal="true" aria-label="表情包管理"><div className="section-title"><h2>表情包</h2><button autoFocus disabled={busy} aria-label="关闭表情包管理" onClick={close}>×</button></div>
-    <p className="caption">{library.packs.length} 个表情包 · 本机占用 {(libraryBytes(library) / 1024 / 1024).toFixed(1)} MiB。原文件保留，GIF 动画保留；每张最大 10 MiB。</p>
+    <p className="caption">{library.packs.length} 个表情包 · 本机占用 {(libraryBytes(library) / 1024 / 1024).toFixed(1)} MiB。</p>
     {importReason && <div className="media-setup" role="alert"><p>{importReason}</p><button type="button" className="secondary" disabled={busy} onClick={configureVision}>去设置识图模型</button></div>}
     <div className="sticker-import-panel"><h3>导入表情</h3>
     <div className="pool-tabs" role="group" aria-label="表情包池">{(['user', 'character'] as const).map(value => <button disabled={busy} key={value} aria-pressed={pool === value} onClick={() => { setPool(value); setTarget(''); setManaging(''); setDeleting(''); setRenaming('') }}>{value === 'user' ? '我的表情' : '角色表情'}</button>)}</div>
-    <p className="caption">我的表情只供你选择；角色表情供机器人自主选择，所有角色共用角色池。旧包保留在「我的表情」，可自行复制到角色池。角色池修改后重启核心生效。</p>
-    <p className="caption">原文件保留。支持 GIF、PNG、WebP、JPG；每张最大 10 MiB。复制后的两个包独立管理，历史消息不受删除影响。</p>
+    <p className="caption">我的表情供你发送；角色表情由角色自主选择，所有角色共用。两个表情池独立管理。</p>
+    <p className="caption">支持 GIF、PNG、WebP、JPG，保留原图与动画；每张最大 10 MiB。</p>
     <label>导入到<select aria-label="导入到表情包" value={target} disabled={busy} onChange={event => setTarget(event.target.value)}><option value="">新建表情包</option>{visible.packs.map(pack => <option key={pack.id} value={pack.id}>{pack.name}</option>)}</select></label>
     {!target && <label>新包名称<input value={name} disabled={busy} maxLength={80} onChange={event => setName(event.target.value)} placeholder="留空使用文件夹名称" /></label>}
     <div className="media-import-actions"><button className="primary" disabled={!native || busy || !!importReason} onClick={() => void importPack(false)}>多选图片导入</button><button className="secondary" disabled={!native || busy || !!importReason} onClick={() => void importPack(true)}>整文件夹导入</button></div></div>
-    <p className="caption">导入、改名或删除后，重新唤醒核心，角色会读取最新表情库。已发送的表情继续保留。</p>
+    <p className="caption">角色表情变更后，重新唤醒核心生效。已发送的表情继续保留。</p>
     {busy && <p role="status">正在处理表情包…</p>}{feedback && <p role="status">{feedback}</p>}
     {!visible.packs.length && <p className="quiet-empty">这个表情池还没有素材，可以导入或从另一池复制。</p>}
     {sortedPacks(visible).map(pack => <div className="sticker-group" key={pack.id}><h3>{pack.name} · {pack.stickers.length} 张</h3><div className="actions"><button disabled={busy} onClick={() => { setRenaming(pack.id); setRename(pack.name) }}>重命名</button><button disabled={busy} onClick={() => setManaging(managing === pack.id ? '' : pack.id)}>{managing === pack.id ? '完成管理' : '管理贴纸'}</button><button disabled={busy} onClick={() => void action(async () => { await update({ ...library, packs: [...library.packs, { ...pack, id: crypto.randomUUID(), createdAt: Date.now(), pool: pool === 'user' ? 'character' : 'user', stickers: pack.stickers.map(asset => ({ ...asset, lastUsed: 0 })) }] }); setFeedback('已复制到另一池，两个包可独立管理。') })}>复制到{pool === 'user' ? '角色' : '我的'}表情</button><button className="danger" disabled={busy} onClick={() => setDeleting(pack.id)}>删除包</button></div>

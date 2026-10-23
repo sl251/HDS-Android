@@ -947,6 +947,7 @@ export interface NarrativeRequest {
   schedulePreplan?: SchedulePreplanWindow | null
   /** Ephemeral transport callback; never serialised into the model payload. */
   onEarlyReply?: (reply: EarlyNarrativeReply) => Promise<boolean>
+  onReplyDelta?: (content: string) => Promise<boolean>
   /** Small concrete in-flight details carried from story state (pruned, capped). */
   workingDetails?: WorkingDetail[]
   /** Older moments semantically related to the current message; private live turns only. */

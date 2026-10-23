@@ -108,7 +108,7 @@ test('M5 real HDS decisions reach final local text + one audio record; legacy SQ
     assert.equal(synthesis[0].text, row.content); assert.equal(synthesis[0].willingness, .95)
     assert.equal(synthesis[0].auth, 'Bearer private-fixture-token'); assert.match(synthesis[0].style, /开朗温柔/)
     assert.match(requests[0].messages[0].content, /CURRENT LOCAL VOICE OPTION/)
-    assert.notEqual(requests[0].stream, true, 'voice-enabled reply waits for the final decision')
+    assert.equal(requests[0].stream, true, 'voice-enabled turns stream text while audio waits for the complete voice decision')
     assert.equal(JSON.stringify(requests[0]).includes('private-fixture-token'), false)
     failTts = true
     await host.dispatch('messages.sendLocal', { requestId: 'm5-tts-failure-request', content: '再说一次吧' })
