@@ -67,12 +67,12 @@ https://github.com/user-attachments/assets/809470b8-84a5-4e32-ac78-d59d217fac7b
 
 ## 📥 下载安装
 
-**当前版本：`0.1.0-preview.9.6.3`**（构建通过后发布，下载入口始终指向最新已发布版本。）
+**最新已发布版本：`0.1.0-preview.9.6.3`**
 
 **[➡ 前往 GitHub Releases 下载签名 APK](https://github.com/sl251/HDSI-Android/releases/latest)**
 
 - **支持设备：** Android 8.0 及以上，ARM64（arm64-v8a）。
-- **安装包：** `HDS-Android-0.1.0-preview.9.6.3-arm64.apk`（当前文件名沿用旧命名，不影响使用；构建期间请以 Release 附件版本为准）。
+- **安装包：** `HDS-Android-0.1.0-preview.9.6.3-arm64.apk`（当前文件名沿用旧命名，不影响使用）。
 - **校验：** 请使用 Release 附件中的 `SHA256SUMS.txt` 核对文件完整性。
 - **空间：** 建议至少预留 1.5 GB；如果启用实验性本地 QQ 接入，额外预留约 1.6 GB。
 
