@@ -636,7 +636,7 @@ try {
   await page.evaluate(() => { window.__storyFixture.loseSendResult = true })
   await page.getByRole('textbox', { name: '消息内容' }).fill('回执丢失后由历史确认')
   await page.getByRole('button', { name: '发送消息', exact: true }).click()
-  await page.getByText('回执丢失后由历史确认', { exact: true }).waitFor()
+  await page.locator('.messages .bubble').getByText('回执丢失后由历史确认', { exact: true }).waitFor()
   await page.waitForFunction(() => document.querySelector('textarea[aria-label="消息内容"]').value === '' && ![...document.querySelectorAll('button')].some(button => button.textContent === '重试发送'))
   await page.evaluate(() => { window.__storyFixture.loseSendResult = false })
   console.log('PASS Preview 8.1: an accepted history receipt resolves an unknown send without resend.')

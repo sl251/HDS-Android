@@ -62,4 +62,5 @@ jobs:
             artifacts/media-controls
             artifacts/typing-tasks
             artifacts/experience-ui
+            artifacts/m5
             android/app/build/reports/tests
