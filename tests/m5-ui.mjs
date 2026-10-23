@@ -93,8 +93,8 @@ try {
     HTMLMediaElement.prototype.play = function() { window.__audioPlays++; return originalPlay.call(this) }
     localStorage.setItem('hds.onboarding.v1', '1')
     window.androidBridge = {}
-    window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: methods.map(name => ({ name, rtype: 'promise' })) }],
-      nativePromise: async (_, method, options) => { const response = await fetch(gatewayUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, options }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data } }
+    window.Capacitor = { convertFileSrc: value => value, PluginHeaders: [{ name: 'HdsRuntime', methods: [...methods, 'addListener', 'removeListener'].map(name => ({ name, rtype: 'promise' })) }],
+      nativePromise: async (_, method, options) => { if (method === 'addListener' || method === 'removeListener') return {};  const response = await fetch(gatewayUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, options }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data } }
   }, { gatewayUrl: `http://127.0.0.1:${gateway.address().port}/native`, methods: ['settings','cards','status','saveSettings','appearance','notificationSettings','notificationLaunch','rpc','voiceState','saveVoiceSettings','saveVoice','deleteVoice','voiceAudio','previewVoice','pickVoiceAudio','startVoiceRecording','stopVoiceRecording','cancelVoiceRecording'] })
   await page.goto(process.env.HDS_UI_URL || 'http://127.0.0.1:5173')
   await page.getByRole('textbox', { name: '消息内容' }).waitFor()

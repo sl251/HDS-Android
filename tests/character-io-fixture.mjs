@@ -23,7 +23,7 @@ export async function characterFixture(styles = false) {
       share: { code: 'ABCDEFGH', title: '分享的角色', revision: 1, sections: ['agency', 'storyDefaults'], payload: { agency: { enabled: true }, storyDefaults: { characterName: '星禾', characterProfile: '修理师' } } } }
     const methods = ['settings', 'cards', 'saveCard', 'selectCard', 'pickCard', 'exportCharacter', 'status', 'appearance', 'notificationSettings', 'notificationLaunch', 'voiceState', 'rpc']
     window.androidBridge = {}
-    window.Capacitor = { PluginHeaders: [{ name: 'HdsRuntime', methods: methods.map(name => ({ name, rtype: 'promise' })) }, { name: 'CapacitorHttp', methods: [{ name: 'get', rtype: 'promise' }] }], nativePromise: async (plugin, method, options) => {
+    window.Capacitor = { PluginHeaders: [{ name: 'HdsRuntime', methods: [...methods, 'addListener', 'removeListener'].map(name => ({ name, rtype: 'promise' })) }, { name: 'CapacitorHttp', methods: [{ name: 'get', rtype: 'promise' }] }], nativePromise: async (plugin, method, options) => {
       f.calls.push({ plugin, method, options: structuredClone(options) })
       if (plugin === 'CapacitorHttp') { if (f.hold) await new Promise(resolve => { f.release = resolve }); if (f.httpError) throw new Error(f.httpError); return { status: 200, data: f.share, headers: {}, url: options.url } }
       if (method === 'settings') return { activeCard: f.selected, providers: [], modelOptions: {}, mobileConfig: { sections: { agency: { enabled: true } } }, userName: '我', userProfile: '', autoAdvance: false }

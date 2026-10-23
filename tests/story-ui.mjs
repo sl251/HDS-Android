@@ -42,7 +42,7 @@ try {
     window.androidBridge = {}
     window.Capacitor = {
       convertFileSrc: path => path.endsWith('.gif') ? '/fixtures/images/sticker-fixture.gif' : '/fixtures/images/vision-fixture.jpg',
-      PluginHeaders: [{ name: 'HdsRuntime', methods: ['settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch','saveMessageDiagnostics','voiceState','previewVoice','voiceAudio','pickVoiceAudio','cancelVoiceRecording','experienceSettings','characterAvatar'].map(name => ({ name, rtype: 'promise' })) }],
+      PluginHeaders: [{ name: 'HdsRuntime', methods: ['addListener', 'removeListener', 'settings', 'cards', 'status', 'saveSettings', 'start', 'stop', 'selectCard', 'rpc', 'cancelInstall','appearance','saveAppearance','pickAppearanceAsset','pickImage','pickStickers','stickerImage','pruneStickers','syncStickerLibrary','exportStory','restoreStory','resetStory','restorePreviousStory','notificationSettings','setMessageNotifications','openNotificationSettings','notificationLaunch','saveMessageDiagnostics','voiceState','previewVoice','voiceAudio','pickVoiceAudio','cancelVoiceRecording','experienceSettings','characterAvatar'].map(name => ({ name, rtype: 'promise' })) }],
       nativePromise: async (_, method, options) => {
         f.calls.push(method)
         if (method === 'experienceSettings') return { enterBehavior: 'send' }
@@ -570,7 +570,7 @@ try {
     await openCategory('personal')
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Expanded settings @ ${width}`)
     await page.getByRole('button', { name: '空间', exact: true }).click()
-  await page.getByRole('button', { name: /^信箱与外部连接/ }).click()
+    await page.getByRole('button', { name: /^信箱与外部连接/ }).click()
     await page.locator('.inbox-page').waitFor()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Inbox @ ${width}`)
     await openLibrary()
