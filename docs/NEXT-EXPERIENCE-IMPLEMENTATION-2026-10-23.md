@@ -39,7 +39,8 @@
 - 本地浏览器交互检查了折叠/展开与草稿保留、动态发布及点赞、主题即时生效、表情包主题、设置留白、单一流式入口。390px 的设置卡片实测左右内边距 22px，没有横向溢出；之前也检查了 320px 动态与导航指示条边界。
 - 新增 Android 测试覆盖头像保存/移除/故事切换隔离、非法素材引用、主题持久化和通知安静时段。本机 SDK 下载中断后改在 GitHub CI 验证：[构建 39972708115](https://github.com/sl251/HDS-Android/actions/runs/39972708115) 的原生编译、lint、单元测试、签名 APK 构建以及 ARM64/QQ 检查全部通过。
 - 本机 Headless Edge 无法启动，改由 GitHub CI 运行 Chromium。完整 Playwright 界面回归已通过，包括角色导入/导出、媒体控件、消息诊断、新增体验、聊天重试、表情包、语音、任务分工与检索；检查记录见 [构建 39977993348](https://github.com/sl251/HDS-Android/actions/runs/39977993348)。
+- 同一轮 CI 的完整核心回归、Android 编译、lint 与单元测试全部通过；最终发布另由主分支重新构建与签名。
 
 ## 待原生与真实服务验收
 
-设备上仍需检查系统相机回传、麦克风授权、软键盘、通知渠道、头像离线读取、故事导入恢复，以及真实 STT/生图服务的请求形状、参考图能力和后台恢复。发布代码及后续检查见 [PR #20](https://github.com/sl251/HDS-Android/pull/20)，签名安装包由发布流水线在完整检查通过后提供。
+设备上仍需检查系统相机回传、麦克风授权、软键盘、通知渠道、头像离线读取、故事导入恢复，以及真实 STT/生图服务的请求形状、参考图能力和后台恢复。[PR #20](https://github.com/sl251/HDS-Android/pull/20) 已合并；[最终发布流水线](https://github.com/sl251/HDS-Android/actions/runs/39979298443) 的 Android 签名构建、原生测试、包校验与 ARM64/QQ 检查全部通过。[Preview 9.6](https://github.com/sl251/HDS-Android/releases/tag/v0.1.0-preview.9.6) 已提供签名安装包、源码包及 SHA-256 校验清单。
