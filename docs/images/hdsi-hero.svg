@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 500" role="img" aria-label="HDSI-ANDROID — A Story Beyond the Chat">
+  <defs>
+    <radialGradient id="sky"><stop stop-color="#163a54" offset="0"/><stop stop-color="#0b1a2c" offset=".55"/><stop stop-color="#060e1b" offset="1"/></radialGradient>
+    <radialGradient id="halo"><stop stop-color="#b2d9df" stop-opacity=".28"/><stop offset=".56" stop-color="#376a86" stop-opacity=".17"/><stop offset="1" stop-color="#0d2435" stop-opacity="0"/></radialGradient>
+    <linearGradient id="gold" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#faf0c7"/><stop offset=".55" stop-color="#c7af70"/><stop offset="1" stop-color="#8d784f"/></linearGradient>
+    <linearGradient id="line" x1="0" x2="1"><stop stop-color="#7cc6e7" stop-opacity="0"/><stop offset=".48" stop-color="#8bbed6" stop-opacity=".56"/><stop offset="1" stop-color="#e2c88b" stop-opacity="0"/></linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="13"/></filter>
+  </defs>
+  <rect width="1600" height="500" fill="url(#sky)"/>
+  <ellipse cx="800" cy="245" rx="620" ry="260" fill="url(#halo)"/>
+  <g fill="none" stroke="url(#line)" stroke-width="1.3" opacity=".52">
+    <path d="M-50 240 C220 80 400 400 780 248 S1340 128 1660 285"/>
+    <path d="M-40 350 C350 190 650 300 945 225 S1410 328 1650 155"/>
+    <path d="M-20 130 C280 310 470 120 810 240 S1330 350 1620 210"/>
+  </g>
+  <circle cx="800" cy="245" r="205" stroke="#dac18b" stroke-opacity=".24" stroke-width="21" fill="none" filter="url(#glow)"/>
+  <circle cx="800" cy="245" r="204" fill="none" stroke="url(#gold)" stroke-width="2.4" stroke-opacity=".7"/>
+  <circle cx="800" cy="245" r="225" fill="none" stroke="#a8d4e6" stroke-width=".7" stroke-dasharray="1.5 14" opacity=".2"/>
+  <g fill="#b2e4ef" opacity=".7">
+    <circle cx="160" cy="110" r="2"/><circle cx="320" cy="366" r="3"/><circle cx="1340" cy="112" r="2"/><circle cx="1234" cy="394" r="2"/><circle cx="1420" cy="320" r="3"/>
+    <circle cx="516" cy="91" r="1.4"/><circle cx="1054" cy="71" r="2.2"/><circle cx="1108" cy="428" r="1.6"/><circle cx="410" cy="246" r="1.6"/><circle cx="1180" cy="211" r="1.8"/>
+  </g>
+  <g fill="#e7c985" opacity=".8">
+    <circle cx="250" cy="196" r="2.5"/><circle cx="1260" cy="82" r="2.8"/><circle cx="1445" cy="185" r="1.7"/><circle cx="386" cy="82" r="1.8"/><circle cx="1060" cy="372" r="2"/>
+  </g>
+  <g stroke="#f7e6b7" stroke-width="1" opacity=".85">
+    <path d="M418 123v22M407 134h22"/><path d="M1294 341v20M1284 351h20"/><path d="M1095 126v14M1088 133h14"/>
+  </g>
+  <text x="800" y="225" text-anchor="middle" fill="#f3f5f4" font-family="Georgia,'Times New Roman',serif" font-size="102" letter-spacing="24">HDSI</text>
+  <text x="800" y="282" text-anchor="middle" fill="#efe1ba" font-family="Arial,Helvetica,sans-serif" font-size="32" letter-spacing="18">ANDROID</text>
+  <path d="M530 313H685 M915 313H1070" stroke="#cfbd8e" stroke-opacity=".6" stroke-width="1"/>
+  <text x="800" y="323" text-anchor="middle" fill="#c9d8df" font-family="Arial,Helvetica,sans-serif" font-size="15" letter-spacing="4.5">A STORY BEYOND THE CHAT</text>
+  <text x="800" y="455" text-anchor="middle" fill="#d0cfcc" font-family="Arial,Helvetica,sans-serif" font-size="15" letter-spacing="3">POWERED BY HDS-INTERLUDE</text>
+</svg>
